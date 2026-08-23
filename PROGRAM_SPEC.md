@@ -1,7 +1,7 @@
 # 简洁桌面日历 · 程序规格书（可复制级 / AI 可直接复刻）
 
 > **用途**：本文件是为「让 AI 在零上下文情况下重建该程序」而写。任何 AI 拿到本文件，都能完整还原软件的功能、视觉、行为与打包方式。修改或升级时，直接把本文件 + 源码目录交给 AI 即可。
-> **版本**：1.0.0　**作者**：YG　**协议**：MIT　**平台**：Windows
+> **版本**：1.1.0　**作者**：YG　**协议**：MIT　**平台**：Windows
 
 ---
 
@@ -11,6 +11,7 @@
 - **产品描述（原文）**：受够了 Windows 原生的日历，也实在受不了市面上第三方日历软件，明明很简单的需求，硬塞一堆没必要的功能。自己写了这款极简日历，什么功能都没有，核心只做一件事：看日历，看放假、看上班，就够了。想要更多功能，看手机不就行了。
 - **硬约束**：不加账号、不加云同步、不加待办/日程/天气/记事等任何额外功能。保持"打开就是一张日历"。
 - **形态**：系统托盘常驻实时时钟 + 点击唤出的无边框半透明日历小窗（非传统窗口）。
+- **任务栏时钟替换（v1.1 新增）**：隐藏 Windows 原生任务栏时间/日历，在同位置同尺寸叠加本程序部件——上排 24 小时制时间 `HH:MM`、下排 `YYYY/M/D`；点击该部件打开日历；跟随系统深浅主题自动切黑/白字。退出程序后原生时钟自动恢复。
 
 ---
 
@@ -39,12 +40,15 @@ node make-icon.js    # 生成 icon.ico（多尺寸）
 ## 3. 目录结构与文件职责
 
 ```
-3.0/
+简洁桌面日历/
 ├── package.json      # 版本/作者/NSIS 打包配置（见第 7 节）
-├── template.html     # 界面模板：含全部 CSS（设计系统）+ DOM 骨架 + 两个注入占位符
-├── app.js            # 渲染层逻辑（IIFE）：日历/农历/节假日/灯效/双窗口/主题
-├── electron-main.js  # 主进程：系统托盘时钟(零依赖PNG) / 双窗口 / IPC / 开机自启
-├── preload.js        # contextBridge 暴露 window.api（toggleExpand/requestSnap/setTooltip）
+├── template.html     # 主界面模板：含全部 CSS（设计系统）+ DOM 骨架 + 两个注入占位符
+├── app.js            # 主界面渲染层逻辑（IIFE）：日历/农历/节假日/灯效/双窗口/主题
+├── electron-main.js  # 主进程：系统托盘 / 双窗口 / 任务栏部件 / IPC / 开机自启
+├── preload.js        # contextBridge 暴露 window.api（toggleExpand/requestSnap/setTooltip/openCalendar）
+├── widget.html       # 任务栏部件界面：透明背景 + 上时间下日期（叠加原生时钟位）
+├── widget.js         # 任务栏部件逻辑：实时时钟 / 农历 tooltip / 点击开日历 / 深浅主题
+├── taskbar.js        # 原生时钟隐藏/还原/取矩形（PowerShell 内联 C# pinvoke）
 ├── lunar.min.js      # 第三方农历库（window.Solar / window.Lunar），不修改
 ├── build.js          # 读 lunar + app，替换占位符，写 calendar.html
 ├── calendar.html     # 构建产物（lunar+app 已内联），可直接浏览器打开预览
@@ -61,7 +65,8 @@ node make-icon.js    # 生成 icon.ico（多尺寸）
 - `template.html` 内有两个**占位符字符串**（必须原样保留，build.js 替换）：
   - `<script>/*__LUNAR_LIB__*/</script>` → 替换为 `lunar.min.js` 全文
   - `<script>/*__APP__*/</script>` → 替换为 `app.js` 全文
-- 运行时主进程只加载 `calendar.html`（已自包含 lunar + app）。其余源文件用于开发与重建。
+- `widget.html` 直接引用相对路径的 `lunar.min.js` 与 `widget.js`（不经 build.js 注入），打包后与主程序同目录，相对路径自动解析。
+- 运行时主进程加载 `calendar.html`（已自包含 lunar + app）作为主日历，加载 `widget.html` 作为任务栏部件。其余源文件用于开发与重建。
 - `files`（package.json）只打包运行必需文件，**不含 node_modules**（Electron 运行时由 electron-builder 自动注入）。
 
 ---
@@ -128,6 +133,17 @@ node make-icon.js    # 生成 icon.ico（多尺寸）
 
 > **尺寸常量（electron-main.js 顶部）**：`MINI_W=430 MINI_H=540 EXP_W=820 EXP_H=1020`。窗口 `frame:false transparent:true resizable:false alwaysOnTop:true skipTaskbar:true`。
 
+| 行为 | 实现要点（任务栏时钟替换，v1.1） |
+|---|---|
+| **R5 隐藏原生时钟** | `taskbar.js` 用 PowerShell 内联 C#（`Add-Type`）pinvoke `user32.dll`：`FindWindow("Shell_TrayWnd")→FindWindowEx("TrayNotifyWnd")→FindWindowEx("TrayClockWClass")` 定位原生时钟窗口；`ShowWindow(hwnd, SW_HIDE=0)` 即时隐藏（无需重启 explorer）；同时写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\HideClock=1` 持久化（系统级隐藏，重启仍生效） |
+| **R5 部件同位置同尺寸** | `taskbar.getClockRect()` 用 `GetWindowRect` 取原生时钟**物理像素**矩形；`logicalRect()` 按该点所属显示器 `scaleFactor` 换算为逻辑像素；`widgetWin.setBounds()` 精确重叠（先于隐藏取矩形，避免布局变动） |
+| **R5 部件 UI** | `widget.html`：透明背景、居中（`flex column` 双向居中）、上时间 `HH:MM`（24h，`pad` 补零）+ 下日期 `YYYY/M/D`；同字号同字重 `13.5px/600`、`tabular-nums` 等宽；悬停显示农历+星期 tooltip；点击 `#cw` → `api.openCalendar()` → IPC `widget-click` → `toggleFromTray()` 开关主日历 |
+| **R5 跟随系统主题** | `nativeTheme.shouldUseDarkColors` → 主进程 `widgetWin.webContents.executeJavaScript('window.__applyTheme(dark)')` → widget.js 切 `body.theme-dark/theme-light`：`--tb-text` 深色任务栏 `#f3f3f3` 白字 / 浅色 `#1b1b1b` 黑字；`nativeTheme.on('updated')` 实时同步 |
+| **R5 还原** | 退出 `app.on('before-quit')`：`setClockVisible(true)`（SW_SHOWNOACTIVATE=4）+ `setHideClockPolicy(false)`（删注册表值），下次 explorer 启动原生时钟恢复 |
+| **R5 多显示器/缩放** | `screen.on('display-metrics-changed')` 重新取矩形并 `setBounds`；取不到矩形时（≤20 次重试）兜底贴右下角任务栏 |
+
+> **taskbar.js 设计取舍**：不引入 node-gyp 原生模块，改用 PowerShell 内联 C# pinvoke，避免 electron-builder 在受限环境编译原生依赖。C# 代码以字符串数组 `PINVOKE` 拼成 `Add-Type @"..."@` 块，由 `runPs()` 经 `spawnSync('powershell.exe', ...)` 执行；沙箱/无桌面环境返回 `NONE` 或空，主进程自动走 `fallbackRect()`。
+
 ---
 
 ## 6. 数据与规则（app.js）
@@ -178,14 +194,13 @@ var HOLIDAYS_2026 = {
   "appId": "com.yg.simplecalendar",
   "productName": "简洁桌面日历",
   "executableName": "SimpleCalendar",     // exe 文件名（ASCII，无空格），显示名另用 productName
-  "copyright": "Copyright © 2026 YG",
-  "files": [ "app.js","template.html","lunar.min.js","build.js","preload.js",
-             "electron-main.js","calendar.html","icon.ico","README.md","使用说明.html","LICENSE","package.json" ],
+  "copyright": "Copyright © 2026 YG",     // 根级 copyright → 写入 exe 文件属性"法律版权"
+  "files": [ "app.js","template.html","lunar.min.js","build.js","preload.js","electron-main.js",
+             "calendar.html","widget.html","widget.js","taskbar.js","icon.ico",
+             "README.md","使用说明.html","LICENSE","package.json" ],
   "win": {
     "target": ["nsis"],
     "icon": "icon.ico",
-    "legalCopyright": "Copyright © 2026 YG",   // 文件属性→版权
-    "companyName": "YG",                        // 文件属性→公司
     "requestedExecutionLevel": "asInvoker"      // 无需管理员，按用户安装
   },
   "nsis": {
@@ -203,6 +218,8 @@ var HOLIDAYS_2026 = {
 }
 ```
 
+> ⚠️ **electron-builder 24 配置坑（实测）**：`win.legalCopyright` 与 `win.companyName` 以及根级 `legalCopyright`/`companyName` **都不是合法字段**，会导致配置校验直接失败（根本不进打包）。版本信息（版权/公司）只靠根级 `copyright`（写入 exe LegalCopyright）+ `author`（写入公司/作者）。不要再加上面两个非法字段。
+
 - **安装路径默认**：`C:\Users\<用户>\AppData\Local\Programs\简洁桌面日历`（per-user，无需管理员）。用户可浏览改到 `C:\Program Files\`（此时会按需提权）。
 - **开始菜单**：自动建「简洁桌面日历」文件夹，含「启动软件」+「卸载软件」；控制面板"程序和功能"可见，卸载清理目录/快捷方式/注册表。
 - **许可证页**：electron-builder 自动检测根目录 `LICENSE` 文件并显示"许可协议"页。
@@ -218,19 +235,20 @@ var HOLIDAYS_2026 = {
 
 ## 8. 版本信息与作者（集中维护点）
 - 软件名：`简洁桌面日历`　显示名 `productName` / exe 名 `SimpleCalendar`
-- 版本号：`1.0.0`（package.json `version`；同步体现在 exe 文件版本、安装包属性、控制面板）
-- 作者：`YG`（`author` / `companyName` / `legalCopyright`）
+- 版本号：`1.1.0`（package.json `version`；同步体现在 exe 文件版本、安装包属性、控制面板）
+- 作者：`YG`（`author` 字段；版本信息中的公司/版权靠根级 `copyright` 写入 exe 文件属性）
 - 版权：`Copyright © 2026 YG`
-- 仓库/主页：`https://github.com/YG/simple-desktop-calendar`（GitHub 用，可改）
+- 仓库/主页：`https://github.com/kt87on/simple-desktop-calendar`（GitHub 用，可改）
 - 协议：MIT
 
 ---
 
 ## 9. 已知限制与维护点
 1. **节假日为 2026 硬编码**：每年国务院安排出来后，更新 `app.js` 的 `HOLIDAYS_2026.H`（放假区间）与 `HOLIDAYS_2026.WK`（补班日）。后续可改为内置多年份或联网更新。
-2. **仅 Windows**：依赖托盘与窗口 API。
+2. **仅 Windows**：依赖托盘与窗口 API。任务栏时钟替换依赖 `TrayClockWClass` 窗口与 `HKCU\...\Policies\Explorer\HideClock` 注册表；若系统组策略已强制时钟显隐，可能与本程序叠加冲突。多显示器下部件固定跟随主显示器原生时钟位。
 3. **农历库为第三方**：只读接口，升级库时注意 `Solar/Lunar` API 兼容性。
 4. 跨年临界点（如 12 月补班关联次年）按当年数据简单处理，不做跨年联调。
+5. **任务栏部件定位**：依赖 `GetWindowRect` 取原生时钟物理矩形并按显示器缩放换算；若原生时钟被系统隐藏导致取不到矩形，主进程会重试（≤20 次）后兜底贴右下角。
 
 ---
 
@@ -239,9 +257,11 @@ var HOLIDAYS_2026 = {
 - **改窗口尺寸**：改 `electron-main.js` 顶部 `MINI_*` / `EXP_*` 常量，并同步 `template.html` `#widget` 的 `width/height` 与 `#widget.max` 字号。
 - **改节日白名单**：改 `app.js` 的 `KEEP` / `ALIAS`；法定日改 `NATIONAL`。
 - **改年份节假日**：改 `app.js` `HOLIDAYS_2026`（建议重命名为带年份对象并做选择逻辑）。
-- **改作者/版本**：改 `package.json` 的 `author`/`version`/`copyright`/`companyName`/`productName`；`template.html` 的 `<title>`；`electron-main.js` `tray.setToolTip`。
+- **改作者/版本**：改 `package.json` 的 `author`/`version`/`copyright`/`productName`；`template.html` 的 `<title>`；`electron-main.js` `tray.setToolTip`。**不要**加 `legalCopyright`/`companyName` 字段（electron-builder 24 不合法）。
 - **改图标**：改 `make-icon.js` 配色/构图后 `node make-icon.js` 重新生成 `icon.ico`。
 - **加安装完成页选项**：改 `installer.nsh` 的 `MUI_FINISHPAGE_*` 定义。
+- **改任务栏部件样式/文案**：改 `widget.html`（CSS）与 `widget.js`（时间/日期格式、农历 tooltip）。时间格式 `HH:MM` 在 `widget.js` `update()`；日期 `YYYY/M/D` 同处。
+- **改任务栏部件定位/隐藏逻辑**：改 `taskbar.js`（PowerShell pinvoke 部分）+ `electron-main.js` 的 `createWidget`/`placeWidget`/`logicalRect`/`fallbackRect`。
 - **重建预览页**：改 `template.html`/`app.js` 后跑 `node build.js` 生成 `calendar.html`，可直接浏览器打开核对。
 
-> 复刻校验清单：① `node build.js` 生成 calendar.html 且**不含** `/*__LUNAR_LIB__*/`/`/*__APP__*/` 占位符；② `node make-icon.js` 生成合法 icon.ico；③ `npm run build` 在 `dist/` 产出 `简洁桌面日历 Setup 1.0.0.exe`；④ 安装后桌面/开始菜单有快捷方式、控制面板可见、可卸载。
+> 复刻校验清单：① `node build.js` 生成 calendar.html 且**不含** `/*__LUNAR_LIB__*/`/`/*__APP__*/` 占位符；② `node make-icon.js` 生成合法 icon.ico；③ `npm run build` 在 `dist/` 产出 `简洁桌面日历 Setup 1.1.0.exe`；④ 安装后桌面/开始菜单有快捷方式、控制面板可见、可卸载；⑤ 运行后原生任务栏时钟被隐藏、本程序部件占据其位显示时间+日期、点击打开日历、随系统主题切换黑/白字。

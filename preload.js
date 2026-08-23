@@ -16,5 +16,9 @@ contextBridge.exposeInMainWorld('api', {
   },
   setTooltip: function (str) {
     ipcRenderer.send('set-tooltip', str);
+  },
+  // 任务栏部件点击 → 打开/关闭主日历
+  openCalendar: function () {
+    ipcRenderer.send('widget-click');
   }
 });

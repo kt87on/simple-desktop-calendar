@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  /* 任务栏部件：透明背景，仅绘制时间/日期文字，叠加在原生日历时钟同位置 */
+  .theme-light { --tb-text: #1b1b1b; }
+  .theme-dark  { --tb-text: #f3f3f3; }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    background: transparent;          /* 透明：透出任务栏底色，视觉原生 */
+    overflow: hidden;
+    cursor: pointer;                  /* 点击打开日历 */
+    color: var(--tb-text);
+  }
+
+  .clock-widget {
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;   /* 上下整体居中 */
+    gap: 1px; line-height: 1.1; user-select: none;
+    position: relative;
+  }
+  .clock-widget .t, .clock-widget .d {
+    font-size: 13.5px; font-weight: 600;
+    font-variant-numeric: tabular-nums;             /* 等宽数字，秒针不抖 */
+    letter-spacing: .2px;
+  }
+  .clock-widget:hover { filter: brightness(1.12); }
+
+  /* 悬停提示：农历 + 星期（对应原生时钟悬停信息） */
+  .tip {
+    position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    margin-bottom: 6px; padding: 6px 10px; border-radius: 8px;
+    background: rgba(40,40,45,.95); color: #fff; font-size: 12px; white-space: nowrap;
+    box-shadow: 0 6px 20px rgba(0,0,0,.3);
+    opacity: 0; pointer-events: none; transition: opacity .15s;
+  }
+  .clock-widget:hover .tip { opacity: 1; }
+</style>
+</head>
+<body class="theme-dark">
+  <div class="clock-widget" id="cw">
+    <div class="t" id="t">--:--</div>
+    <div class="d" id="d">----/--/--</div>
+    <div class="tip" id="tip"></div>
+  </div>
+  <script src="lunar.min.js"></script>
+  <script src="widget.js"></script>
+</body>
+</html>

@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>任务栏时钟 UI · 优化预览</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overflow: hidden;
+    background: #0e2236;
+  }
+
+  /* ============ 主题变量 ============ */
+  /* 浅色主题：白任务栏 + 黑字（对齐原生浅色） */
+  .theme-light {
+    --tb-bg: rgba(245,245,247,.85);
+    --tb-border: rgba(255,255,255,.55);
+    --tb-text: #1b1b1b;
+    --tb-text-soft: #2b2b2b;
+    --tb-hover: rgba(0,0,0,.06);
+    --tb-icon: #1b1b1b;
+    --ico-opacity: .88;
+  }
+  /* 深色主题：深任务栏 + 白字（对齐原生深色，你当前用的） */
+  .theme-dark {
+    --tb-bg: rgba(28,28,30,.88);
+    --tb-border: rgba(255,255,255,.08);
+    --tb-text: #f3f3f3;
+    --tb-text-soft: #e8e8e8;
+    --tb-hover: rgba(255,255,255,.10);
+    --tb-icon: #f3f3f3;
+    --ico-opacity: .9;
+  }
+
+  /* ============ 桌面场景 ============ */
+  .desktop {
+    position: relative; height: 100vh; overflow: hidden;
+    background: radial-gradient(1100px 700px at 72% 18%, #3a7cb0 0%, #23507a 38%, #14304c 70%, #0c2236 100%);
+    transition: background .3s;
+  }
+  .theme-light .desktop {
+    background: radial-gradient(1100px 700px at 72% 18%, #a9cdee 0%, #7fb0d8 40%, #5b8fbf 72%, #3f6f9c 100%);
+  }
+  .bloom {
+    position: absolute; left: 8%; top: 22%; width: 420px; height: 420px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #6fb1e6, #2f6fb0 60%, transparent 72%);
+    filter: blur(30px); opacity: .5;
+  }
+  .theme-light .bloom { opacity: .7; }
+  .desktop-icon {
+    position: absolute; width: 84px; text-align: center; font-size: 12px;
+    text-shadow: 0 1px 3px rgba(0,0,0,.5);
+  }
+  .theme-light .desktop-icon { color: #1b1b1b; text-shadow: none; }
+  .theme-dark  .desktop-icon { color: #fff; }
+  .desktop-icon .glyph {
+    width: 44px; height: 44px; margin: 0 auto 6px; border-radius: 8px;
+    background: rgba(255,255,255,.16); display:flex; align-items:center; justify-content:center; font-size: 22px;
+  }
+  .theme-light .desktop-icon .glyph { background: rgba(0,0,0,.08); }
+  .di1 { left: 26px; top: 26px; } .di2 { left: 26px; top: 120px; }
+
+  /* ============ 顶部控制条 ============ */
+  .panel {
+    position: absolute; left: 50%; top: 18px; transform: translateX(-50%);
+    background: rgba(20,30,45,.72); color: #eaf2fb; backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,.14); border-radius: 14px;
+    padding: 14px 18px; width: min(760px, 94vw); box-shadow: 0 12px 40px rgba(0,0,0,.35);
+  }
+  .theme-light .panel { background: rgba(255,255,255,.78); color:#1b1b1b; border-color: rgba(0,0,0,.1); }
+  .panel h1 { font-size: 15px; font-weight: 600; letter-spacing: .3px; }
+  .panel p  { font-size: 12.5px; color: #b9c8da; margin-top: 6px; line-height: 1.55; }
+  .theme-light .panel p { color:#475569; }
+  .ctl-row { display:flex; gap:18px; flex-wrap:wrap; margin-top:12px; }
+  .ctl { flex:1; min-width:260px; }
+  .ctl .lab { font-size:12px; opacity:.85; margin-bottom:6px; }
+  .seg { display:flex; gap:8px; }
+  .seg button {
+    flex:1; cursor:pointer; border:1px solid rgba(255,255,255,.18);
+    background: rgba(255,255,255,.06); color:#eaf2fb; padding:9px 8px;
+    border-radius:10px; font-size:12.5px; transition:.15s;
+  }
+  .theme-light .seg button { border-color: rgba(0,0,0,.15); background: rgba(0,0,0,.04); color:#1b1b1b; }
+  .seg button:hover { background: rgba(255,255,255,.16); }
+  .theme-light .seg button:hover { background: rgba(0,0,0,.08); }
+  .seg button.active { background:#3b82f6; border-color:#3b82f6; color:#fff; font-weight:600; }
+  .note { margin-top:11px; font-size:12px; color:#9fd0ff; }
+  .theme-light .note { color:#1d6fd0; }
+
+  /* ============ 任务栏 ============ */
+  .taskbar {
+    position: absolute; left:0; right:0; bottom:0; height: 48px;
+    display:flex; align-items:center;
+    background: var(--tb-bg);
+    backdrop-filter: blur(40px) saturate(160%);
+    border-top: 1px solid var(--tb-border);
+    transition: background .3s, border-color .3s;
+  }
+  .tb-start-group {
+    position:absolute; left:50%; transform:translateX(-50%);
+    display:flex; align-items:center; gap:10px; height:100%;
+  }
+  .tb-icon {
+    width:36px; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+    color:var(--tb-icon); opacity:var(--ico-opacity); font-size:18px; position:relative;
+  }
+  .tb-icon:hover { background: var(--tb-hover); }
+  .tb-icon .dot { position:absolute; bottom:-3px; left:50%; transform:translateX(-50%); width:14px; height:3px; border-radius:2px; background:var(--tb-icon); }
+  .tb-tray { position:absolute; right:8px; height:100%; display:flex; align-items:center; gap:12px; padding-right:6px; }
+  .tray-ico { width:20px; height:20px; color:var(--tb-icon); opacity:var(--ico-opacity); display:flex; align-items:center; justify-content:center; font-size:14px; }
+
+  /* 时钟槽位：固定尺寸，覆盖原生时钟位置 */
+  .clock-slot {
+    position: absolute; right:0; bottom:0; height:48px; width:84px;
+    display:flex; align-items:center; justify-content:center;   /* 垂直+水平居中 */
+    border-left: 1px solid rgba(127,127,127,.18);
+  }
+
+  /* —— 原生时钟（待隐藏） —— */
+  .native-clock {
+    text-align:center; color:var(--tb-text); line-height:1.25; user-select:none;
+  }
+  .native-clock .t { font-size:12px; font-weight:400; font-variant-numeric: tabular-nums; }
+  .native-clock .d { font-size:12px; font-weight:400; font-variant-numeric: tabular-nums; }
+
+  /* —— 本软件替换部件（同位置同尺寸，优化版） —— */
+  .app-widget {
+    width:100%; height:100%;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;  /* 上下整体居中 */
+    color:var(--tb-text); user-select:none; cursor:pointer; gap:1px;
+    line-height:1.1;
+  }
+  .app-widget:hover { background: var(--tb-hover); }
+  .app-widget .t {
+    font-size:13.5px; font-weight:600; font-variant-numeric: tabular-nums;
+    letter-spacing:.2px;
+  }
+  .app-widget .d {
+    font-size:13.5px; font-weight:600; font-variant-numeric: tabular-nums;
+    letter-spacing:.2px;
+  }
+  .app-widget .badge {
+    position:absolute; top:7px; right:9px; width:6px; height:6px; border-radius:50%; background:#d6453f;
+  }
+
+  .clock-slot.hide-native .native-clock { display:none; }
+
+  /* 日历弹出 */
+  .flyout {
+    position:absolute; right:4px; bottom:52px; width:300px;
+    background: var(--tb-bg); backdrop-filter: blur(30px);
+    border:1px solid var(--tb-border); border-radius:12px;
+    box-shadow:0 16px 50px rgba(0,0,0,.3); padding:14px; display:none; color:var(--tb-text);
+  }
+  .flyout.show { display:block; }
+  .flyout .ft { font-size:14px; font-weight:600; margin-bottom:10px; }
+  .flyout .grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; text-align:center; font-size:12px; }
+  .flyout .grid .wd { padding:4px 0; opacity:.6; }
+  .flyout .grid .cell { padding:6px 0; border-radius:6px; }
+  .flyout .grid .cell.today { background:#3b82f6; color:#fff; font-weight:700; }
+  .flyout .grid .cell.other { opacity:.35; }
+  .flyout .hint { margin-top:10px; font-size:11px; opacity:.6; }
+
+  /* 文本色示例色板 */
+  .swatch { display:inline-block; width:11px; height:11px; border-radius:3px; vertical-align:middle; margin-right:4px; border:1px solid rgba(127,127,127,.3); }
+</style>
+</head>
+<body class="theme-dark">
+<div class="desktop">
+  <div class="bloom"></div>
+  <div class="desktop-icon di1"><div class="glyph">📁</div>此电脑</div>
+  <div class="desktop-icon di2"><div class="glyph">📄</div>文档</div>
+
+  <div class="panel">
+    <h1>任务栏时钟 UI · 优化预览</h1>
+    <p>右下角仿真 Windows 11 任务栏。① 切换「原生态 / 替换后」看位置与尺寸对齐；② 切换主题验证字体颜色随深浅自动反转（浅色=黑字 / 深色=白字，对齐原生）。</p>
+    <div class="ctl-row">
+      <div class="ctl">
+        <div class="lab">显示模式</div>
+        <div class="seg">
+          <button id="btnNative" class="active" onclick="setMode('native')">① 原生态</button>
+          <button id="btnReplace" onclick="setMode('replace')">② 替换后</button>
+        </div>
+      </div>
+      <div class="ctl">
+        <div class="lab">任务栏主题（真实程序由 Windows 自动决定）</div>
+        <div class="seg">
+          <button id="thLight" onclick="setTheme('light')">浅色</button>
+          <button id="thDark" class="active" onclick="setTheme('dark')">深色</button>
+          <button id="thAuto" onclick="setTheme('auto')">跟随系统</button>
+        </div>
+      </div>
+    </div>
+    <div class="note" id="note"></div>
+  </div>
+
+  <div class="taskbar">
+    <div class="tb-start-group">
+      <div class="tb-icon">🪟</div>
+      <div class="tb-icon">🔍</div>
+      <div class="tb-icon">📁<span class="dot"></span></div>
+      <div class="tb-icon">🌐</div>
+      <div class="tb-icon">🎵</div>
+      <div class="tb-icon">⚙️</div>
+    </div>
+    <div class="tb-tray">
+      <div class="tray-ico">📶</div>
+      <div class="tray-ico">🔊</div>
+      <div class="tray-ico">🔋</div>
+    </div>
+    <div class="clock-slot" id="clockSlot">
+      <div class="native-clock" id="nativeClock">
+        <div class="t" id="natT">2:05 PM</div>
+        <div class="d" id="natD">8/23/2026</div>
+      </div>
+      <div class="app-widget" id="appWidget" onclick="toggleFlyout()" style="display:none">
+        <span class="badge"></span>
+        <div class="t" id="appT">14:05</div>
+        <div class="d" id="appD">2026/8/23</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="flyout" id="flyout">
+    <div class="ft" id="flyTitle">2026年8月</div>
+    <div class="grid" id="flyGrid"></div>
+    <div class="hint">点击部件弹出 · 演示"点开日历"交互</div>
+  </div>
+</div>
+
+<script>
+  function pad(n){ return String(n).padStart(2,'0'); }
+
+  function tick(){
+    const now = new Date();
+    const h24 = now.getHours(), m = now.getMinutes();
+    const ampm = h24 < 12 ? 'AM' : 'PM';
+    let h12 = h24 % 12; if (h12 === 0) h12 = 12;
+    document.getElementById('natT').textContent = h12 + ':' + pad(m) + ' ' + ampm;
+    document.getElementById('natD').textContent = (now.getMonth()+1) + '/' + now.getDate() + '/' + now.getFullYear();
+    document.getElementById('appT').textContent = pad(h24) + ':' + pad(m);
+    document.getElementById('appD').textContent = now.getFullYear() + '/' + (now.getMonth()+1) + '/' + now.getDate();
+  }
+  tick(); setInterval(tick, 1000);
+
+  let sysDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  let themeMode = 'dark';   // light | dark | auto
+
+  function applyTheme(){
+    const dark = themeMode === 'auto' ? sysDark : (themeMode === 'dark');
+    document.body.className = dark ? 'theme-dark' : 'theme-light';
+    const color = dark ? '白字 (#f3f3f3)' : '黑字 (#1b1b1b)';
+    const name  = dark ? '深色（深任务栏）' : '浅色（白任务栏）';
+    updateNote(name, color);
+  }
+  function setTheme(m){
+    themeMode = m;
+    ['thLight','thDark','thAuto'].forEach(id=>document.getElementById(id).classList.remove('active'));
+    document.getElementById(m==='light'?'thLight':m==='dark'?'thDark':'thAuto').classList.add('active');
+    applyTheme();
+  }
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e=>{
+    sysDark = e.matches; if(themeMode==='auto') applyTheme();
+  });
+
+  function setMode(mode){
+    const slot = document.getElementById('clockSlot');
+    const nat  = document.getElementById('nativeClock');
+    const app  = document.getElementById('appWidget');
+    document.getElementById('btnNative').classList.toggle('active', mode==='native');
+    document.getElementById('btnReplace').classList.toggle('active', mode==='replace');
+    if (mode === 'native'){
+      slot.classList.remove('hide-native');
+      nat.style.display = 'block'; app.style.display = 'none';
+      document.getElementById('flyout').classList.remove('show');
+    } else {
+      slot.classList.add('hide-native');
+      nat.style.display = 'none'; app.style.display = 'flex';
+    }
+    applyTheme();
+  }
+
+  function updateNote(themeName, color){
+    const mode = document.getElementById('btnReplace').classList.contains('active') ? '替换后（本软件部件）' : '原生态';
+    document.getElementById('note').innerHTML =
+      '当前：' + mode + ' · 任务栏' + themeName + ' → 文本<span class="swatch" style="background:'+(color.includes('白')?'#f3f3f3':'#1b1b1b')+'"></span>' + color + '。';
+  }
+
+  function toggleFlyout(){ document.getElementById('flyout').classList.toggle('show'); buildCalendar(); }
+  function buildCalendar(){
+    const now = new Date(), y = now.getFullYear(), mo = now.getMonth(), td = now.getDate();
+    document.getElementById('flyTitle').textContent = y + '年' + (mo+1) + '月';
+    const first = new Date(y, mo, 1).getDay();
+    const days = new Date(y, mo+1, 0).getDate();
+    const wds = ['日','一','二','三','四','五','六'];
+    let html = ''; wds.forEach(w => html += '<div class="wd">'+w+'</div>');
+    const prev = new Date(y, mo, 0).getDate();
+    for (let i = first-1; i>=0; i--) html += '<div class="cell other">'+(prev-i)+'</div>';
+    for (let d=1; d<=days; d++) html += '<div class="cell'+(d===td?' today':'')+'">'+d+'</div>';
+    let tail = (7 - ((first+days)%7)) % 7;
+    for (let i=1; i<=tail; i++) html += '<div class="cell other">'+i+'</div>';
+    document.getElementById('flyGrid').innerHTML = html;
+  }
+
+  applyTheme();
+</script>
+</body>
+</html>
