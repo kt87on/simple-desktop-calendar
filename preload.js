@@ -14,11 +14,12 @@ contextBridge.exposeInMainWorld('api', {
   requestSnap: function () {
     ipcRenderer.send('request-snap');
   },
-  setTooltip: function (str) {
-    ipcRenderer.send('set-tooltip', str);
-  },
   // 任务栏部件点击 → 打开/关闭主日历
   openCalendar: function () {
     ipcRenderer.send('widget-click');
+  },
+  // 退出软件：主进程弹原生确认框，确认后还原原生时钟并退出
+  exitApp: function () {
+    ipcRenderer.send('exit-app');
   }
 });

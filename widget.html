@@ -43,6 +43,19 @@
     opacity: 0; pointer-events: none; transition: opacity .15s;
   }
   .clock-widget:hover .tip { opacity: 1; }
+
+  /* 右键菜单（替换原系统托盘的打开/退出入口） */
+  #tb-menu {
+    position: absolute; bottom: 100%; right: 0; margin-bottom: 6px;
+    min-width: 132px; padding: 5px; border-radius: 10px;
+    background: rgba(38,40,46,.97); color: #f3f3f3; font-size: 12.5px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.4); backdrop-filter: blur(8px);
+    display: none; z-index: 50; user-select: none;
+  }
+  #tb-menu .mi { padding: 8px 10px; border-radius: 7px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+  #tb-menu .mi:hover { background: rgba(255,255,255,.12); }
+  #tb-menu .mi.danger { color: #ff8a82; }
+  #tb-menu .sep { height: 1px; background: rgba(255,255,255,.12); margin: 4px 2px; }
 </style>
 </head>
 <body class="theme-dark">
@@ -50,6 +63,11 @@
     <div class="t" id="t">--:--</div>
     <div class="d" id="d">----/--/--</div>
     <div class="tip" id="tip"></div>
+    <div id="tb-menu">
+      <div class="mi" id="miOpen">📅 打开日历</div>
+      <div class="sep"></div>
+      <div class="mi danger" id="miExit">⏻ 退出软件</div>
+    </div>
   </div>
   <script src="lunar.min.js"></script>
   <script src="widget.js"></script>

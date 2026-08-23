@@ -7,8 +7,11 @@ const zlib = require('zlib');
 const taskbar = require('./taskbar');
 
 let win = null;        // 主日历窗口（mini / expanded 双模式）
-let tray = null;       // 托盘（静态应用图标，用于打开/退出）
 let widgetWin = null;  // 任务栏时钟部件窗口（替换原生日历时钟）
+
+// v1.2：移除系统托盘。退出入口改为：
+//  ① 任务栏部件右键菜单「退出软件」；② 主日历窗口右上角 ✕（确认后退出）
+// 退出统一走 exitApp() → 还原原生时钟 + 关闭全部窗口 + app.quit()
 
 // ====== 窗口模式状态 ======
 let mode = 'mini';
@@ -52,9 +55,12 @@ function showExpanded() {
   mode = 'expanded';
   win.setResizable(false);
   win.setMovable(true);
-  const x = Math.max(0, Math.round((wa.width - EXP_W) / 2));
-  const y = Math.max(0, Math.round((wa.height - EXP_H) / 2));
-  win.setBounds({ x: x, y: y, width: EXP_W, height: EXP_H });
+  // 需求4：上方贴屏幕最上方(y=0)、下方贴任务栏(高度=workArea高度)，等比扩大
+  const taskbarH = (screen.getPrimaryDisplay().size.height) - wa.height;
+  const h = wa.height;                       // 贴顶(y=0) 到 贴任务栏底
+  const w = Math.round(MINI_W * (h / MINI_H)); // 等比放大（保持 430:540 比例）
+  const x = Math.max(0, Math.round((wa.width - w) / 2));
+  win.setBounds({ x: x, y: 0, width: w, height: h });
   setWidgetMax(true);
   win.show();
   win.focus();
@@ -183,20 +189,8 @@ function makeClockIcon(line1, line2) {
   return nativeImage.createFromBuffer(encodePNG(W, H, rgba));
 }
 
-function createTray() {
-  const iconPath = path.join(__dirname, 'icon.ico');
-  let img;
-  if (fs.existsSync(iconPath)) img = nativeImage.createFromPath(iconPath);
-  else img = makeClockIcon('--', '--');     // 兜底：无 ico 时用占位图
-  tray = new Tray(img);
-  tray.setToolTip('简洁桌面日历');
-  tray.on('click', toggleFromTray);
-  const contextMenu = Menu.buildFromTemplate([
-    { label: '打开日历', click: function () { showMini(); } },
-    { label: '退出', click: function () { app.isQuiting = true; app.quit(); } }
-  ]);
-  tray.setContextMenu(contextMenu);
-}
+// v1.2：已移除系统托盘。打开/退出入口改为部件右键菜单与主窗口 ✕ 按钮。
+function createTray() { /* 占位：托盘已取消，保留空函数避免调用处报错 */ }
 
 /* ===== 主日历窗口：无边框 + 透明 + 置顶 ===== */
 function createWindow() {
@@ -226,8 +220,9 @@ function createWindow() {
   });
   win.on('blur', function () {
     if (suppressBlur) return;
-    win.hide();
-    mode = 'mini';
+    // 需求5：点击软件范围外 → 取消日期选中（窗口不消失）
+    try { win.webContents.executeJavaScript('window.__clearRange && window.__clearRange();'); } catch (e) {}
+    // 注意：不再隐藏窗口，保持常驻（符合用户"窗口不会消失"诉求）
   });
   win.on('closed', function () { win = null; });
 }
@@ -269,7 +264,7 @@ let placeAttempts = 0;
 function placeWidget() {
   const phys = taskbar.getClockRect();
   if (!phys) {
-    if (placeAttempts++ < 20) { setTimeout(placeWidget, 400); return; }
+    if (placeAttempts++ < 8) { setTimeout(placeWidget, 300); return; }
     widgetWin.setBounds(fallbackRect());
     widgetWin.show();
     return;
@@ -300,25 +295,40 @@ ipcMain.on('request-snap', function () {
   if (b.y <= TH) ny = 0; else if (b.y + b.height >= wa.height - TH) ny = wa.height - b.height;
   win.setBounds({ x: nx, y: ny, width: b.width, height: b.height });
 });
-ipcMain.on('set-tooltip', function (evt, str) {
-  if (tray && str) tray.setToolTip(String(str));
-});
 // 部件点击 → 打开/关闭主日历
 ipcMain.on('widget-click', function () { toggleFromTray(); });
+
+// v1.2：退出软件（X 关闭按钮 / 右键菜单「退出」共用）→ 先弹原生确认框
+const { dialog } = require('electron');
+ipcMain.on('exit-app', function (evt) {
+  const w = evt.sender ? evt.sender.getOwnerBrowserWindow() : null;
+  const opts = {
+    type: 'question',
+    buttons: ['否', '是，退出'],
+    defaultId: 0,
+    cancelId: 0,
+    title: '退出软件',
+    message: '是否退出软件？\n（退出后将恢复系统原生时间日历）'
+  };
+  dialog.showMessageBox(w || win, opts).then(function (res) {
+    if (res.response === 1) {
+      app.isQuiting = true;
+      app.quit();
+    }
+  });
+});
 
 app.whenReady().then(function () {
   try { app.setLoginItemSettings({ openAtLogin: true, path: process.execPath }); } catch (e) {}
 
-  // 写入 HideClock 注册表策略（系统级隐藏，重启 explorer 后原生时钟仍不显示）
-  try { taskbar.setHideClockPolicy(true); } catch (e) {}
-
   createWindow();
-  createTray();
   createWidget();
   placeWidget();                 // 先定位部件窗口：此时原生时钟仍在，可取到准确矩形
 
   // 定位完成后再即时隐藏原生时钟（无需重启 explorer）
   try { taskbar.setClockVisible(false); } catch (e) {}
+  // 注册表策略：确保 explorer 重启后原生时钟仍隐藏（本程序开机自启会再次叠加窗口级隐藏）
+  try { taskbar.setHideClockPolicy(true); } catch (e) {}
 
   // 主题变化（如用户在系统设置里切换深浅）→ 同步部件
   nativeTheme.on('updated', applyWidgetTheme);

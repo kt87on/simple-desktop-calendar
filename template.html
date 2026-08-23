@@ -41,8 +41,8 @@
     width: 430px; height: 540px;
     border-radius: 16px;
     background: var(--paper);
-    -webkit-backdrop-filter: blur(20px) saturate(135%);
-    backdrop-filter: blur(20px) saturate(135%);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
     border: 1px solid var(--paper-edge);
     box-shadow: var(--shadow-soft);
     overflow: hidden;
@@ -148,6 +148,7 @@
   .zoom-btn:hover { background: var(--accent-soft); }
   .zoom-btn.active { background: var(--accent-soft); color: var(--accent); }
   .zoom-btn svg { display: block; }
+  #closeBtn:hover { background: rgba(214,69,63,0.14); color: var(--cinnabar); }
 
   /* ===== 日历主体 ===== */
   #body { flex: 1; display: flex; padding: 12px 14px 14px; min-height: 0; overflow: hidden; }
@@ -203,6 +204,30 @@
     box-shadow: inset 0 0 0 1.5px var(--accent-line);
   }
   .cell.today .d, .cell.selected .d { color: var(--accent-ink); }
+
+  /* 需求5：选中日期单元格变绿（仅颜色变化，透明度/特效不变） */
+  .cell.range {
+    background: rgba(34, 197, 94, 0.16);
+    box-shadow: inset 0 0 0 1.5px rgba(34, 197, 94, 0.75);
+  }
+  .cell.range .d { color: #15803d; }
+  .cell.range:hover { background: rgba(34, 197, 94, 0.24); }
+
+  /* 需求5：两格之间浮现「共计 N 天」浮层 */
+  #dayCount {
+    position: absolute; z-index: 30; pointer-events: none;
+    transform: translate(-50%, -50%);
+    padding: 7px 13px; border-radius: 10px;
+    background: rgba(22, 128, 61, 0.95); color: #fff;
+    font-size: 13px; font-weight: 700; white-space: nowrap;
+    box-shadow: 0 8px 22px rgba(22,128,61,0.45);
+    display: none;
+  }
+  #dayCount.show { display: block; }
+  #dayCount::after {
+    content: ''; position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%);
+    border: 6px solid transparent; border-top-color: rgba(22, 128, 61, 0.95); border-bottom: 0;
+  }
 
   /* 节假日：朱砂淡底 + 描边 + 休 */
   .cell.holiday { background: var(--cinnabar-soft); box-shadow: inset 0 0 0 1.5px var(--cinnabar-line); }
@@ -268,6 +293,9 @@
         <button id="maxBtn" class="zoom-btn" title="放大 / 还原" aria-label="放大">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5"></path><path d="M20 9V4h-5"></path><path d="M4 15v5h5"></path><path d="M20 15v5h-5"></path></svg>
         </button>
+        <button id="closeBtn" class="zoom-btn" title="退出软件" aria-label="退出">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="M6 6l12 12"></path></svg>
+        </button>
       </div>
     </div>
     <div id="body">
@@ -276,6 +304,7 @@
         <div id="litGlow"></div>
         <div id="weekHeader"></div>
         <div id="grid" role="grid" aria-label="日历"></div>
+        <div id="dayCount"></div>
       </div>
     </div>
   </div>

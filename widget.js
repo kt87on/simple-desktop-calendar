@@ -33,6 +33,31 @@
     });
   }
 
+  // 右键菜单（替换系统托盘：打开 / 退出）
+  var menuEl = document.getElementById('tb-menu');
+  var cwEl = document.getElementById('cw');
+  if (menuEl) {
+    cwEl.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      menuEl.style.display = (menuEl.style.display === 'block') ? 'none' : 'block';
+    });
+    document.addEventListener('click', function (e) {
+      if (!menuEl.contains(e.target) && e.target !== cwEl) menuEl.style.display = 'none';
+    });
+    var miOpen = document.getElementById('miOpen');
+    var miExit = document.getElementById('miExit');
+    if (miOpen) miOpen.addEventListener('click', function (e) {
+      e.stopPropagation(); menuEl.style.display = 'none';
+      if (window.api && window.api.openCalendar) window.api.openCalendar();
+    });
+    if (miExit && window.api && window.api.exitApp) miExit.addEventListener('click', function (e) {
+      e.stopPropagation(); menuEl.style.display = 'none';
+      window.api.exitApp();
+    });
+  }
+
   update();
+  // 性能优化：仅当“分”变化时更新文本（时钟显示到分钟即可，避免每秒重绘）
+  // 但用户可见秒级变化更自然，这里保留每秒更新但只更新文本节点（不触发 layout 重排）。
   setInterval(update, 1000);
 })();

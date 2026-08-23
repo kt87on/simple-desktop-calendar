@@ -19,22 +19,35 @@
 const { spawnSync } = require('child_process');
 
 // PowerShell 内联 C#：定位并操作原生时钟窗口
+// 稳健查找：枚举 Shell_TrayWnd 的全部子孙窗口，匹配类名含 "TrayClock" 的窗口
+// （兼容 Win10/Win11 不同层级：Win11 的时钟有时直接挂在 Shell_TrayWnd 而非 TrayNotifyWnd 下）
 const PINVOKE = [
   'Add-Type @">',
   'using System;',
   'using System.Runtime.InteropServices;',
+  'using System.Collections.Generic;',
   'public class TB {',
   '  [DllImport("user32.dll")] public static extern IntPtr FindWindow(string c, string t);',
   '  [DllImport("user32.dll")] public static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);',
+  '  [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr p, EnumWin lp, IntPtr l);',
+  '  [DllImport("user32.dll")] public static extern int GetClassName(IntPtr h, System.Text.StringBuilder s, int n);',
   '  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);',
   '  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);',
+  '  public delegate bool EnumWin(IntPtr h, IntPtr l);',
   '  public struct RECT { public int L, T, R, B; }',
   '  public static IntPtr Clock() {',
   '    IntPtr tray = FindWindow("Shell_TrayWnd", null);',
   '    if (tray == IntPtr.Zero) return IntPtr.Zero;',
-  '    IntPtr notify = FindWindowEx(tray, IntPtr.Zero, "TrayNotifyWnd", null);',
-  '    if (notify == IntPtr.Zero) notify = tray;',
-  '    return FindWindowEx(notify, IntPtr.Zero, "TrayClockWClass", null);',
+  '    var found = new List<IntPtr>();',
+  '    EnumWin cb = (h, l) => {',
+  '      var sb = new System.Text.StringBuilder(256);',
+  '      GetClassName(h, sb, 256);',
+  '      if (sb.ToString().IndexOf("TrayClock") >= 0) found.Add(h);',
+  '      return true;',
+  '    };',
+  '    EnumChildWindows(tray, cb, IntPtr.Zero);',
+  '    if (found.Count > 0) return found[0];',
+  '    return IntPtr.Zero;',
   '  }',
   '}',
   '"@'

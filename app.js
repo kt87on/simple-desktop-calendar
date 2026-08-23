@@ -189,6 +189,7 @@
     }
     gridEl.innerHTML = html;
     lastLit = -1;
+    markRange();                                   // 渲染后标记已选 range 格
     yearSel.value = S.year;
     monthSel.value = S.month;
     if (bgMonthEl) bgMonthEl.textContent = S.month;
@@ -209,10 +210,71 @@
     renderAll();
   }
   function select(y, m, d) { S.selY = y; S.selM = m; S.selD = d; renderGrid(); }
+
+  /* ===== 需求5：日期区间选择（点一格变绿；再点另一格变绿并显示共计天数；
+     第三下点击只解除前两个选择、不选中当前格；点空白处/窗外取消选中 ===== */
+  var rangeSel = [];          // 已选 {y,m,d} 数组
+  var dayCountEl = null;
+
+  function dateKey(o) { return o.y + '-' + o.m + '-' + o.d; }
+  function daysBetween(a, b) {
+    var da = new Date(a.y, a.m - 1, a.d), db = new Date(b.y, b.m - 1, b.d);
+    var diff = Math.round((db - da) / 86400000);
+    return Math.abs(diff) + 1;   // 包含首尾
+  }
+  function clearRange() {
+    rangeSel = [];
+    if (dayCountEl) { dayCountEl.classList.remove('show'); dayCountEl.textContent = ''; }
+    renderGrid();
+  }
+  function addRange(y, m, d) {
+    var key = dateKey({ y: y, m: m, d: d });
+    // 已选则取消该格
+    var idx = -1;
+    for (var i = 0; i < rangeSel.length; i++) if (dateKey(rangeSel[i]) === key) { idx = i; break; }
+    if (idx >= 0) { rangeSel.splice(idx, 1); if (dayCountEl) dayCountEl.classList.remove('show'); renderGrid(); return; }
+    rangeSel.push({ y: y, m: m, d: d });
+    renderGrid();
+    if (rangeSel.length === 2) showDayCount();
+  }
+  function showDayCount() {
+    var a = rangeSel[0], b = rangeSel[1];
+    var n = daysBetween(a, b);
+    // 浮层定位在两格中点
+    var cells = gridEl.querySelectorAll('.cell');
+    var ca = null, cb = null;
+    for (var i = 0; i < cells.length; i++) {
+      if (dateKey({ y: +cells[i].dataset.y, m: +cells[i].dataset.m, d: +cells[i].dataset.d }) === dateKey(a)) ca = cells[i];
+      if (dateKey({ y: +cells[i].dataset.y, m: +cells[i].dataset.m, d: +cells[i].dataset.d }) === dateKey(b)) cb = cells[i];
+    }
+    if (!ca || !cb || !dayCountEl || !calendarEl) return;
+    var rect = calendarEl.getBoundingClientRect();
+    var ra = ca.getBoundingClientRect(), rb = cb.getBoundingClientRect();
+    var cx = (ra.left + ra.width / 2 + rb.left + rb.width / 2) / 2 - rect.left;
+    var cy = (ra.top + ra.height / 2 + rb.top + rb.height / 2) / 2 - rect.top;
+    dayCountEl.style.left = cx + 'px';
+    dayCountEl.style.top = cy + 'px';
+    dayCountEl.textContent = '共计 ' + n + ' 天';
+    dayCountEl.classList.add('show');
+  }
+  // 在 renderGrid 后标记 range 格
+  function markRange() {
+    if (!gridEl) return;
+    var cells = gridEl.querySelectorAll('.cell');
+    for (var i = 0; i < cells.length; i++) {
+      var k = dateKey({ y: +cells[i].dataset.y, m: +cells[i].dataset.m, d: +cells[i].dataset.d });
+      for (var j = 0; j < rangeSel.length; j++) {
+        if (dateKey(rangeSel[j]) === k) { cells[i].classList.add('range'); break; }
+      }
+    }
+  }
+
   function selectCell(div) {
     var y = +div.dataset.y, m = +div.dataset.m, d = +div.dataset.d;
-    if (div.classList.contains('other')) { S.year = y; S.month = m; renderAll(); }
-    select(y, m, d);
+    if (div.classList.contains('other')) { S.year = y; S.month = m; renderAll(); return; }
+    // 需求6：已选两格时，第三下点击只解除、不选中新格
+    if (rangeSel.length >= 2) { clearRange(); return; }
+    addRange(y, m, d);
   }
 
   /* ===== 每周起始切换 ===== */
@@ -263,30 +325,33 @@
     wkSwitchEl.addEventListener('mousedown', function (e) { e.stopPropagation(); });  // 阻止冒泡到标题栏拖拽
 
     gridEl.addEventListener('click', function (e) {
-      var d = e.target.closest('.cell'); if (d) selectCell(d);
+      var d = e.target.closest('.cell');
+      if (d) { selectCell(d); return; }
+      // 需求5：点击网格间隙（非单元格）= 取消选中（窗口不关闭）
+      if (rangeSel.length) clearRange();
     });
     gridEl.addEventListener('keydown', function (e) {
       if (e.key !== 'Enter' && e.key !== ' ') return;
       var d = e.target.closest('.cell'); if (d) { e.preventDefault(); selectCell(d); }
     });
 
-    // 悬停灯效：以鼠标所指单元格为中心，局部椭圆光斑覆盖「中心格 + 上下左右 4 格」，
-    // 中心最亮，向外渐变至完全透明（不贯穿整行整列）
-    gridEl.addEventListener('mousemove', function (e) {
-      if (!litGlowEl || !calendarEl) return;
-      var cell = e.target.closest('.cell');
-      if (!cell) return;                       // 落在格间隙时不刷新（保留上一格光斑）
-      var rect = calendarEl.getBoundingClientRect();
-      var cr = cell.getBoundingClientRect();
-      var ccx = (cr.left + cr.width / 2) - rect.left;
-      var ccy = (cr.top + cr.height / 2) - rect.top;
-      var gap = 3;
-      var rx = cr.width * 1.5 + gap;           // 覆盖到左右相邻格外缘
-      var ry = cr.height * 1.5 + gap;          // 覆盖到上下相邻格外缘
-      litGlowEl.style.background =
-        'radial-gradient(ellipse ' + rx + 'px ' + ry + 'px at ' + ccx + 'px ' + ccy + 'px,'
-        + ' rgba(120,160,240,0.55) 0%, rgba(120,160,240,0.18) 35%, rgba(120,160,240,0) 100%)';
+    // 需求5：点击日历窗口空白区（非格非控件）取消选中
+    var bodyEl = $('body');
+    if (bodyEl) bodyEl.addEventListener('click', function (e) {
+      if (e.target.closest('.cell')) return;
+      if (e.target.closest('button, select, #wkSwitch, #dragBar')) return;
+      if (rangeSel.length) clearRange();
     });
+
+    // 需求2补充 / 需求7：右上角 ✕ 退出软件（弹原生确认框）
+    var closeBtn = document.getElementById('closeBtn');
+    if (closeBtn && window.api && window.api.exitApp) {
+      closeBtn.addEventListener('click', function () { window.api.exitApp(); });
+    }
+
+    // 悬停灯效（性能优化 v1.2）：不再用 JS 逐帧重设 radial-gradient（每帧重排/重绘卡顿），
+    // 改为纯 CSS :hover 边框高亮（见 template.html .cell:hover）。litGlow 层保留但不再逐帧写入。
+    // 保留：鼠标离开网格时确保无残留（实际上 CSS 已处理）。
     gridEl.addEventListener('mouseleave', function () {
       if (litGlowEl) litGlowEl.style.background = '';
     });
@@ -387,6 +452,9 @@
   }
 
   function init() {
+    // 供主进程在窗口失焦（点击软件外）时清除日期选中（需求5）
+    window.__clearRange = function () { if (rangeSel.length) clearRange(); };
+
     widgetEl = $('widget');
     gridEl = $('grid');
     headerEl = $('weekHeader');
@@ -396,6 +464,7 @@
     bgMonthEl = $('bgMonth');
     calendarEl = $('calendar');
     litGlowEl = $('litGlow');
+    dayCountEl = $('dayCount');
     themeBtnEl = $('themeBtn');
 
     // R4. Electron 下去掉 body 内边距，使 430×540 的 widget 精确填满 mini 窗口
