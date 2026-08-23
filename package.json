@@ -1,0 +1,60 @@
+{
+  "name": "simple-desktop-calendar",
+  "version": "1.0.0",
+  "description": "简洁桌面日历：极简 Windows 桌面日历，核心只做一件事——看日历、看放假、看上班。",
+  "author": "YG",
+  "homepage": "https://github.com/kt87on/simple-desktop-calendar",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kt87on/simple-desktop-calendar.git"
+  },
+  "license": "MIT",
+  "main": "electron-main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build": "node make-icon.js && node build.js && electron-builder --win nsis"
+  },
+  "build": {
+    "appId": "com.yg.simplecalendar",
+    "productName": "简洁桌面日历",
+    "executableName": "SimpleCalendar",
+    "copyright": "Copyright © 2026 YG",
+    "files": [
+      "app.js",
+      "template.html",
+      "lunar.min.js",
+      "build.js",
+      "preload.js",
+      "electron-main.js",
+      "calendar.html",
+      "icon.ico",
+      "README.md",
+      "使用说明.html",
+      "LICENSE",
+      "package.json"
+    ],
+    "win": {
+      "target": ["nsis"],
+      "icon": "icon.ico",
+      "legalCopyright": "Copyright © 2026 YG",
+      "companyName": "YG",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "简洁桌面日历",
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico",
+      "runAfterFinish": true,
+      "include": "installer.nsh"
+    }
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}

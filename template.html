@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>简洁桌面日历</title>
+<style>
+  /* ===== 2.0 设计 Token：暖纸白 + 墨色 + 雅蓝 + 朱砂（纸与光） ===== */
+  :root {
+    --paper: rgba(252, 251, 249, 0.82);
+    --paper-edge: rgba(31, 35, 48, 0.08);
+    --ink: #1f2430;
+    --ink-soft: #6b7280;
+    --ink-faint: #9aa1ad;
+    --accent: #3b6fd4;                                  /* 雅蓝/群青，替代 AI 标准蓝 */
+    --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
+    --accent-line: color-mix(in srgb, var(--accent) 52%, transparent);
+    --accent-ink: color-mix(in srgb, var(--accent) 78%, #1f2430);
+    --cinnabar: #d6453f;                               /* 朱砂红 */
+    --cinnabar-soft: rgba(214, 69, 63, 0.07);
+    --cinnabar-line: rgba(214, 69, 63, 0.42);
+    --weekend: #c0564f;
+    --workday: #3b6fd4;
+    --holiday-fg: #cf463f;
+    --shadow-soft: 0 18px 44px rgba(31, 35, 48, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    color: var(--ink);
+    background: linear-gradient(135deg, #eef1f6, #f4f1fb 55%, #f0ebf7);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; padding: 24px;
+  }
+
+  /* ===== 外层 widget（竖长方形，纸卡质感） ===== */
+  #widget {
+    position: relative; display: flex; flex-direction: column;
+    width: 430px; height: 540px;
+    border-radius: 16px;
+    background: var(--paper);
+    -webkit-backdrop-filter: blur(20px) saturate(135%);
+    backdrop-filter: blur(20px) saturate(135%);
+    border: 1px solid var(--paper-edge);
+    box-shadow: var(--shadow-soft);
+    overflow: hidden;
+  }
+  #widget.max { width: 100%; height: 100%; }
+
+  /* ===== 信息条（时钟 + 日期 + 农历） ===== */
+  #infoBar {
+    flex: 0 0 78px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 18px;
+    background: linear-gradient(180deg, rgba(31,35,48,0.04), rgba(31,35,48,0));
+    border-bottom: 1px solid var(--paper-edge);
+  }
+  #clkTime {
+    font-size: 40px; font-weight: 600;
+    color: var(--ink); letter-spacing: 1px; line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .info-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  #infoDate { font-size: 13px; font-weight: 700; color: var(--ink); line-height: 1; letter-spacing: 0.3px; }
+  #infoLunar { font-size: 11px; font-weight: 400; color: var(--ink-soft); line-height: 1; }
+
+  /* ===== 功能栏（年/月 + 箭头 + 今 + 周起始 + 主题 + 放大） ===== */
+  #dragBar {
+    flex: 0 0 42px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 14px 0 16px;
+    background: rgba(255,255,255,0.4);
+    border-bottom: 1px solid var(--paper-edge);
+    cursor: move; user-select: none;
+    -webkit-app-region: drag;
+  }
+  #dragBar .sel, #dragBar .nav-btn, #dragBar .today-btn,
+  #dragBar .bar-right, #dragBar .bar-right * { -webkit-app-region: no-drag; }
+  .toolbar { display: flex; align-items: center; gap: 8px; flex: 1; }
+  .ym-select { display: flex; align-items: center; gap: 5px; }
+  .sel {
+    height: 22px; padding: 0 18px 0 8px;
+    border: 1px solid var(--paper-edge); border-radius: 7px;
+    background: #fff; color: var(--ink);
+    font: inherit; font-size: 11px; font-weight: 500;
+    cursor: pointer; outline: none; appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--ink-faint) 50%),
+                      linear-gradient(135deg, var(--ink-faint) 50%, transparent 50%);
+    background-position: calc(100% - 11px) 9px, calc(100% - 8px) 9px;
+    background-size: 3px 3px, 3px 3px; background-repeat: no-repeat;
+  }
+  .sel:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .sel.s-y { width: 62px; }
+  .sel.s-m { width: 46px; }
+  .nav-btn {
+    width: 22px; height: 22px; border: none; border-radius: 7px; cursor: pointer;
+    background: #fff; color: var(--ink); font-size: 12px;
+    border: 1px solid var(--paper-edge);
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s, transform .12s, border-color .15s;
+  }
+  .nav-btn:hover { background: var(--accent-soft); border-color: var(--accent-line); }
+  .nav-btn:active { transform: scale(0.92); }
+  .today-btn {
+    height: 22px; min-width: 26px; padding: 0 7px; border: none; border-radius: 7px; cursor: pointer;
+    background: var(--accent); color: #fff; font-weight: 600; font-size: 10px;
+    box-shadow: 0 2px 7px var(--accent-soft);
+    transition: transform .12s, box-shadow .12s, filter .12s;
+  }
+  .today-btn:hover { filter: brightness(1.05); box-shadow: 0 4px 11px var(--accent-soft); }
+  .today-btn:active { transform: scale(0.96); }
+
+  /* 周起始 toggle（真正的开关，轨道+滑块） */
+  .wk-switch { display: flex; align-items: center; gap: 7px; height: 22px; cursor: pointer; user-select: none; }
+  .wk-label { font-size: 10px; color: var(--ink-soft); white-space: nowrap; }
+  .wk-toggle {
+    position: relative; width: 50px; height: 22px; border-radius: 11px;
+    background: rgba(31,35,48,0.07); border: 1px solid var(--paper-edge);
+    display: flex; align-items: center;
+  }
+  .wk-opt {
+    position: absolute; top: 0; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: var(--ink-faint); z-index: 1;
+  }
+  .wk-opt-l { left: 9px; }
+  .wk-opt-r { right: 9px; }
+  .wk-knob {
+    position: absolute; top: 2px; left: 2px;
+    width: 22px; height: 16px; border-radius: 9px;
+    background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.22);
+    transition: left .2s cubic-bezier(.22,.61,.36,1);
+  }
+  .wk-switch.mon .wk-knob { left: 2px; }
+  .wk-switch.mon .wk-opt-l { color: var(--accent); }
+  .wk-switch.sun .wk-knob { left: 26px; }
+  .wk-switch.sun .wk-opt-r { color: var(--accent); }
+
+  .bar-right { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+  .zoom-btn {
+    width: 24px; height: 24px; border: none; border-radius: 7px; cursor: pointer;
+    background: rgba(31,35,48,0.05); color: var(--ink);
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s, color .15s;
+  }
+  .zoom-btn:hover { background: var(--accent-soft); }
+  .zoom-btn.active { background: var(--accent-soft); color: var(--accent); }
+  .zoom-btn svg { display: block; }
+
+  /* ===== 日历主体 ===== */
+  #body { flex: 1; display: flex; padding: 12px 14px 14px; min-height: 0; overflow: hidden; }
+  #calendar { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; overflow: hidden; }
+
+  /* 背景大号月份数字（极淡水印） */
+  #bgMonth {
+    position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+    text-align: center; font-size: 260px; font-weight: 800; line-height: 1;
+    color: rgba(31,35,48,0.045); pointer-events: none; z-index: 0;
+    user-select: none; font-variant-numeric: tabular-nums;
+  }
+
+  /* 悬停灯效层（跟随鼠标的淡蓝光晕，置于网格之后、水印之前） */
+  #litGlow { position: absolute; inset: 0; z-index: 1; pointer-events: none; background: transparent; transition: background .15s; }
+
+  #weekHeader { display: grid; grid-template-columns: repeat(7,1fr); margin-bottom: 5px; position: relative; z-index: 2; }
+  #weekHeader .wcell {
+    text-align: center; font-size: 9px; color: var(--ink-faint);
+    padding: 5px 0; letter-spacing: 2px; font-weight: 600;
+  }
+  #weekHeader .wcell.weekend { color: var(--weekend); }
+
+  #grid {
+    display: grid; grid-template-columns: repeat(7,1fr); grid-template-rows: repeat(6,1fr);
+    gap: 3px; flex: 1; min-height: 0; position: relative; z-index: 2; overflow: hidden;
+  }
+
+  .cell {
+    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 8px; cursor: pointer;
+    transition: background .18s, transform .18s, box-shadow .18s;
+    background: rgba(255,255,255,0.4);
+    border: 1px solid transparent; padding: 4px 3px;
+  }
+  .cell:hover { background: rgba(255,255,255,0.85); box-shadow: inset 0 0 0 1px rgba(31,35,48,0.45); transform: translateY(-1px); }
+  .cell:focus { outline: none; }
+  .cell .d { font-size: 16px; font-weight: 700; color: var(--ink); line-height: 1; letter-spacing: -0.3px; }
+  .cell .sub { font-size: 9px; font-weight: 500; color: var(--ink-soft); margin-top: 3px; line-height: 1; }
+  .cell .sub.sub-festival { color: var(--workday); font-weight: 600; }
+
+  /* 其他月份 */
+  .cell.other { opacity: 0.18; }
+  .cell.other .d, .cell.other .sub { color: var(--ink-faint); }
+  .cell.other.holiday { opacity: 0.55; }   /* 跨月节假日：仍显红色但整体透明 */
+
+  .cell.weekend:not(.other):not(.workday):not(.holiday) .d { color: var(--weekend); }
+  .cell.weekend:not(.other) .sub { color: var(--weekend); }
+
+  /* 今日 = 选中：雅蓝透明描边（与选中一致） */
+  .cell.today, .cell.selected:not(.other) {
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1.5px var(--accent-line);
+  }
+  .cell.today .d, .cell.selected .d { color: var(--accent-ink); }
+
+  /* 节假日：朱砂淡底 + 描边 + 休 */
+  .cell.holiday { background: var(--cinnabar-soft); box-shadow: inset 0 0 0 1.5px var(--cinnabar-line); }
+  .cell.holiday .d { color: var(--holiday-fg); }
+  .cell.holiday .sub { color: var(--holiday-fg); margin-top: 5px; }
+
+  .cell.workday .d { color: var(--workday); }
+  .cell.workday .sub { color: var(--workday); opacity: 0.85; }
+
+  .chip {
+    position: absolute; top: 4px; right: 4px; min-width: 12px; height: 12px; padding: 0 2px;
+    border-radius: 4px; color: #fff; font-size: 8px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+  }
+  .chip-rest { background: var(--cinnabar); }
+  .chip-work { background: var(--workday); }
+
+  /* 放大模式（无障碍）：同步放大字号 */
+  #widget.max #clkTime { font-size: 72px; }
+  #widget.max #infoDate { font-size: 26px; }
+  #widget.max #infoLunar { font-size: 22px; }
+  #widget.max #weekHeader .wcell { font-size: 18px; padding: 10px 0; }
+  #widget.max .cell { padding: 8px 5px; }
+  #widget.max .cell .d { font-size: 32px; }
+  #widget.max .cell .sub { font-size: 19px; }
+  #widget.max #bgMonth { font-size: 500px; }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); border-radius: 8px; }
+</style>
+</head>
+<body>
+  <div id="widget">
+    <div id="infoBar">
+      <div id="clkTime">--:--:--</div>
+      <div class="info-right">
+        <div id="infoDate">---- 年 -- 月 -- 日</div>
+        <div id="infoLunar">----</div>
+      </div>
+    </div>
+    <div id="dragBar">
+      <div class="toolbar">
+        <div class="ym-select">
+          <select id="yearSel" class="sel s-y" aria-label="选择年份"></select>
+          <select id="monthSel" class="sel s-m" aria-label="选择月份"></select>
+        </div>
+        <button class="nav-btn" id="prevBtn" title="上一月" aria-label="上一月">‹</button>
+        <button class="nav-btn" id="nextBtn" title="下一月" aria-label="下一月">›</button>
+        <button class="today-btn" id="todayBtn" title="回到今天">今</button>
+      </div>
+      <div class="bar-right">
+        <div id="wkSwitch" class="wk-switch mon" title="切换每周起始日（周一 / 周日）">
+          <span class="wk-label">每周起始</span>
+          <span class="wk-toggle" id="wkToggle">
+            <span class="wk-opt wk-opt-l">一</span>
+            <span class="wk-opt wk-opt-r">日</span>
+            <span class="wk-knob"></span>
+          </span>
+        </div>
+        <button id="themeBtn" class="zoom-btn" title="主题：默认（点击切换为跟随系统）" aria-label="主题">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 3a9 9 0 0 0 0 18z"></path></svg>
+        </button>
+        <button id="maxBtn" class="zoom-btn" title="放大 / 还原" aria-label="放大">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5"></path><path d="M20 9V4h-5"></path><path d="M4 15v5h5"></path><path d="M20 15v5h-5"></path></svg>
+        </button>
+      </div>
+    </div>
+    <div id="body">
+      <div id="calendar">
+        <div id="bgMonth"></div>
+        <div id="litGlow"></div>
+        <div id="weekHeader"></div>
+        <div id="grid" role="grid" aria-label="日历"></div>
+      </div>
+    </div>
+  </div>
+  <script>/*__LUNAR_LIB__*/</script>
+  <script>/*__APP__*/</script>
+</body>
+</html>

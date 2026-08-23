@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>简洁桌面日历 · 使用说明</title>
+<style>
+  :root{
+    --paper:#fcfbf9; --ink:#1f2430; --ink-soft:#6b7280; --accent:#3b6fd4; --cinnabar:#d6453f;
+    --line:rgba(31,35,48,.1);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    color:var(--ink); background:linear-gradient(135deg,#eef1f6,#f4f1fb 55%,#f0ebf7);
+    line-height:1.7; padding:40px 20px;
+  }
+  .wrap{max-width:760px;margin:0 auto;background:var(--paper);border:1px solid var(--line);
+    border-radius:16px;box-shadow:0 18px 44px rgba(31,35,48,.16);padding:40px 44px}
+  h1{font-size:26px;font-weight:800;letter-spacing:.5px;margin-bottom:4px}
+  .sub{color:var(--ink-soft);font-size:13px;margin-bottom:28px}
+  h2{font-size:17px;font-weight:700;margin:28px 0 12px;padding-left:10px;
+    border-left:4px solid var(--accent)}
+  p,li{font-size:14px;color:var(--ink)}
+  ul{padding-left:20px;margin:8px 0}
+  li{margin:6px 0}
+  .tip{background:rgba(59,111,212,.08);border:1px solid rgba(59,111,212,.25);
+    border-radius:10px;padding:12px 16px;font-size:13px;margin:14px 0}
+  .rest{display:inline-block;min-width:18px;height:18px;line-height:18px;text-align:center;
+    background:var(--cinnabar);color:#fff;border-radius:4px;font-size:11px;font-weight:700;padding:0 3px}
+  .work{display:inline-block;min-width:18px;height:18px;line-height:18px;text-align:center;
+    background:var(--accent);color:#fff;border-radius:4px;font-size:11px;font-weight:700;padding:0 3px}
+  code{background:rgba(31,35,48,.06);padding:2px 6px;border-radius:5px;font-size:13px}
+  .foot{margin-top:34px;padding-top:18px;border-top:1px solid var(--line);
+    color:var(--ink-soft);font-size:12px;text-align:center}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>简洁桌面日历 · 使用说明</h1>
+  <div class="sub">极简 Windows 桌面日历　v1.0.0　作者：YG</div>
+
+  <p>什么功能都没有，核心只做一件事——<b>看日历、看放假、看上班</b>。下面是它的全部用法。</p>
+
+  <h2>一、它在哪里</h2>
+  <p>安装后，右下角任务栏（通知区）会出现一个<b>实时时钟图标</b>（显示 时:分 与 月-日）。这就是它的入口，常驻后台、不占任务栏按钮。</p>
+  <ul>
+    <li><b>点击</b>托盘时钟 → 打开 / 隐藏日历窗口</li>
+    <li><b>鼠标悬停</b>托盘时钟 → 显示「农历 + 星期」</li>
+    <li>点击日历<b>界面外的任意位置</b> → 日历自动隐藏</li>
+  </ul>
+
+  <h2>二、看日历</h2>
+  <ul>
+    <li>顶部大字是<b>当前时间</b>，右侧是公历日期与农历。</li>
+    <li>日历区每天下方的小字是<b>农历 / 节气 / 节日</b>。</li>
+    <li>左上 <code>‹ ›</code> 翻月；下拉框可直接选年/月；点 <b>今</b> 回到本月。</li>
+    <li><b>今日</b>以雅蓝描边高亮，和「选中」同一效果。</li>
+  </ul>
+
+  <h2>三、看放假 / 看上班</h2>
+  <ul>
+    <li>法定节假日：<b>朱砂红底</b> + 右上角红色 <span class="rest">休</span> 角标。</li>
+    <li>调休补班日：右上角蓝色 <span class="work">班</span> 角标（仅当月显示）。</li>
+    <li>周末数字默认偏砖红，方便区分。</li>
+  </ul>
+  <div class="tip">节假日数据按 2026 年国务院办公厅安排内置。跨年的放假/补班安排出来后，软件需更新对应数据（见 README「已知限制」）。</div>
+
+  <h2>四、按你的习惯调</h2>
+  <ul>
+    <li><b>每周起始</b>：右上「一 / 日」开关，切换周一或周日为每周第一天。</li>
+    <li><b>主题</b>：点右上 <b>☾</b> 按钮，在「默认雅蓝」与「跟随 Windows 强调色」之间切换。</li>
+    <li><b>放大</b>：点右上 <b>⊕</b>，窗口放大到近全屏、字号同步放大；拖动到屏幕边缘会自动<b>吸附</b>；点别处退出放大。</li>
+  </ul>
+
+  <h2>五、开关机与卸载</h2>
+  <ul>
+    <li>默认<b>开机自启</b>，登录后托盘自动出现时钟。</li>
+    <li>右键托盘时钟 → 「退出」可彻底关闭进程。</li>
+    <li><b>卸载</b>：控制面板 → 程序和功能 → 简洁桌面日历；或开始菜单文件夹内的「卸载」。会清理安装目录、桌面与开始菜单快捷方式及注册表项。</li>
+  </ul>
+
+  <div class="foot">简洁桌面日历 v1.0.0 · MIT License · © 2026 YG</div>
+</div>
+</body>
+</html>

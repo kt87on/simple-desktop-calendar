@@ -1,0 +1,23 @@
+# 依赖（安装后自动生成，体积大且平台相关）
+node_modules/
+
+# 打包产物（npm run build 生成）
+dist/
+
+# 图标（打包时由 make-icon.js 自动生成，无需提交二进制）
+icon.ico
+
+# 构建产物（node build.js 生成，可直接 npm run build 重新生成）
+calendar.html
+
+# 日志
+*.log
+
+# WorkBuddy 本地数据
+.workbuddy/
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
