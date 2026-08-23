@@ -18,8 +18,8 @@
     "appId": "com.yg.simplecalendar",
     "productName": "简洁桌面日历",
     "executableName": "SimpleCalendar",
-    "copyright": "Copyright © 2026 YG",
-    "files": [
+  "copyright": "Copyright © 2026 YG",
+  "files": [
       "app.js",
       "template.html",
       "lunar.min.js",
@@ -36,8 +36,6 @@
     "win": {
       "target": ["nsis"],
       "icon": "icon.ico",
-      "legalCopyright": "Copyright © 2026 YG",
-      "companyName": "YG",
       "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
