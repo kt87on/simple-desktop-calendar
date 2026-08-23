@@ -236,8 +236,9 @@ function createWidget() {
     backgroundColor: '#00000000', show: false,
     webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.js') }
   });
-  // 提升层级到最高（screen-saver 级别），确保稳定盖在任务栏原生时钟之上
-  try { widgetWin.setAlwaysOnTop(true, 'screen-saver'); } catch (e) {}
+  // 层级用 'taskbar'（而非 'screen-saver'）：在 Win10 上与任务栏同层、稳定盖住原生时钟，
+  // 且不会像 screen-saver 那样被 DWM 处理成“全屏置顶”导致闪烁/被任务栏盖
+  try { widgetWin.setAlwaysOnTop(true, 'taskbar'); } catch (e) {}
   widgetWin.loadFile(path.join(__dirname, 'widget.html'));
   widgetWin.webContents.on('did-finish-load', function () {
     applyWidgetTheme();
@@ -268,16 +269,13 @@ function fallbackRect() {
 let placeAttempts = 0;
 let hideGuardTimer = null;
 function startHideGuard() {
-  // 兜底：explorer 偶尔会重绘并复原原生时钟，定时重新隐藏确保稳定替换
+  // 兜底：explorer 偶尔会重绘并复原原生时钟，定时重新隐藏确保稳定替换。
+  // 频率降到 8s，且仅调用 setClockVisible(false)（复用 taskbar.js 缓存的 hwnd，
+  // 不再每次遍历整棵窗口树），避免高频 PowerShell 进程造成卡顿。
   if (hideGuardTimer) return;
   hideGuardTimer = setInterval(function () {
     try { taskbar.setClockVisible(false); } catch (e) {}
-    // 同时重新定位（显示器/缩放/任务栏位置可能变化）
-    const phys = taskbar.getClockRect();
-    if (phys && widgetWin && widgetWin.isVisible()) {
-      try { widgetWin.setBounds(logicalRect(phys)); } catch (e) {}
-    }
-  }, 3000);
+  }, 8000);
 }
 function placeWidget() {
   const phys = taskbar.getClockRect();
@@ -347,10 +345,12 @@ app.whenReady().then(function () {
   createWidget();
   placeWidget();                 // 先定位部件窗口：此时原生时钟仍在，可取到准确矩形
 
-  // 定位完成后再即时隐藏原生时钟（无需重启 explorer）
+  // 定位完成后再即时隐藏原生时钟（SetWindowLong 去 WS_VISIBLE + 移出屏幕外 + 0 尺寸，
+  // 比单纯 ShowWindow(SW_HIDE) 在 Win10 上更稳，explorer 重绘不会把占位带回来）
   try { taskbar.setClockVisible(false); } catch (e) {}
-  // 注册表策略：确保 explorer 重启后原生时钟仍隐藏（本程序开机自启会再次叠加窗口级隐藏）
-  try { taskbar.setHideClockPolicy(true); } catch (e) {}
+  // 注册表 HideClock 策略：作为可选兜底，本方案默认不强制写入（避免 explorer 重启副作用）；
+  // 如需在 explorer 重启后仍隐藏，可取消下一行注释（部分 Win10 版本有效）。
+  // try { taskbar.setHideClockPolicy(true); } catch (e) {}
 
   // 主题变化（如用户在系统设置里切换深浅）→ 同步部件
   nativeTheme.on('updated', applyWidgetTheme);

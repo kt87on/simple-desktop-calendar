@@ -9,16 +9,21 @@
 
   function pad(n) { return n < 10 ? '0' + n : '' + n; }
 
+  var lastDateKey = '';   // 缓存“年-月-日”，仅变化时才重算农历，避免每秒 Solar.fromYmd 开销
   function update() {
     var now = new Date();
-    tEl.textContent = pad(now.getHours()) + ':' + pad(now.getMinutes());          // 24 小时制
-    dEl.textContent = now.getFullYear() + '/' + (now.getMonth() + 1) + '/' + now.getDate(); // 年/月/日
-    if (Solar && Lunar) {
-      try {
-        var s = Solar.fromYmd(now.getFullYear(), now.getMonth() + 1, now.getDate());
-        var l = s.getLunar();
-        tipEl.textContent = '农历 ' + l.getMonthInChinese() + l.getDayInChinese() + ' · ' + WEEK[s.getWeek()];
-      } catch (e) { tipEl.textContent = ''; }
+    tEl.textContent = pad(now.getHours()) + ':' + pad(now.getMinutes());          // 24 小时制（每秒文本更新，无 layout 重排）
+    var dk = now.getFullYear() + '-' + (now.getMonth() + 1) + '-' + now.getDate();
+    if (dk !== lastDateKey) {                                                   // 日期变化才更新日期+农历
+      lastDateKey = dk;
+      dEl.textContent = now.getFullYear() + '/' + (now.getMonth() + 1) + '/' + now.getDate();
+      if (Solar && Lunar) {
+        try {
+          var s = Solar.fromYmd(now.getFullYear(), now.getMonth() + 1, now.getDate());
+          var l = s.getLunar();
+          tipEl.textContent = '农历 ' + l.getMonthInChinese() + l.getDayInChinese() + ' · ' + WEEK[s.getWeek()];
+        } catch (e) { tipEl.textContent = ''; }
+      }
     }
   }
 
