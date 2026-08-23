@@ -3,133 +3,184 @@
 /*
  * taskbar.js —— 任务栏原生时钟的查找 / 隐藏 / 还原 / 取位置
  * ---------------------------------------------------------------------
- * 无需 node-gyp 原生模块：通过 PowerShell 内联 C# (Add-Type) pinvoke user32.dll。
+ * v1.4 重写：彻底移除 PowerShell `Add-Type` 方案。
  *
- * 重写说明（v1.3，针对 Win10 不可用问题）：
- *  - 旧版用 EnumChildWindows(Shell_TrayWnd) 只枚举“直接子”窗口，并通过类名
- *    含 "TrayClock" 匹配。但：
- *      * Win10 的时钟类名为 "ClockSurface"，且挂在 TrayNotifyWnd 下面（非直接子）；
- *      * EnumChildWindows 在某些 PowerShell 约束语言模式下会失败。
- *    导致取不到矩形 → 部件走盲猜 fallback → 盖不住原生时钟。
- *  - 新版：用 GetWindow(GW_CHILD) + GetWindow(GW_HWNDNEXT) 深度优先递归整棵
- *    Shell_TrayWnd 树，收集所有候选（类名含 clock/tray/notify/systemtray，
- *    也接受 ClockSurface），取“最右下、可见、文本像时间”的那个。
- *  - 隐藏改用 SetWindowLong(GWL_STYLE, 去 WS_VISIBLE) + SetWindowPos 移出屏幕外
- *    并设 0 尺寸，比单纯 ShowWindow(SW_HIDE) 在 Win10 上更稳（explorer 会重绘
- *    把 SW_HIDE 的窗口带回来，但 0 尺寸+屏幕外 不会占位）。
- *  - 注册表 HideClock 策略保留为“可选兜底”（不依赖 explorer 重启即可生效的
- *    部分版本仍有效），不再作为唯一手段。
+ * 为什么不再用 PowerShell：
+ *   目标机（Win10 企业版/教育版）很可能处于 ConstrainedLanguage 模式，
+ *   AppLocker 会拦截 Add-Type 内联编译 C#，导致 runPs() 返回空字符串，
+ *   pickClock() 永远返回 null，隐藏逻辑从未真正执行（表现为"时灵时不灵"）。
+ *   此外每 8s 冷启动一次 PowerShell 进程 + JIT 编译 C# 也是卡顿主因。
+ *
+ * 新方案：用 koffi 从 Node 主进程直接调用 user32.dll（零进程创建、无编译、
+ * 不受约束语言模式影响）。koffi 是预编译二进制，无需 node-gyp，在 Electron 31
+ * 上开箱即用。
+ *
+ * 隐藏策略（针对 Win10 被 explorer 重绘复原的问题）：
+ *   1) SetWindowLongPtr 去掉 WS_VISIBLE 位
+ *   2) SetWindowPos 移出屏幕外(-32000,-32000) 并设 0 尺寸，SWP_HIDEWINDOW
+ *      + SWP_NOZORDER + SWP_NOACTIVATE，使其不占位、不被重绘带回来
+ *   3) 另提供"同色覆盖"兜底（见 electron-main 的 FALLBACK_COVER）
  */
 
-const { spawnSync } = require('child_process');
+// koffi 可能未在开发机安装（仅打包时需要）；用 try 包裹，加载失败时退化为 null
+let koffi = null, user32 = null, kernel32 = null;
+try {
+  koffi = require('koffi');
+} catch (e) {
+  koffi = null;
+}
 
-// 一次性编译的 C# 代码（查找整棵窗口树 + 隐藏/还原）
-const PINVOKE = [
-  'Add-Type @">',
-  'using System;',
-  'using System.Runtime.InteropServices;',
-  'using System.Text;',
-  'using System.Collections.Generic;',
-  'public class TB {',
-  '  public const uint GW_CHILD = 5, GW_HWNDNEXT = 2;',
-  '  public const int GWL_STYLE = -16;',
-  '  public const long WS_VISIBLE = 0x10000000;',
-  '  public const long WS_DISABLED = 0x08000000;',
-  '  [DllImport("user32.dll")] public static extern IntPtr FindWindow(string c, string t);',
-  '  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint cmd);',
-  '  [DllImport("user32.dll")] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);',
-  '  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);',
-  '  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);',
-  '  [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr h);',
-  '  [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);',
-  '  [DllImport("user32.dll")] public static extern long GetWindowLong(IntPtr h, int i);',
-  '  [DllImport("user32.dll")] public static extern long SetWindowLong(IntPtr h, int i, long v);',
-  '  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr a, int x, int y, int w, int hgt, uint f);',
-  '  public struct RECT { public int L, T, R, B; }',
-  '  public static void Walk(IntPtr h, int depth, List<string> outLines) {',
-  '    if (h == IntPtr.Zero || depth > 14) return;',
-  '    var sb = new StringBuilder(256); GetClassName(h, sb, 256); string cls = sb.ToString();',
-  '    GetWindowRect(h, out RECT r);',
-  '    bool vis = IsWindowVisible(h);',
-  '    int len = GetWindowTextLength(h);',
-  '    string txt = "";',
-  '    if (len > 0) { var tsb = new StringBuilder(len + 1); GetWindowText(h, tsb, tsb.Capacity); txt = tsb.ToString().Replace("\\n"," ").Replace("\\r",""); }',
-  '    string cl = cls.ToLower();',
-  '    bool cand = cl.Contains("clock") || cl.Contains("tray") || cl.Contains("notify") || cl.Contains("systemtray");',
-  '    outLines.Add(string.Format("{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}", h.ToString("X"), cls, r.L, r.T, r.R, r.B, vis, txt.Replace("|"," ")));',
-  '    if (cand) outLines.Add("CANDIDATE:" + h.ToString("X"));',
-  '    IntPtr child = GetWindow(h, GW_CHILD); if (child != IntPtr.Zero) Walk(child, depth+1, outLines);',
-  '    IntPtr sib = GetWindow(h, GW_HWNDNEXT); if (sib != IntPtr.Zero) Walk(sib, depth+1, outLines);',
-  '  }',
-  '  public static string Tree() {',
-  '    var lines = new List<string>();',
-  '    IntPtr tray = FindWindow("Shell_TrayWnd", null);',
-  '    if (tray == IntPtr.Zero) return "NO_TRAY";',
-  '    lines.Add("TRAY:" + tray.ToString("X"));',
-  '    Walk(tray, 0, lines);',
-  '    return string.Join("\\n", lines);',
-  '  }',
-  '  public static void Hide(IntPtr h) {',
-  '    if (h == IntPtr.Zero) return;',
-  '    long s = GetWindowLong(h, GWL_STYLE);',
-  '    SetWindowLong(h, GWL_STYLE, s & ~WS_VISIBLE);',
-  '    SetWindowPos(h, IntPtr.Zero, -32000, -32000, 0, 0, 0x0001 | 0x0002 | 0x0020);',
-  '  }',
-  '  public static void Show(IntPtr h) {',
-  '    if (h == IntPtr.Zero) return;',
-  '    long s = GetWindowLong(h, GWL_STYLE);',
-  '    SetWindowLong(h, GWL_STYLE, s | WS_VISIBLE);',
-  '    SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0020);',
-  '  }',
-  '}',
-  '"@'
-].join('\n');
+const GWL_STYLE = -16;
+const WS_VISIBLE = 0x10000000;
+const GW_CHILD = 5;
+const GW_HWNDNEXT = 2;
+const SW_HIDE = 0;
+const SW_SHOW = 5;
+const SWP_NOSIZE = 0x0001;
+const SWP_NOMOVE = 0x0002;
+const SWP_NOZORDER = 0x0004;
+const SWP_NOACTIVATE = 0x0010;
+const SWP_HIDEWINDOW = 0x0080;
+const SWP_SHOWWINDOW = 0x0040;
 
-function runPs(script) {
+if (koffi) {
   try {
-    const r = spawnSync('powershell.exe', [
-      '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script
-    ], { encoding: 'utf8', windowsHide: true, timeout: 10000 });
-    return (r.stdout || '') + (r.stderr || '');
+    user32 = koffi.load('user32.dll');
+    kernel32 = koffi.load('kernel32.dll');
+
+    // 64 位系统 HWND/句柄用 uint64_t；LONG 用 int32_t；BOOL 用 int32_t（0/非0）
+    const HWND = 'uint64_t';
+    const LONG = 'int32_t';
+    const BOOL = 'int32_t';
+    const UINT = 'uint32_t';
+
+    // RECT 结构体（字段均为 int32）
+    const RECT = koffi.struct('RECT', {
+      left: 'int32_t', top: 'int32_t', right: 'int32_t', bottom: 'int32_t'
+    });
+
+    user32.FindWindowA = user32.func('uint64_t FindWindowA(const char* lpClassName, const char* lpWindowName)');
+    user32.FindWindowExA = user32.func('uint64_t FindWindowExA(uint64_t hWndParent, uint64_t hWndChildAfter, const char* lpszClass, const char* lpszWindow)');
+    user32.GetWindow = user32.func('uint64_t GetWindow(uint64_t hWnd, uint32_t uCmd)');
+    user32.GetClassNameA = user32.func('int GetClassNameA(uint64_t hWnd, char* lpClassName, int nMaxCount)');
+    user32.GetWindowTextA = user32.func('int GetWindowTextA(uint64_t hWnd, char* lpString, int nMaxCount)');
+    user32.GetWindowRect = user32.func('int32_t GetWindowRect(uint64_t hWnd, RECT* lpRect)');
+    user32.IsWindowVisible = user32.func('int32_t IsWindowVisible(uint64_t hWnd)');
+    // GetWindowLongPtrA 在 64 位返回 LONG_PTR（64 位），用 int64_t
+    user32.GetWindowLongPtrA = user32.func('int64_t GetWindowLongPtrA(uint64_t hWnd, int nIndex)');
+    user32.SetWindowLongPtrA = user32.func('int64_t SetWindowLongPtrA(uint64_t hWnd, int nIndex, int64_t dwNewLong)');
+    user32.SetWindowPos = user32.func('int32_t SetWindowPos(uint64_t hWnd, uint64_t hWndInsertAfter, int X, int Y, int cx, int cy, uint32_t uFlags)');
+    user32.ShowWindow = user32.func('int32_t ShowWindow(uint64_t hWnd, int nCmdShow)');
   } catch (e) {
-    return '';
+    user32 = null;
+    kernel32 = null;
   }
+}
+
+// 是否已成功加载原生 API（用于上层判断是否需要退回兜底策略）
+function ffiAvailable() {
+  return !!(user32 && user32.GetWindow && user32.FindWindowA);
+}
+
+// 读取窗口类名（ASCII）
+function getClassName(hwnd) {
+  if (!user32) return '';
+  const buf = Buffer.alloc(256);
+  buf.fill(0);
+  try {
+    user32.GetClassNameA(hwnd, buf, 256);
+    return buf.toString('ascii').replace(/\0+$/, '');
+  } catch (e) { return ''; }
+}
+
+// 读取窗口文本（ASCII，用于判断"像时间"）
+function getWindowText(hwnd) {
+  if (!user32) return '';
+  const buf = Buffer.alloc(512);
+  buf.fill(0);
+  try {
+    user32.GetWindowTextA(hwnd, buf, 512);
+    return buf.toString('ascii').replace(/\0+$/, '').replace(/\r/g, ' ').replace(/\n/g, ' ');
+  } catch (e) { return ''; }
+}
+
+// 读取窗口矩形
+function getWindowRect(hwnd) {
+  if (!user32) return null;
+  try {
+    const r = new (koffi.struct({
+      left: 'int32_t', top: 'int32_t', right: 'int32_t', bottom: 'int32_t'
+    }))();
+    const ok = user32.GetWindowRect(hwnd, r);
+    if (!ok) return null;
+    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+  } catch (e) { return null; }
+}
+
+// 深度优先遍历整棵窗口树（纯 Node，零进程创建）
+function walkTree(root, depth, out) {
+  if (!user32 || !root || depth > 14) return;
+  let child = user32.GetWindow(root, GW_CHILD);
+  while (child) {
+    const cls = getClassName(child);
+    const rect = getWindowRect(child);
+    const vis = user32.IsWindowVisible(child) ? true : false;
+    const txt = getWindowText(child);
+    if (rect) {
+      out.push({
+        hwnd: child, class: cls, rect: rect,
+        visible: vis, text: txt,
+        isCandidate: isCandidateClass(cls)
+      });
+    }
+    walkTree(child, depth + 1, out);
+    child = user32.GetWindow(child, GW_HWNDNEXT);
+  }
+}
+
+function isCandidateClass(cls) {
+  const cl = (cls || '').toLowerCase();
+  return cl.includes('clock') || cl.includes('tray') || cl.includes('notify') || cl.includes('systemtray') || cl === 'clock' || cl === 'clockface';
 }
 
 // 取整棵任务栏窗口树（用于诊断，返回文本）
 function getTaskbarTree() {
-  const script = PINVOKE + '\nWrite-Output ([TB]::Tree())';
-  return runPs(script).trim();
+  if (!ffiAvailable()) return 'FFI_UNAVAILABLE';
+  const tray = user32.FindWindowA('Shell_TrayWnd', null);
+  if (!tray) return 'NO_TRAY';
+  const all = [];
+  walkTree(tray, 0, all);
+  const lines = ['TRAY:' + tray.toString(16)];
+  for (const w of all) {
+    lines.push([
+      w.hwnd.toString(16), w.class,
+      w.rect.left, w.rect.top, w.rect.right, w.rect.bottom,
+      w.visible ? 'True' : 'False',
+      w.text.replace(/\|/g, ' ')
+    ].join('|'));
+    if (w.isCandidate) lines.push('CANDIDATE:' + w.hwnd.toString(16));
+  }
+  return lines.join('\n');
 }
 
-// 在窗口树中挑出“原生时钟”窗口：优先候选里最右下、可见、文本像时间(hh:mm 或含 /)
+// 挑出"原生时钟"窗口：优先候选里最右下、可见、文本像时间(hh:mm 或含 /)
 function pickClock() {
-  const tree = getTaskbarTree();
-  if (!tree || tree === 'NO_TRAY') return null;
-  const lines = tree.split('\n');
+  if (!ffiAvailable()) return null;
+  const tray = user32.FindWindowA('Shell_TrayWnd', null);
+  if (!tray) return null;
+  const all = [];
+  walkTree(tray, 0, all);
   const rects = [];
-  for (const line of lines) {
-    if (!line.includes('|')) continue;
-    const parts = line.split('|');
-    if (parts.length < 8) continue;
-    const hwnd = parts[0];
-    const cls = parts[1];
-    const L = +parts[2], T = +parts[3], R = +parts[4], B = +parts[5];
-    const vis = parts[6] === 'True';
-    const txt = parts[7];
-    const cl = cls.toLowerCase();
-    const isCandidate = cl.includes('clock') || cl.includes('tray') || cl.includes('notify') || cl.includes('systemtray');
-    if (!isCandidate) continue;
-    // 排除明显不是时钟的（如整个 TrayNotifyWnd 大块、开始按钮等）
-    const w = R - L, h = B - T;
-    if (w <= 0 || h <= 0) continue;
-    if (w > 400 || h > 200) continue;            // 太大不是时钟格
-    // 文本像时间：含冒号 或 含斜杠（日期），或为空（某些时钟文本在子窗口）
-    const likeTime = /:/.test(txt) || /\//.test(txt) || txt.trim() === '';
-    rects.push({ hwnd, L, T, R, B, vis, txt, likeTime, area: w * h, right: R, bottom: B });
+  for (const w of all) {
+    if (!w.isCandidate) continue;
+    const L = w.rect.left, T = w.rect.top, R = w.rect.right, B = w.rect.bottom;
+    const ww = R - L, hh = B - T;
+    if (ww <= 0 || hh <= 0) continue;
+    if (ww > 400 || hh > 200) continue;        // 太大不是时钟格
+    const likeTime = /:/.test(w.text) || /\//.test(w.text) || (w.text || '').trim() === '';
+    rects.push({ hwnd: w.hwnd, L, T, R, B, vis: w.visible, txt: w.text, likeTime, right: R, bottom: B });
   }
   if (rects.length === 0) return null;
-  // 优先：可见 + 像时间；再按“最右下”排序（任务栏时间通常在右下角）
   rects.sort(function (a, b) {
     const av = (a.vis ? 1 : 0) * 2 + (a.likeTime ? 1 : 0);
     const bv = (b.vis ? 1 : 0) * 2 + (b.likeTime ? 1 : 0);
@@ -137,11 +188,7 @@ function pickClock() {
     return (b.right + b.bottom) - (a.right + a.bottom);
   });
   const best = rects[0];
-  return {
-    hwnd: best.hwnd,
-    x: best.L, y: best.T,
-    width: best.R - best.L, height: best.B - best.T
-  };
+  return { hwnd: best.hwnd, x: best.L, y: best.T, width: best.R - best.L, height: best.B - best.T };
 }
 
 // 返回原生时钟的物理像素矩形；找不到返回 null
@@ -154,29 +201,46 @@ function getClockRect() {
 // 隐藏 / 显示指定 hwnd（缓存最近一次找到的 hwnd，避免重复遍历）
 let lastHwnd = null;
 function setClockVisible(visible) {
-  // 若没有缓存 hwnd，先查找
+  if (!ffiAvailable()) return;
   if (!lastHwnd) {
     const c = pickClock();
     lastHwnd = c ? c.hwnd : null;
   }
   if (!lastHwnd) return;
-  const script = PINVOKE + '\n' +
-    '$h = [IntPtr]::new(' + parseHwnd(lastHwnd) + ')\n' +
-    (visible ? '[TB]::Show($h)' : '[TB]::Hide($h)') + '\n';
-  runPs(script);
+  const hwnd = lastHwnd;
+  try {
+    const style = user32.GetWindowLongPtrA(hwnd, GWL_STYLE);
+    if (visible) {
+      user32.SetWindowLongPtrA(hwnd, GWL_STYLE, style | WS_VISIBLE);
+      user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW | SWP_NOACTIVATE);
+      user32.ShowWindow(hwnd, SW_SHOW);
+    } else {
+      // 方案1：彻底移除 WS_VISIBLE（explorer 重绘不会把占位带回来）
+      user32.SetWindowLongPtrA(hwnd, GWL_STYLE, (style & ~WS_VISIBLE));
+      // 方案2：移出屏幕外 + 0 尺寸（双保险，防止 explorer 重绘复原）
+      user32.SetWindowPos(hwnd, 0, -32000, -32000, 0, 0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+    }
+  } catch (e) { /* 静默失败 */ }
 }
 
-function parseHwnd(hex) {
-  // hex 形如 "1A2B3C4D"，转十进制字符串
-  return parseInt(hex, 16).toString();
+// 强制重新查找（分辨率变化 / 睡眠恢复时调用）
+function resetCache() {
+  lastHwnd = null;
 }
 
 // 可选兜底：写入/删除 HideClock 注册表策略（部分 Win10 版本有效）
+// 注册表操作仍走 PowerShell，但这只是"可选兜底、低频、一次性"，不影响主路径性能。
 function setHideClockPolicy(on) {
+  const { spawnSync } = require('child_process');
   const script = on
     ? 'New-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer" -Name "HideClock" -Value 1 -PropertyType DWord -Force | Out-Null'
     : 'Remove-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer" -Name "HideClock" -ErrorAction SilentlyContinue';
-  runPs(script);
+  try {
+    spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { windowsHide: true, timeout: 8000 });
+  } catch (e) {}
 }
 
-module.exports = { getClockRect, setClockVisible, setHideClockPolicy, getTaskbarTree, pickClock };
+module.exports = {
+  getClockRect, setClockVisible, setHideClockPolicy,
+  getTaskbarTree, pickClock, ffiAvailable, resetCache
+};

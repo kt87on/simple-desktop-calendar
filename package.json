@@ -1,6 +1,6 @@
 {
   "name": "simple-desktop-calendar",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "简洁桌面日历：极简 Windows 桌面日历，核心只做一件事——看日历、看放假、看上班。",
   "author": "YG",
   "homepage": "https://github.com/kt87on/simple-desktop-calendar",
@@ -18,8 +18,13 @@
     "appId": "com.yg.simplecalendar",
     "productName": "简洁桌面日历",
     "executableName": "SimpleCalendar",
-  "copyright": "Copyright © 2026 YG",
-  "files": [
+    "copyright": "Copyright © 2026 YG",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/koffi/**",
+      "node_modules/@koromix/**"
+    ],
+    "files": [
       "app.js",
       "template.html",
       "lunar.min.js",
@@ -37,7 +42,9 @@
       "package.json"
     ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "icon.ico",
       "requestedExecutionLevel": "asInvoker"
     },
@@ -57,5 +64,8 @@
   "devDependencies": {
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "koffi": "^3.1.6"
   }
 }

@@ -266,21 +266,65 @@ function fallbackRect() {
   return { x: wa.width - 90, y: d.size.height - 40, width: 84, height: 40 };
 }
 
+/*
+ * v1.4 隐藏策略重构（修复 B.1 + 修复 C）：
+ *   - 彻底消灭"每 8s 冷启动 PowerShell"的卡顿元凶：主隐藏路径改为事件驱动，
+ *     仅在以下时机重新隐藏：启动一次 / 显示器变化 / 系统从睡眠恢复 / 30s 轻量可见性检查。
+ *   - 30s 检查只用 IsWindowVisible（极轻量，不遍历树、不创建进程），只有发现
+ *     原生时钟又被 explorer 重绘显示出来时才重新隐藏。
+ *   - 若 ffi 不可用（极少数环境连原生模块都禁），启用 FALLBACK_COVER：不隐藏
+ *     原生时钟，而是把部件窗口设为与任务栏同色的不透明覆盖层，物理盖住原生时钟。
+ */
+
+// 是否启用"同色覆盖兜底"（FFI 不可用时自动开启）
+let FALLBACK_COVER = false;
+
 let placeAttempts = 0;
 let hideGuardTimer = null;
 function startHideGuard() {
-  // 兜底：explorer 偶尔会重绘并复原原生时钟，定时重新隐藏确保稳定替换。
-  // 频率降到 8s，且仅调用 setClockVisible(false)（复用 taskbar.js 缓存的 hwnd，
-  // 不再每次遍历整棵窗口树），避免高频 PowerShell 进程造成卡顿。
   if (hideGuardTimer) return;
+  // 30s 轻量检查：仅判断原生时钟是否又可见，是才重新隐藏（不再每 8s 全量遍历）
   hideGuardTimer = setInterval(function () {
+    if (FALLBACK_COVER) return;       // 覆盖模式下不隐藏，无需检查
     try { taskbar.setClockVisible(false); } catch (e) {}
-  }, 8000);
+  }, 30000);
 }
+
+// 事件驱动：显示器/分辨率变化
+function onDisplayChange() {
+  taskbar.resetCache();
+  const phys = taskbar.getClockRect();
+  if (phys && widgetWin) {
+    widgetWin.setBounds(logicalRect(phys));
+    if (widgetWin.isVisible()) try { widgetWin.moveTop(); } catch (e) {}
+    try { taskbar.setClockVisible(false); } catch (e) {}
+  } else if (widgetWin) {
+    widgetWin.setBounds(fallbackRect());
+    if (widgetWin.isVisible()) try { widgetWin.moveTop(); } catch (e) {}
+  }
+}
+
+// 事件驱动：系统从睡眠恢复（explorer 可能重绘复原原生时钟）
+function onResume() {
+  setTimeout(function () {
+    taskbar.resetCache();
+    try { taskbar.setClockVisible(false); } catch (e) {}
+    onDisplayChange();
+  }, 2000);
+}
+
 function placeWidget() {
+  if (!taskbar.ffiAvailable()) {
+    // FFI 不可用：进入同色覆盖兜底模式（不依赖隐藏原生时钟）
+    FALLBACK_COVER = true;
+    enterCoverMode();
+    return;
+  }
   const phys = taskbar.getClockRect();
   if (!phys) {
     if (placeAttempts++ < 8) { setTimeout(placeWidget, 300); return; }
+    // 找不到原生时钟矩形也尝试隐藏一次（可能矩形取不到但 hwnd 能找到）
+    try { taskbar.setClockVisible(false); } catch (e) {}
     widgetWin.setBounds(fallbackRect());
     widgetWin.show();
     try { widgetWin.moveTop(); } catch (e) {}
@@ -290,7 +334,25 @@ function placeWidget() {
   widgetWin.setBounds(logicalRect(phys));
   if (!widgetWin.isVisible()) widgetWin.show();
   try { widgetWin.moveTop(); } catch (e) {}
+  // 定位完成后立即隐藏原生时钟
+  try { taskbar.setClockVisible(false); } catch (e) {}
   startHideGuard();
+}
+
+// 同色覆盖兜底：部件窗口设为与任务栏同色的不透明覆盖层，物理盖住原生时钟
+function enterCoverMode() {
+  if (!widgetWin) return;
+  const rect = fallbackRect();
+  widgetWin.setBounds(rect);
+  if (!widgetWin.isVisible()) widgetWin.show();
+  try { widgetWin.moveTop(); } catch (e) {}
+  // 通知 widget 渲染层进入"覆盖模式"（不透明 + 跟随任务栏颜色）
+  try { widgetWin.webContents.executeJavaScript('window.__coverMode && window.__coverMode(true);'); } catch (e) {}
+  // 覆盖模式下仍需定时 moveTop，防止被任务栏其他元素盖住（低频，5s 一次且零进程）
+  if (hideGuardTimer) clearInterval(hideGuardTimer);
+  hideGuardTimer = setInterval(function () {
+    if (widgetWin && widgetWin.isVisible()) try { widgetWin.moveTop(); } catch (e) {}
+  }, 5000);
 }
 
 // nativeTheme → 部件文字黑/白
@@ -343,26 +405,22 @@ app.whenReady().then(function () {
 
   createWindow();
   createWidget();
-  placeWidget();                 // 先定位部件窗口：此时原生时钟仍在，可取到准确矩形
-
-  // 定位完成后再即时隐藏原生时钟（SetWindowLong 去 WS_VISIBLE + 移出屏幕外 + 0 尺寸，
-  // 比单纯 ShowWindow(SW_HIDE) 在 Win10 上更稳，explorer 重绘不会把占位带回来）
-  try { taskbar.setClockVisible(false); } catch (e) {}
-  // 注册表 HideClock 策略：作为可选兜底，本方案默认不强制写入（避免 explorer 重启副作用）；
-  // 如需在 explorer 重启后仍隐藏，可取消下一行注释（部分 Win10 版本有效）。
-  // try { taskbar.setHideClockPolicy(true); } catch (e) {}
+  placeWidget();                 // 先定位部件窗口：FFI 可用则隐藏原生时钟并重叠；不可用则进入覆盖兜底
 
   // 主题变化（如用户在系统设置里切换深浅）→ 同步部件
   nativeTheme.on('updated', applyWidgetTheme);
-  // 显示器/缩放变化 → 重新定位部件
-  screen.on('display-metrics-changed', function () {
-    const phys = taskbar.getClockRect();
-    if (phys && widgetWin) widgetWin.setBounds(logicalRect(phys));
-  });
+  // 显示器/缩放变化 → 重新定位部件 + 重新隐藏（事件驱动，非轮询）
+  screen.on('display-metrics-changed', onDisplayChange);
+  // 系统从睡眠恢复 → 重新隐藏（explorer 可能重绘复原原生时钟）
+  try {
+    const { powerMonitor } = require('electron');
+    powerMonitor.on('resume', onResume);
+  } catch (e) {}
 });
 
-// 退出前还原原生时钟（显示 + 清策略），下次重启系统原生恢复
+// 退出前还原原生时钟（显示 + 清策略）；覆盖模式无需还原（原生时钟从未被隐藏）
 app.on('before-quit', function () {
+  if (FALLBACK_COVER) return;
   try {
     taskbar.setClockVisible(true);
     taskbar.setHideClockPolicy(false);
