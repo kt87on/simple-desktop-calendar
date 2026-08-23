@@ -236,8 +236,13 @@ function createWidget() {
     backgroundColor: '#00000000', show: false,
     webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.js') }
   });
+  // 提升层级到最高（screen-saver 级别），确保稳定盖在任务栏原生时钟之上
+  try { widgetWin.setAlwaysOnTop(true, 'screen-saver'); } catch (e) {}
   widgetWin.loadFile(path.join(__dirname, 'widget.html'));
-  widgetWin.webContents.on('did-finish-load', function () { applyWidgetTheme(); });
+  widgetWin.webContents.on('did-finish-load', function () {
+    applyWidgetTheme();
+    if (widgetWin.isVisible()) try { widgetWin.moveTop(); } catch (e) {}
+  });
   // 部件常驻任务栏，点击外部不隐藏（与日历窗口区分）
 }
 
@@ -261,16 +266,33 @@ function fallbackRect() {
 }
 
 let placeAttempts = 0;
+let hideGuardTimer = null;
+function startHideGuard() {
+  // 兜底：explorer 偶尔会重绘并复原原生时钟，定时重新隐藏确保稳定替换
+  if (hideGuardTimer) return;
+  hideGuardTimer = setInterval(function () {
+    try { taskbar.setClockVisible(false); } catch (e) {}
+    // 同时重新定位（显示器/缩放/任务栏位置可能变化）
+    const phys = taskbar.getClockRect();
+    if (phys && widgetWin && widgetWin.isVisible()) {
+      try { widgetWin.setBounds(logicalRect(phys)); } catch (e) {}
+    }
+  }, 3000);
+}
 function placeWidget() {
   const phys = taskbar.getClockRect();
   if (!phys) {
     if (placeAttempts++ < 8) { setTimeout(placeWidget, 300); return; }
     widgetWin.setBounds(fallbackRect());
     widgetWin.show();
+    try { widgetWin.moveTop(); } catch (e) {}
+    startHideGuard();
     return;
   }
   widgetWin.setBounds(logicalRect(phys));
   if (!widgetWin.isVisible()) widgetWin.show();
+  try { widgetWin.moveTop(); } catch (e) {}
+  startHideGuard();
 }
 
 // nativeTheme → 部件文字黑/白

@@ -4,8 +4,9 @@
 <meta charset="UTF-8">
 <style>
   /* 任务栏部件：透明背景，仅绘制时间/日期文字，叠加在原生日历时钟同位置 */
-  .theme-light { --tb-text: #1b1b1b; }
-  .theme-dark  { --tb-text: #f3f3f3; }
+  /* 部件不透明绘制任务栏同款底色（消除透明+亚克力混合导致的模糊零碎） */
+  .theme-light { --tb-text: #1b1b1b; --tb-bg: #f3f3f3; }
+  .theme-dark  { --tb-text: #f3f3f3; --tb-bg: #2b2b2b; }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
@@ -14,9 +15,9 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    background: transparent;          /* 透明：透出任务栏底色，视觉原生 */
+    background: var(--tb-bg);             /* 不透明：绘制任务栏底色，文字清晰不模糊 */
     overflow: hidden;
-    cursor: pointer;                  /* 点击打开日历 */
+    cursor: pointer;
     color: var(--tb-text);
   }
 
@@ -24,15 +25,17 @@
     width: 100%; height: 100%;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;   /* 上下整体居中 */
-    gap: 1px; line-height: 1.1; user-select: none;
+    gap: 1px; line-height: 1.15; user-select: none;
     position: relative;
   }
   .clock-widget .t, .clock-widget .d {
-    font-size: 13.5px; font-weight: 600;
-    font-variant-numeric: tabular-nums;             /* 等宽数字，秒针不抖 */
+    font-size: 13px; font-weight: 600;
+    font-variant-numeric: tabular-nums;             /* 等宽数字 */
     letter-spacing: .2px;
+    white-space: nowrap;
   }
-  .clock-widget:hover { filter: brightness(1.12); }
+  /* 去掉 hover brightness 滤镜（会引起重绘模糊），仅轻微变色反馈 */
+  .clock-widget:hover { opacity: .92; }
 
   /* 悬停提示：农历 + 星期（对应原生时钟悬停信息） */
   .tip {
