@@ -116,21 +116,34 @@
     };
   }
 
-  /* ===== 状态 ===== */
-  var now = new Date();
-  var S = {
-    year: now.getFullYear(),
-    month: now.getMonth() + 1,
-    selY: now.getFullYear(),
-    selM: now.getMonth() + 1,
-    selD: now.getDate(),
-    startMon: true,
-    theme: 'default'
-  };
+/* ===== 状态 ===== */
+var now = new Date();
+var S = {
+  year: now.getFullYear(),
+  month: now.getMonth() + 1,
+  selY: now.getFullYear(),
+  selM: now.getMonth() + 1,
+  selD: now.getDate(),
+  startMon: true,
+  theme: 'light'
+};
 
-  var $ = function (id) { return document.getElementById(id); };
-  var gridEl, headerEl, yearSel, monthSel, wkSwitchEl, widgetEl, lastLit = -1, bgMonthEl, calendarEl, litGlowEl, themeBtnEl;
-  var lastTipKey = '';   // R3：上次推送 tooltip 的日期键，跨午夜才重新推送
+/* ===== v1.6.2 特别关注（renderer state） ===== */
+var reminders = [];             // [{ id, y, m, d, text, createdAt, snoozeUntil }]
+var pendingRemind = null;      // { y, m, d } 当前右键打开的关注输入栏目标
+
+/* ===== v1.7.11 特别关注额度（需求 1 / 2） =====
+ * 渲染层用 maxlength + 输入前校验拦截，主进程 add-reminder 里再兜底一次，
+ * 双保险防止绕过（比如直接改 DOM）。 */
+var MAX_REMINDER_TEXT = 15;    // 单条最多 15 字
+var MAX_REMINDERS = 10;        // 最多 10 条
+
+var $ = function (id) { return document.getElementById(id); };
+var gridEl, headerEl, yearSel, monthSel, wkSwitchEl, widgetEl, lastLit = -1, bgMonthEl, calendarEl, litGlowEl, themeBtnEl;
+var lastTipKey = '';   // R3：上次推送 tooltip 的日期键，跨午夜才重新推送
+var remindInputEl, remindDateLabelEl, remindTextEl, remindOkEl, remindCancelEl, toastEl;
+// v1.7.12：关注列表已改为独立窗口（remindlist.html），主窗口内不再有弹窗 DOM
+var bookBtnEl;
 
   function isToday(y, m, d) { return y === now.getFullYear() && m === now.getMonth() + 1 && d === now.getDate(); }
   function isSel(y, m, d) { return y === S.selY && m === S.selM && d === S.selD; }
@@ -174,9 +187,13 @@
       if (inf.weekend && c.t === 'cur') cls += ' weekend';
       if (isToday(c.y, c.m, c.d)) cls += ' today';
       if (isSel(c.y, c.m, c.d)) cls += ' selected';
+      // v1.6.2：特别关注单元格标黄 + 角标（v1.7.17 需求10：关→注）
+      var reminderItem = findReminder(c.y, c.m, c.d);
+      if (reminderItem) cls += ' reminder';
 
       var chip = '';
-      if (inf.isHoliday) chip = '<span class="chip chip-rest">休</span>';
+      if (reminderItem) chip = '<span class="chip-focus" title="' + escapeAttr(reminderItem.text) + '">注</span>';
+      else if (inf.isHoliday) chip = '<span class="chip chip-rest">休</span>';
       else if (c.t === 'cur' && inf.isWork) chip = '<span class="chip chip-work">班</span>';
 
       var subCls = 'sub' + (inf.kind === 'festival' ? ' sub-festival' : '');
@@ -195,18 +212,37 @@
     if (bgMonthEl) bgMonthEl.textContent = S.month;
   }
 
+  function escapeAttr(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function findReminder(y, m, d) {
+    for (var i = 0; i < reminders.length; i++) {
+      var r = reminders[i];
+      if (r.y === y && r.m === m && r.d === d) return r;
+    }
+    return null;
+  }
+
   function renderAll() { renderWeekHeader(); renderGrid(); }
 
   /* ===== 操作 ===== */
-  function gotoMonth(delta) {
-    var m = S.month + delta, y = S.year;
-    if (m > 12) { m = 1; y++; }
-    if (m < 1) { m = 12; y--; }
-    S.year = y; S.month = m; renderAll();
-  }
+function gotoMonth(delta) {
+  var m = S.month + delta, y = S.year;
+  if (m > 12) { m = 1; y++; }
+  if (m < 1) { m = 12; y--; }
+  S.year = y; S.month = m; renderAll();
+  // v1.6.2：翻月后保留已选的两格，刷新「天数」浮层位置（仍指向当前可见月份内的两个 cell）
+  if (rangeSel.length === 2) showDayCount();
+}
   function gotoToday() {
     S.year = now.getFullYear(); S.month = now.getMonth() + 1;
     S.selY = now.getFullYear(); S.selM = now.getMonth() + 1; S.selD = now.getDate();
+    renderAll();
+  }
+  // v1.5：跳到指定年/月/日（托盘「下一节日」点击跳转用）
+  function gotoYm(y, m, d) {
+    S.year = y; S.month = m;
+    S.selY = y; S.selM = m; S.selD = d || 1;
     renderAll();
   }
   function select(y, m, d) { S.selY = y; S.selM = m; S.selD = d; renderGrid(); }
@@ -239,42 +275,211 @@
   }
   function showDayCount() {
     var a = rangeSel[0], b = rangeSel[1];
+    if (!a || !b || !dayCountEl || !calendarEl) return;
     var n = daysBetween(a, b);
-    // 浮层定位在两格中点
-    var cells = gridEl.querySelectorAll('.cell');
-    var ca = null, cb = null;
-    for (var i = 0; i < cells.length; i++) {
-      if (dateKey({ y: +cells[i].dataset.y, m: +cells[i].dataset.m, d: +cells[i].dataset.d }) === dateKey(a)) ca = cells[i];
-      if (dateKey({ y: +cells[i].dataset.y, m: +cells[i].dataset.m, d: +cells[i].dataset.d }) === dateKey(b)) cb = cells[i];
-    }
-    if (!ca || !cb || !dayCountEl || !calendarEl) return;
+    // 浮层定位 —— v1.7.2 容忍跨月：两格可能都不在当前可见网格
+    var ca = findCellEl(a.y, a.m, a.d);
+    var cb = findCellEl(b.y, b.m, b.d);
     var rect = calendarEl.getBoundingClientRect();
-    var ra = ca.getBoundingClientRect(), rb = cb.getBoundingClientRect();
-    var cx = (ra.left + ra.width / 2 + rb.left + rb.width / 2) / 2 - rect.left;
-    var cy = (ra.top + ra.height / 2 + rb.top + rb.height / 2) / 2 - rect.top;
-    dayCountEl.style.left = cx + 'px';
-    dayCountEl.style.top = cy + 'px';
+    var x, y;
+    if (ca && cb) {
+      // 两格都可见 → 定位到两格中点
+      var ra = ca.getBoundingClientRect(), rb = cb.getBoundingClientRect();
+      x = (ra.left + ra.width / 2 + rb.left + rb.width / 2) / 2 - rect.left;
+      y = (ra.top + ra.height / 2 + rb.top + rb.height / 2) / 2 - rect.top;
+    } else if (ca) {
+      var ra = ca.getBoundingClientRect();
+      x = ra.left + ra.width / 2 - rect.left;
+      y = ra.top + ra.height / 2 - rect.top;
+    } else if (cb) {
+      var rb = cb.getBoundingClientRect();
+      x = rb.left + rb.width / 2 - rect.left;
+      y = rb.top + rb.height / 2 - rect.top;
+    } else {
+      // 两格都不可见（罕见：用户翻了一个不包含任一格的月份）
+      // 浮层定到 #grid 中部偏上，让用户知道"已选但要翻回去看"
+      x = rect.width / 2;
+      y = rect.height / 2 - 20;
+    }
+    dayCountEl.style.left = x + 'px';
+    dayCountEl.style.top = y + 'px';
     dayCountEl.textContent = '共计 ' + n + ' 天';
     dayCountEl.classList.add('show');
   }
-  // 在 renderGrid 后标记 range 格
+  // 在 renderGrid 后标记 range 格：两个端点深绿（.range），端点之间的日期更浅绿（.range-between）
   function markRange() {
     if (!gridEl) return;
     var cells = gridEl.querySelectorAll('.cell');
+    if (rangeSel.length === 0) return;
+    // 端点集合
+    var endpoints = {};
+    for (var j = 0; j < rangeSel.length; j++) endpoints[dateKey(rangeSel[j])] = true;
+    // 两个端点之间的时间区间（含跨月；strict 中间不含端点）
+    var tStart = null, tEnd = null;
+    if (rangeSel.length === 2) {
+      var ta = new Date(rangeSel[0].y, rangeSel[0].m - 1, rangeSel[0].d).getTime();
+      var tb = new Date(rangeSel[1].y, rangeSel[1].m - 1, rangeSel[1].d).getTime();
+      tStart = Math.min(ta, tb);
+      tEnd = Math.max(ta, tb);
+    }
     for (var i = 0; i < cells.length; i++) {
       var k = dateKey({ y: +cells[i].dataset.y, m: +cells[i].dataset.m, d: +cells[i].dataset.d });
-      for (var j = 0; j < rangeSel.length; j++) {
-        if (dateKey(rangeSel[j]) === k) { cells[i].classList.add('range'); break; }
+      if (endpoints[k]) {
+        cells[i].classList.add('range');
+      } else if (tStart !== null) {
+        var tc = new Date(+cells[i].dataset.y, +cells[i].dataset.m - 1, +cells[i].dataset.d).getTime();
+        if (tc > tStart && tc < tEnd) cells[i].classList.add('range-between');
       }
     }
   }
 
-  function selectCell(div) {
-    var y = +div.dataset.y, m = +div.dataset.m, d = +div.dataset.d;
-    if (div.classList.contains('other')) { S.year = y; S.month = m; renderAll(); return; }
-    // 需求6：已选两格时，第三下点击只解除、不选中新格
-    if (rangeSel.length >= 2) { clearRange(); return; }
+function selectCell(div) {
+  var y = +div.dataset.y, m = +div.dataset.m, d = +div.dataset.d;
+  if (div.classList.contains('other')) {
+    // v1.7.2 需求 8：跨月其他格 → 切到目标月，并 addRange 该日
+    // 让"9月 X + 10月 2"这类跨月选择一次点完，算天数不卡住
+    S.year = y; S.month = m;
+    renderAll();
+    // v1.7.5：已选两格时清空重选，同时清掉天数浮层（否则旧的「共计 N 天」残留显示）
+    if (rangeSel.length >= 2) {
+      rangeSel = [];
+      if (dayCountEl) { dayCountEl.classList.remove('show'); dayCountEl.textContent = ''; }
+    }
     addRange(y, m, d);
+    return;
+  }
+  // 需求6：已选两格时，第三下点击只解除、不选中新格
+  if (rangeSel.length >= 2) { clearRange(); return; }
+  addRange(y, m, d);
+}
+
+/* ===== v1.6.2 特别关注输入栏 =====
+ * 设计要点：
+ *   1) #remindInput 是 #widget 的直接子元素（position:absolute 相对 #widget 定位），
+ *      所以坐标参考系应该是 widgetEl 不是 calendarEl（v1.7.0 初版误用后者导致输入栏偏移）
+ *   2) 跨月 other 单元格右键会触发 renderAll()，原 cellDiv 已被销毁，
+ *      必须按 (y,m,d) 重新查询当前 grid 里的 cell 元素再定位 */
+function findCellEl(y, m, d) {
+  if (!gridEl) return null;
+  var cells = gridEl.querySelectorAll('.cell');
+  for (var i = 0; i < cells.length; i++) {
+    var c = cells[i];
+    if (+c.dataset.y === y && +c.dataset.m === m && +c.dataset.d === d) return c;
+  }
+  return null;
+}
+function openRemindInput(y, m, d) {
+  // v1.7.11 需求 2：已达 10 条上限时不再弹输入框，直接提示
+  if (reminders.length >= MAX_REMINDERS) {
+    showToast('特别关注最多 ' + MAX_REMINDERS + ' 条，请先取消一条');
+    return;
+  }
+  pendingRemind = { y: y, m: m, d: d };
+  if (remindDateLabelEl) remindDateLabelEl.textContent = y + '/' + pad2(m) + '/' + pad2(d);
+  if (remindTextEl) remindTextEl.value = '';
+  if (remindInputEl) {
+    remindInputEl.classList.add('show');
+    var cell = findCellEl(y, m, d);
+    if (cell) positionRemindInput(cell);
+  }
+  // 自动聚焦
+  setTimeout(function () { if (remindTextEl) remindTextEl.focus(); }, 30);
+}
+function hideRemindInput() {
+  if (!remindInputEl) return;
+  remindInputEl.classList.remove('show');
+  pendingRemind = null;
+}
+function positionRemindInput(cellDiv) {
+  if (!remindInputEl || !widgetEl || !cellDiv) return;
+  // v1.7.0 bugfix：参考系改为 widgetEl（#remindInput 的真正 offsetParent）
+  var rect = widgetEl.getBoundingClientRect();
+  var cr = cellDiv.getBoundingClientRect();
+  // v1.7.3：改用输入栏实际尺寸（offsetWidth/Height），
+  // 放大模式下 #remindInput 是 260px 宽 + 更大 padding/输入框/按钮，
+  // 硬编码 200×110 会让右侧格子右键时输入栏越界被 overflow:hidden 裁掉。
+  var w = remindInputEl.offsetWidth || 200;
+  var h = remindInputEl.offsetHeight || 110;
+  var x = cr.right - rect.left + 6;          // 默认放单元格右侧
+  if (x + w > rect.width - 4) x = cr.left - rect.left - w - 6;   // 溢出则放左侧
+  if (x < 4) x = 4;
+  var y = cr.top - rect.top + (cr.height - h) / 2;               // 垂直居中
+  if (y < 4) y = 4;
+  if (y + h > rect.height - 4) y = rect.height - h - 4;
+  remindInputEl.style.left = x + 'px';
+  remindInputEl.style.top = y + 'px';
+}
+function localAddReminder(y, m, d, text) {
+  // 浏览器预览（无 Electron api）下的本地内存模拟：单元格同样会变黄，方便预览验证
+  reminders.push({
+    id: 'local_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+    y: y, m: m, d: d,
+    text: String(text || '').slice(0, MAX_REMINDER_TEXT),
+    createdAt: Date.now(), snoozeUntil: 0, ackedDate: ''
+  });
+  renderGrid();
+}
+
+/* v1.7.11：轻量提示条（数量/字数上限等） */
+var toastTimer = null;
+function showToast(msg) {
+  if (!toastEl) return;
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () {
+    if (toastEl) toastEl.classList.remove('show');
+    toastTimer = null;
+  }, 2200);
+}
+
+function confirmRemindInput() {
+  if (!pendingRemind) return;
+  var text = (remindTextEl && remindTextEl.value || '').trim();
+  if (!text) { if (remindTextEl) remindTextEl.focus(); return; }
+  // v1.7.11 需求 1：硬截到 15 字（主进程也会截一次）
+  text = text.slice(0, MAX_REMINDER_TEXT);
+  if (window.api && window.api.addReminder) {
+    window.api.addReminder({
+      y: pendingRemind.y, m: pendingRemind.m, d: pendingRemind.d, text: text
+    }).then(function (res) {
+      // v1.7.11 需求 2：主进程返回 { error:'limit' } 表示已达 10 条上限
+      if (res && res.error === 'limit') showToast('特别关注最多 ' + MAX_REMINDERS + ' 条');
+    }).catch(function () {});
+  } else {
+    // 浏览器预览：本地也拦一次上限
+    if (reminders.length >= MAX_REMINDERS) { showToast('特别关注最多 ' + MAX_REMINDERS + ' 条'); }
+    else localAddReminder(pendingRemind.y, pendingRemind.m, pendingRemind.d, text);
+  }
+  hideRemindInput();
+}
+
+  /* ===== v1.7.12 关注列表：改为独立窗口 =====
+     原实现是 #widget 内的绝对定位 DOM 浮层，无论怎么放开夹紧逻辑都渲染不到 #widget 之外
+     （会被主窗口边界裁掉）。现改为独立 BrowserWindow（remindlist.html），
+     表头用 -webkit-app-region: drag 交给 Electron 原生拖动，**可拖到屏幕任意位置**。
+     数据由主进程经 query 注入，操作（跳转 / 删除）经 IPC 回传，列表变更由主进程推送刷新。 */
+  function openReminderList() {
+    if (remindInputEl) remindInputEl.classList.remove('show');   // 互斥：隐藏输入栏
+    if (window.api && window.api.openReminderListWindow) {
+      window.api.openReminderListWindow();
+      return;
+    }
+    // 浏览器预览降级：没有主进程时给个提示（预览模式本就不含桌面特性）
+    showToast('关注列表独立窗口需在桌面端运行');
+  }
+  function closeReminderList() {
+    if (window.api && window.api.remindlistClose) window.api.remindlistClose();
+  }
+  function removeReminderById(id) {
+    if (!id) return;
+    if (window.api && window.api.removeReminder) {
+      window.api.removeReminder(id);
+    } else {
+      // 浏览器预览：本地内存删（列表窗口在预览模式下不可用，只需刷新日历）
+      reminders = reminders.filter(function (r) { return r.id !== id; });
+      renderGrid();
+    }
   }
 
   /* ===== 每周起始切换 ===== */
@@ -287,16 +492,32 @@
     renderAll();
   }
 
-  /* ===== 主题：默认 / 跟随系统（仅覆盖 --accent，其余由 color-mix 派生） ===== */
+  /* ===== 主题：白日 / 黑夜 两态（v1.6：衣服形状按钮 + 太阳/月亮图标） ===== */
+  function syncThemeIcon() {
+    var g = document.getElementById('themeIcon');
+    if (!g) return;
+    if (S.theme === 'dark') {
+      // 黑夜：月亮（新月）
+      g.innerHTML = '<path d="M14.6 12.4 a 3.6 3.6 0 1 0 -2.4 5.6 a 2.7 3.6 0 1 1 2.4 -5.6 z" fill="currentColor" stroke="none"></path>';
+    } else {
+      // 白日：太阳（圆 + 4 道光芒，贴胸口大小）
+      g.innerHTML = '<circle cx="12" cy="13.5" r="2.2" fill="currentColor" stroke="none"></circle>' +
+        '<path d="M12 9.4 L12 10.8"></path>' +
+        '<path d="M12 16.2 L12 17.6"></path>' +
+        '<path d="M8.4 13.5 L7.6 13.5"></path>' +
+        '<path d="M16.4 13.5 L15.6 13.5"></path>';
+    }
+  }
   function applyTheme() {
     var root = document.documentElement;
-    if (S.theme === 'system' && window.__ACCENT__) {
-      root.style.setProperty('--accent', window.__ACCENT__);
-      if (themeBtnEl) { themeBtnEl.title = '主题：跟随系统（点击切回默认）'; themeBtnEl.classList.add('active'); }
+    if (S.theme === 'dark') {
+      root.dataset.theme = 'dark';
+      if (themeBtnEl) { themeBtnEl.title = '主题：黑夜（点击切回白日）'; themeBtnEl.classList.add('active'); }
     } else {
-      root.style.removeProperty('--accent');
-      if (themeBtnEl) { themeBtnEl.title = '主题：默认（点击切换为跟随系统）'; themeBtnEl.classList.remove('active'); }
+      root.dataset.theme = 'light';
+      if (themeBtnEl) { themeBtnEl.title = '主题：白日（点击切换为黑夜）'; themeBtnEl.classList.remove('active'); }
     }
+    syncThemeIcon();
   }
 
   /* ===== R3. 托盘 tooltip：农历 + 星期字符串 ===== */
@@ -340,14 +561,50 @@
     if (bodyEl) bodyEl.addEventListener('click', function (e) {
       if (e.target.closest('.cell')) return;
       if (e.target.closest('button, select, #wkSwitch, #dragBar')) return;
+      if (e.target.closest('#remindInput')) return;
       if (rangeSel.length) clearRange();
+      // 点击空白区时关闭可能打开的关注输入栏
+      hideRemindInput();
     });
 
-    // 需求2补充 / 需求7：右上角 ✕ 退出软件（弹原生确认框）
-    var closeBtn = document.getElementById('closeBtn');
-    if (closeBtn && window.api && window.api.exitApp) {
-      closeBtn.addEventListener('click', function () { window.api.exitApp(); });
-    }
+    // v1.7.2 需求 9：Esc 键 → 清除日期范围选择 + 关闭关注输入栏
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      // 输入框/弹窗内的 Esc 已有自己处理（remindInput、弹窗）
+      var tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (rangeSel.length) { e.preventDefault(); clearRange(); }
+      hideRemindInput();
+    });
+
+    // v1.6.2 需求 6：单元格右键 → 弹出"定时关注栏"输入关注内容
+    gridEl.addEventListener('contextmenu', function (e) {
+      var d = e.target.closest('.cell');
+      if (!d) return;
+      e.preventDefault();
+      var y = +d.dataset.y, m = +d.dataset.m, dd = +d.dataset.d;
+      // 如果该日期已有关注项：右键等于取消选择（删除）
+      var existing = findReminder(y, m, dd);
+      if (existing) {
+        if (window.api && window.api.removeReminder) {
+          window.api.removeReminder(existing.id);
+        } else {
+          // 浏览器预览：本地删除，单元格恢复原色
+          reminders = reminders.filter(function (r) { return r.id !== existing.id; });
+          renderGrid();
+        }
+        return;
+      }
+      // 跨月 other 单元格：先切到该月，再打开输入栏。
+      // 注意：renderAll 后原 d 已脱离 DOM，openRemindInput 会按 (y,m,d) 重新查询 cell。
+      if (d.classList.contains('other')) {
+        S.year = y; S.month = m; renderAll();
+        if (rangeSel.length === 2) showDayCount();
+      }
+      openRemindInput(y, m, dd);
+    });
+
+    // 需求2补充：v1.6.2 需求 5 — 主界面 ✕ 关闭按钮已删除；退出请走托盘右键「⏻ 退出软件」
 
     // 悬停灯效（性能优化 v1.2）：不再用 JS 逐帧重设 radial-gradient（每帧重排/重绘卡顿），
     // 改为纯 CSS :hover 边框高亮（见 template.html .cell:hover）。litGlow 层保留但不再逐帧写入。
@@ -366,11 +623,20 @@
       }
     });
 
-    // 主题切换
+    // 主题切换（白日/黑夜两态）
     themeBtnEl.addEventListener('click', function () {
-      S.theme = (S.theme === 'default') ? 'system' : 'default';
+      S.theme = (S.theme === 'light') ? 'dark' : 'light';
       applyTheme();
+      if (window.api && window.api.setTheme) window.api.setTheme(S.theme);
     });
+
+    // v1.7.12：关注列表按钮点击 → 打开独立窗口（主进程负责去重聚焦）
+    if (bookBtnEl) {
+      bookBtnEl.addEventListener('click', function (e) {
+        e.stopPropagation();
+        openReminderList();
+      });
+    }
 
     // 顶部拖拽
     var dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
@@ -396,9 +662,44 @@
     window.addEventListener('mouseup', function () {
       dragging = false;
       document.body.style.userSelect = '';
-      // R4. 拖拽结束（鼠标松开）请求主进程把窗口吸附到最近屏幕边（仅 expanded 模式生效）
-      if (window.api && window.api.requestSnap) window.api.requestSnap();
     });
+  }
+
+  /* ===== v1.6：放大模式窗口边缘 resize 手柄（保证比例不变） =====
+     透明无边框窗口在 Windows 上 DWM 常禁用 thickFrame，系统层 resize 不生效。
+     这里在渲染层监听 3 个手柄（右下角 + 右边缘 + 下边缘），通过 IPC 让主进程 setBounds，
+     比例锁定：'e' / 'se' 按宽度驱动，'s' 按高度驱动，统一折算成宽度再传主进程。 */
+  var RESIZE_ASPECT = 340 / 430;
+  function bindResize() {
+    if (!window.api || !window.api.resizeWindow) return;
+    var handles = document.querySelectorAll('.resize-handle');
+    var active = null;
+    handles.forEach(function (h) {
+      h.addEventListener('mousedown', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        active = {
+          dir: h.dataset.dir,
+          sx: e.screenX, sy: e.screenY,
+          startW: widgetEl.offsetWidth, startH: widgetEl.offsetHeight
+        };
+      });
+    });
+    window.addEventListener('mousemove', function (e) {
+      if (!active) return;
+      var dx = e.screenX - active.sx, dy = e.screenY - active.sy;
+      var newW;
+      if (active.dir === 's') {
+        // 下边缘：高度驱动 → 按比例折算宽度
+        var newH = active.startH + dy;
+        newW = Math.round(newH * RESIZE_ASPECT);
+      } else {
+        // 'e' / 'se'：宽度驱动
+        newW = active.startW + dx;
+      }
+      newW = Math.max(340, Math.min(newW, 1400));
+      window.api.resizeWindow(newW);
+    });
+    window.addEventListener('mouseup', function () { active = null; });
   }
 
   /* ===== 信息条：时钟 / 日期 / 农历 ===== */
@@ -451,6 +752,56 @@
     monthSel.value = now.getMonth() + 1;
   }
 
+  /* ===== v1.6：托盘右键菜单驱动（订阅主进程下发的事件） ===== */
+  function bindTrayEvents() {
+    if (!window.api) return;
+    if (window.api.onThemeChanged) {
+      window.api.onThemeChanged(function (mode) {
+        S.theme = (mode === 'dark') ? 'dark' : 'light';
+        applyTheme();
+      });
+    }
+    if (window.api.onGotoYm) {
+      window.api.onGotoYm(function (y, m, d) { gotoYm(y, m, d); });
+    }
+    if (window.api.onRemindersChanged) {
+      window.api.onRemindersChanged(function (list) {
+        reminders = (list || []).slice();
+        renderGrid();
+        // 关注列表已改为独立窗口，主进程会直接推送数据给 remindlist.html，这里无需处理
+      });
+    }
+    // v1.7.9：托盘"查看/管理" → 已在主进程直接 openReminderListWindow()，此处无需订阅
+    /* v1.7.11 严重 bug 修复（放大一直无效）：
+     * 之前放大只让主进程把 OS 窗口撑大，渲染层的 #widget 却没被加上 .max 类，
+     * 于是内容还是 340×430 缩在大透明窗中间，看起来就是"没放大"。
+     * 现在由主进程在尺寸状态变化后推送 expand-changed，这里只负责同步类名。 */
+    if (window.api.onExpandChanged) {
+      window.api.onExpandChanged(function (expanded) {
+        if (!widgetEl) return;
+        widgetEl.classList.toggle('max', !!expanded);
+        // 关注列表已改独立窗口，此处无需重定位；输入栏在显示中时重新定位即可
+        if (remindInputEl && remindInputEl.classList.contains('show')) {
+          var k = pendingRemind;
+          if (k) { var c = findCellEl(k.y, k.m, k.d); if (c) positionRemindInput(c); }
+        }
+      });
+    }
+  }
+
+  /* ===== v1.6.2：特别关注输入栏 DOM 绑定 ===== */
+  function bindRemindInput() {
+    if (!remindInputEl) return;
+    if (remindOkEl) remindOkEl.addEventListener('click', confirmRemindInput);
+    if (remindCancelEl) remindCancelEl.addEventListener('click', hideRemindInput);
+    if (remindTextEl) {
+      remindTextEl.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); confirmRemindInput(); }
+        else if (e.key === 'Escape') { e.preventDefault(); hideRemindInput(); }
+      });
+    }
+  }
+
   function init() {
     // 供主进程在窗口失焦（点击软件外）时清除日期选中（需求5）
     window.__clearRange = function () { if (rangeSel.length) clearRange(); };
@@ -466,21 +817,57 @@
     litGlowEl = $('litGlow');
     dayCountEl = $('dayCount');
     themeBtnEl = $('themeBtn');
+    remindInputEl = $('remindInput');
+    remindDateLabelEl = $('remindDateLabel');
+    remindTextEl = $('remindText');
+    remindOkEl = $('remindOk');
+    remindCancelEl = $('remindCancel');
+    // v1.7.12 关注列表已改独立窗口，主窗口内仅保留书按钮
+    bookBtnEl = $('bookBtn');
+    toastEl = $('toast');
 
-    // R4. Electron 下去掉 body 内边距，使 430×540 的 widget 精确填满 mini 窗口
+    // v1.6：Electron 下去掉 body 内边距，使 340×430 的 widget 精确填满 mini 窗口
     // （expanded 窗口更大，widget 居中浮起；浏览器预览保留 24px 留白美观）
     if (window.api) {
       document.body.style.padding = '0';
       document.body.style.overflow = 'hidden';
+      // v1.7.2：标记 Electron 环境，放大模式下 widget 精确填满窗口（区别于浏览器预览的等比收拢）
+      document.body.classList.add('electron');
     }
 
     applyTheme();
     fillSelectors();
     bind();
+    bindResize();           // v1.6：放大模式窗口边缘 resize（保证比例不变）
+    bindTrayEvents();       // v1.6：订阅主进程（托盘右键菜单）下发的事件
+    bindRemindInput();      // v1.6.2：特别关注输入栏事件
+    // v1.7.17 需求8：主窗右键弹菜单（去托盘后的菜单入口）。
+    // 排除单元格（右键=特别关注输入/删除）与输入框（右键=系统编辑菜单）。
+    document.addEventListener('contextmenu', function (e) {
+      if (e.target && e.target.closest && e.target.closest('.cell')) return;
+      var tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      if (window.api && window.api.mainShowMenu) window.api.mainShowMenu();
+    });
     updateSwitch();
     renderAll();
     updateInfo();
-    updateClock();          // 内含首次 tooltip 推送
+    updateClock();
+    // v1.7.2 预览演示：无 Electron 时预置一个"特别关注"示例格，让黄格效果一眼可见（右键可删）
+    if (!window.api && reminders.length === 0) {
+      var _now = new Date();
+      var _last = new Date(_now.getFullYear(), _now.getMonth() + 1, 0).getDate();
+      var _dd = Math.min(_now.getDate() + 3, _last);
+      localAddReminder(_now.getFullYear(), _now.getMonth() + 1, _dd, '预览示例（右键可删）');
+    }
+    // v1.6.2：从主进程拉取已有列表（首次启动时同步）
+    if (window.api && window.api.listReminders) {
+      window.api.listReminders().then(function (list) {
+        reminders = (list || []).slice();
+        renderGrid();
+      });
+    }
     setInterval(updateClock, 1000);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();

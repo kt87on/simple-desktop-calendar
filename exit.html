@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>退出软件</title>
+<style>
+  /* ==========================================================================
+   * 退出确认弹窗 · 设计系统 v2.0
+   * --------------------------------------------------------------------------
+   * 语义定位：这是一次「平和确认」—— 用雅蓝头部建立品牌归属，内容区保持安静。
+   * 与「特别关注提醒」（朱砂 urgency）形成对比：退出是用户主动离开，不需要紧迫感。
+   * v2.0 由原生 dialog.showMessageBox 改为本卡片弹窗，补齐黑夜模式与整体视觉一致性。
+   * ========================================================================== */
+
+  /* ============================ L1 基础层 ============================ */
+  :root {
+    --ink-900: #14181f;
+    --ink-800: #1f2430;
+    --ink-700: #333a48;
+    --ink-600: #4b5563;
+    --ink-500: #6b7280;
+    --ink-400: #9aa1ad;
+    --ink-300: #c2c8d2;
+    --ink-200: #e2e6ec;
+    --ink-100: #f0f2f5;
+    --ink-50:  #f7f8fa;
+    --ink-25:  #fcfbf9;
+
+    --blue-50:  #eff4fc;
+    --blue-100: #dae6fa;
+    --blue-200: #b9cff5;
+    --blue-300: #8fb0ec;
+    --blue-400: #6389df;
+    --blue-500: #3b6fd4;
+    --blue-600: #1976d2;
+    --blue-700: #155ba6;
+
+    --fs-3xs: 8px;
+    --fs-2xs: 9px;
+    --fs-xs:  10px;
+    --fs-sm:  11px;
+    --fs-md:  13px;
+    --fs-lg:  14px;
+    --fs-xl:  15px;
+    --fs-2xl: 19px;
+
+    --fw-regular: 400;
+    --fw-medium:  500;
+    --fw-semibold: 600;
+    --fw-bold:    700;
+
+    --font-sans: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI",
+                 "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+                 "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
+    --font-num-feat: "tnum" 1, "lnum" 1, "ss01" 1;
+
+    --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px;
+
+    --r-xs: 4px;
+    --r-sm: 6px;
+    --r-md: 10px;
+    --r-lg: 14px;
+    --r-xl: 16px;
+    --r-pill: 999px;
+
+    --dur-instant: 80ms;
+    --dur-fast:    140ms;
+    --dur-normal:  220ms;
+    --ease-out:    cubic-bezier(.22, .61, .36, 1);
+    --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+
+    /* ========== L2 语义层 · 白日 ========== */
+    --paper: #ffffff;
+    --paper-edge: rgba(31, 35, 48, 0.10);
+    --paper-hi: rgba(255, 255, 255, 0.85);
+    --ink: var(--ink-800);
+    --ink-soft: var(--ink-500);
+    --ink-faint: var(--ink-400);
+
+    --accent: var(--blue-500);
+    --accent-hover: var(--blue-600);
+    --accent-glow: rgba(59, 111, 212, 0.30);
+    --accent-ink: var(--blue-700);
+
+    --head-bg: linear-gradient(180deg, rgba(59, 111, 212, 0.10), rgba(59, 111, 212, 0));
+    --head-line: rgba(31, 35, 48, 0.07);
+    --foot-bg: rgba(252, 251, 249, 0.65);
+    --btn-ghost-bg: var(--ink-100);
+    --btn-ghost-ink: var(--ink-600);
+    --btn-ghost-hover: var(--ink-200);
+
+    --e-3: 0 20px 52px rgba(31, 35, 48, 0.26), 0 4px 14px rgba(31, 35, 48, 0.10),
+           inset 0 1px 0 var(--paper-hi);
+  }
+
+  /* ========== L2 语义层 · 黑夜 ========== */
+  html[data-theme="dark"] {
+    --paper: #1e222e;
+    --paper-edge: rgba(255, 255, 255, 0.09);
+    --paper-hi: rgba(255, 255, 255, 0.055);
+    --ink: #e8eaf0;
+    --ink-soft: #9aa3b3;
+    --ink-faint: #6a7283;
+
+    --accent: #4a86ef;
+    --accent-hover: #5f97f5;
+    --accent-glow: rgba(74, 134, 239, 0.32);
+    --accent-ink: #8fb2f7;
+
+    --head-bg: linear-gradient(180deg, rgba(74, 134, 239, 0.14), rgba(74, 134, 239, 0));
+    --head-line: rgba(255, 255, 255, 0.07);
+    --foot-bg: rgba(255, 255, 255, 0.028);
+    --btn-ghost-bg: rgba(255, 255, 255, 0.08);
+    --btn-ghost-ink: #b6bdcc;
+    --btn-ghost-hover: rgba(255, 255, 255, 0.14);
+
+    --e-3: 0 24px 60px rgba(0, 0, 0, 0.66), 0 6px 16px rgba(0, 0, 0, 0.42),
+           inset 0 1px 0 var(--paper-hi);
+  }
+
+  /* ============================ L3 组件层 ============================ */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    font-family: var(--font-sans);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* 外层 = 真正承载阴影的不透明容器（窗口 backgroundColor 透明，容器不透明避免渲黑块） */
+  #card {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    background: var(--paper);
+    border-radius: var(--r-xl);
+    border: 1px solid var(--paper-edge);
+    box-shadow: var(--e-3);
+    overflow: hidden;
+  }
+
+  /* 头部：雅蓝 —— 品牌归属的安静确认 */
+  #head {
+    flex: 0 0 52px;
+    display: flex; align-items: center;
+    padding: 0 var(--s-4);
+    background: var(--head-bg);
+    border-bottom: 1px solid var(--head-line);
+  }
+  #head .title { display: flex; align-items: center; gap: var(--s-2); color: var(--accent-ink); font-size: var(--fs-xl); font-weight: var(--fw-bold); letter-spacing: 0.3px; }
+  #head .icon {
+    width: 18px; height: 18px; flex: 0 0 auto;
+    color: var(--accent);
+  }
+
+  #body {
+    flex: 1; min-height: 0;
+    display: flex; align-items: center; justify-content: center;
+    padding: var(--s-4) var(--s-5);
+  }
+  #msg {
+    font-size: var(--fs-2xl); line-height: 1.5; font-weight: var(--fw-semibold);
+    color: var(--ink); text-align: center;
+  }
+
+  #actions {
+    flex: 0 0 auto;
+    display: flex; gap: var(--s-2); justify-content: flex-end;
+    padding: var(--s-3) var(--s-4) var(--s-4);
+    background: var(--foot-bg);
+    border-top: 1px solid var(--head-line);
+  }
+  button {
+    border: none; border-radius: var(--r-md); padding: 9px 20px;
+    font-family: inherit; font-size: var(--fs-md); font-weight: var(--fw-semibold);
+    cursor: pointer; outline: none;
+    transition: background-color var(--dur-fast) var(--ease-out),
+                transform var(--dur-instant) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out);
+  }
+  button:active { transform: scale(0.965); }
+  button:focus-visible { box-shadow: 0 0 0 3px var(--accent-glow); }
+  #btnCancel { background: var(--btn-ghost-bg); color: var(--btn-ghost-ink); }
+  #btnCancel:hover { background: var(--btn-ghost-hover); }
+  #btnExit { background: var(--accent); color: #fff; box-shadow: 0 3px 10px var(--accent-glow); }
+  #btnExit:hover { background: var(--accent-hover); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; }
+  }
+
+</style>
+</head>
+<body>
+  <div id="card">
+    <div id="head">
+      <span class="title">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3v9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M6.4 6.4a8 8 0 1 0 11.2 0" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        </svg>
+        退出软件
+      </span>
+    </div>
+    <div id="body">
+      <div id="msg">确定要退出简洁桌面日历吗？</div>
+    </div>
+    <div id="actions">
+      <button id="btnCancel">取消</button>
+      <button id="btnExit">退出</button>
+    </div>
+  </div>
+  <script>
+    // v2.0 视觉：跟随主窗主题
+    const params = new URLSearchParams(location.search);
+    if (params.get('theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+
+    // 初始焦点落在「取消」上（安全默认，与旧原生弹窗 defaultId=0 对齐）
+    document.getElementById('btnCancel').focus();
+
+    function confirmExit() {
+      if (window.api && window.api.confirmExit) window.api.confirmExit();
+      setTimeout(function () { window.close(); }, 80);   // 兜底
+    }
+    function cancelExit() {
+      if (window.api && window.api.cancelExit) window.api.cancelExit();
+      setTimeout(function () { window.close(); }, 80);   // 兜底
+    }
+    document.getElementById('btnExit').addEventListener('click', confirmExit);
+    document.getElementById('btnCancel').addEventListener('click', cancelExit);
+
+    // Esc = 取消
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') cancelExit();
+    });
+  </script>
+</body>
+</html>

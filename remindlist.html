@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>关注列表</title>
+<style>
+  /* ==========================================================================
+   * 关注列表弹窗 · 设计系统 v2.0
+   * 与日历主体共享同一套 Token，保证它是"同一件产品的另一个窗口"。
+   * ========================================================================== */
+
+  /* ============================ L1 基础层 ============================ */
+  :root {
+    --ink-900: #14181f;
+    --ink-800: #1f2430;
+    --ink-700: #333a48;
+    --ink-600: #4b5563;
+    --ink-500: #6b7280;
+    --ink-400: #9aa1ad;
+    --ink-300: #c2c8d2;
+    --ink-200: #e2e6ec;
+    --ink-100: #f0f2f5;
+    --ink-50:  #f7f8fa;
+    --ink-25:  #fcfbf9;
+
+    --blue-50:  #eff4fc;
+    --blue-100: #dae6fa;
+    --blue-200: #b9cff5;
+    --blue-300: #8fb0ec;
+    --blue-400: #6389df;
+    --blue-500: #3b6fd4;
+    --blue-600: #1976d2;
+    --blue-700: #155ba6;
+    --blue-800: #10457e;
+    --blue-900: #0c3056;
+
+    --red-50:  #fdf0ef;
+    --red-100: #fbdcd9;
+    --red-300: #ee9187;
+    --red-400: #e46659;
+    --red-500: #d6453f;
+    --red-600: #bf3330;
+    --red-700: #9a2826;
+
+    --fs-3xs: 8px;
+    --fs-2xs: 9px;
+    --fs-xs:  10px;
+    --fs-sm:  11px;
+    --fs-md:  13px;
+    --fs-lg:  14px;
+    --fs-xl:  15px;
+
+    --fw-regular: 400;
+    --fw-medium:  500;
+    --fw-semibold: 600;
+    --fw-bold:    700;
+
+    --font-sans: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI",
+                 "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+                 "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
+    --font-num-feat: "tnum" 1, "lnum" 1, "ss01" 1;
+
+    --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px;
+
+    --r-xs: 4px;
+    --r-sm: 6px;
+    --r-md: 10px;
+    --r-lg: 14px;
+    --r-xl: 24px;
+    --r-pill: 999px;
+
+    --dur-instant: 80ms;
+    --dur-fast:    140ms;
+    --dur-normal:  220ms;
+    --dur-slow:    340ms;
+    --ease-out:    cubic-bezier(.22, .61, .36, 1);
+    --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+
+    /* ========== L2 语义层 · 白日 ========== */
+    --paper: #fdfcfa;
+    --paper-edge: rgba(31, 35, 48, 0.10);
+    --paper-hi: rgba(255, 255, 255, 0.72);
+    --ink: var(--ink-800);
+    --ink-soft: var(--ink-500);
+    --ink-faint: var(--ink-400);
+    --accent: var(--blue-500);
+    --accent-soft: rgba(59, 111, 212, 0.12);
+    --accent-ink: var(--blue-700);
+    --danger: var(--red-600);
+    --danger-soft: rgba(220, 38, 38, 0.12);
+    --head-bg: rgba(31, 35, 48, 0.045);
+    --col-bg: rgba(31, 35, 48, 0.022);
+    --row-line: rgba(31, 35, 48, 0.065);
+    --row-hover: rgba(31, 35, 48, 0.038);
+    --ctl-hover: rgba(31, 35, 48, 0.10);
+
+    --e-3: 0 12px 32px rgba(31, 35, 48, 0.20), 0 3px 10px rgba(31, 35, 48, 0.10),
+           inset 0 1px 0 var(--paper-hi);
+  }
+
+  /* ========== L2 语义层 · 黑夜 ========== */
+  html[data-theme="dark"] {
+    --paper: #1e222e;
+    --paper-edge: rgba(255, 255, 255, 0.09);
+    --paper-hi: rgba(255, 255, 255, 0.05);
+    --ink: #e8eaf0;
+    --ink-soft: #9aa3b3;
+    --ink-faint: #6a7283;
+    --accent: #6b9bff;
+    --accent-soft: rgba(107, 155, 255, 0.18);
+    --accent-ink: #a8c4ff;
+    --danger: #f08b86;
+    --danger-soft: rgba(240, 139, 134, 0.16);
+    --ink-300: #3b4254;
+    --head-bg: rgba(255, 255, 255, 0.055);
+    --col-bg: rgba(255, 255, 255, 0.028);
+    --row-line: rgba(255, 255, 255, 0.055);
+    --row-hover: rgba(255, 255, 255, 0.05);
+    --ctl-hover: rgba(255, 255, 255, 0.12);
+
+    --e-3: 0 16px 40px rgba(0, 0, 0, 0.60), 0 4px 12px rgba(0, 0, 0, 0.38),
+           inset 0 1px 0 var(--paper-hi);
+  }
+
+  /* ============================ L3 组件层 ============================ */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%; overflow: hidden; background: transparent;
+    font-family: var(--font-sans);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 不透明卡片容器：窗口 transparent:true，容器内不透明，规避 Windows 透明背景渲黑块 */
+  #card {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    background: var(--paper);
+    border: 1px solid var(--paper-edge);
+    border-radius: var(--r-lg);
+    box-shadow: var(--e-3);
+    overflow: hidden;
+  }
+
+  /* 标题栏 = 原生拖动把手（-webkit-app-region: drag，系统级拖动，不受范围限制） */
+  #header {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px var(--s-2) 11px var(--s-4);
+    background: var(--head-bg);
+    border-bottom: 1px solid var(--row-line);
+    -webkit-app-region: drag;
+    user-select: none; -webkit-user-select: none;
+    cursor: move;
+  }
+  #header:active { cursor: grabbing; }
+  .title { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-md); font-weight: var(--fw-bold); letter-spacing: 0.2px; }
+  .title-icon { flex: 0 0 auto; color: var(--accent); display: block; }
+  .count {
+    font-size: var(--fs-xs); font-weight: var(--fw-bold);
+    background: var(--accent-soft); color: var(--accent-ink);
+    padding: 2px var(--s-2); border-radius: var(--r-pill);
+    font-variant-numeric: tabular-nums; font-feature-settings: var(--font-num-feat);
+  }
+  #close {
+    width: 24px; height: 24px; border: none; cursor: pointer;
+    background: transparent; color: var(--ink-faint); font-size: var(--fs-md); line-height: 1;
+    border-radius: var(--r-sm);
+    display: flex; align-items: center; justify-content: center;
+    -webkit-app-region: no-drag;   /* 按钮必须排除，否则点不动 */
+    transition: background var(--dur-fast) var(--ease-out),
+                color var(--dur-fast) var(--ease-out);
+  }
+  #close:hover { background: var(--ctl-hover); color: var(--ink); }
+
+  /* 列头 */
+  #cols {
+    flex: 0 0 auto;
+    display: grid; grid-template-columns: 62px 1fr 24px; gap: var(--s-2);
+    padding: 7px var(--s-4);
+    border-bottom: 1px solid var(--row-line);
+    background: var(--col-bg);
+    font-size: var(--fs-xs); font-weight: var(--fw-bold);
+    color: var(--ink-faint); letter-spacing: 0.4px;
+  }
+  #body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 3px 0; }
+
+  .row {
+    display: grid; grid-template-columns: 62px 1fr 24px; gap: var(--s-2);
+    align-items: center;
+    padding: var(--s-2) var(--s-4);
+    border-bottom: 1px solid var(--row-line);
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .row:last-child { border-bottom: none; }
+  .row:hover { background: var(--row-hover); }
+
+  .rl-date {
+    font-size: var(--fs-sm); font-weight: var(--fw-bold); white-space: nowrap;
+    cursor: pointer; color: var(--ink);
+    font-variant-numeric: tabular-nums; font-feature-settings: var(--font-num-feat);
+    -webkit-app-region: no-drag;
+    transition: color var(--dur-fast) var(--ease-out);
+  }
+  .rl-date:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+
+  /* 内容列：超出可横向拖动查看完整文字 */
+  .rl-text-wrap {
+    overflow-x: auto; overflow-y: hidden;
+    cursor: grab; user-select: none; -webkit-user-select: none;
+    -webkit-app-region: no-drag;
+  }
+  .rl-text-wrap::-webkit-scrollbar { height: 0; }
+  .rl-text-wrap:active { cursor: grabbing; }
+  .rl-text {
+    font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--ink-soft);
+    white-space: nowrap; display: inline-block; padding-right: var(--s-3);
+  }
+
+  .rl-del {
+    width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    border: none; cursor: pointer;
+    background: transparent; color: var(--ink-faint);
+    border-radius: var(--r-sm); font-size: var(--fs-sm);
+    -webkit-app-region: no-drag;
+    transition: background var(--dur-fast) var(--ease-out),
+                color var(--dur-fast) var(--ease-out);
+  }
+  .rl-del:hover { background: var(--danger-soft); color: var(--danger); }
+
+  /* 空态：用 CSS 伪元素画「虚线圆 + 加号」徽标（不动 JS 生成的 DOM） */
+  #empty { padding: var(--s-8) var(--s-5); text-align: center; color: var(--ink-faint); font-size: var(--fs-sm); }
+  #empty::before {
+    content: '+';
+    display: flex; align-items: center; justify-content: center;
+    width: 38px; height: 38px; margin: 0 auto var(--s-3);
+    border: 1.5px dashed var(--ink-300); border-radius: 50%;
+    font-size: 19px; font-weight: var(--fw-regular); line-height: 1;
+    color: var(--ink-faint);
+  }
+  #empty .hint { margin-top: 7px; font-size: var(--fs-xs); opacity: 0.75; }
+
+  /* 滚动条 */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.16); border-radius: var(--r-pill); }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.26); }
+  html[data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); }
+  html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.25); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; }
+  }
+
+</style>
+</head>
+<body>
+  <div id="card">
+    <div id="header">
+      <span class="title"><svg class="title-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5 Q4 4.5 5 4.5 Q9.5 4.5 12 6.8 Q14.5 4.5 19 4.5 Q20 4.5 20 5.5 L20 18.5 Q20 19.5 19 19.5 Q14.5 19.5 12 17.2 Q9.5 19.5 5 19.5 Q4 19.5 4 18.5 Z"/><path d="M12 6.8 L12 17.2"/></svg>关注列表 <span class="count" id="count">0/10</span></span>
+      <button id="close" title="关闭">✕</button>
+    </div>
+    <div id="cols"><div>日期</div><div>关注内容</div><div></div></div>
+    <div id="body"></div>
+  </div>
+
+<script>
+  (function () {
+    var MAX_REMINDERS = 10;
+    var bodyEl = document.getElementById('body');
+    var countEl = document.getElementById('count');
+
+    // ---------- 数据 ----------
+    var payload = {};
+    try {
+      payload = JSON.parse(decodeURIComponent(new URLSearchParams(location.search).get('data') || '{}'));
+    } catch (e) { payload = {}; }
+
+    function applyTheme(mode) {
+      if (mode === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+      else document.documentElement.removeAttribute('data-theme');
+    }
+    applyTheme(payload.theme);
+
+    function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+    function render(list) {
+      list = list || [];
+      countEl.textContent = list.length + '/' + MAX_REMINDERS;
+
+      // 按日期升序
+      list = list.slice().sort(function (a, b) {
+        return (a.y * 10000 + a.m * 100 + a.d) - (b.y * 10000 + b.m * 100 + b.d);
+      });
+
+      bodyEl.innerHTML = '';
+      if (!list.length) {
+        var empty = document.createElement('div');
+        empty.id = 'empty';
+        empty.innerHTML = '<div>还没有任何特别关注</div><div class="hint">右键日历上的任意日期，即可添加</div>';
+        bodyEl.appendChild(empty);
+        return;
+      }
+
+      list.forEach(function (r) {
+        var row = document.createElement('div');
+        row.className = 'row';
+
+        var dateEl = document.createElement('div');
+        dateEl.className = 'rl-date';
+        dateEl.textContent = r.m + '/' + pad2(r.d);
+        dateEl.title = r.y + '/' + pad2(r.m) + '/' + pad2(r.d) + '（点击跳转）';
+        dateEl.addEventListener('click', function () {
+          if (window.api && window.api.remindlistGoto) {
+            window.api.remindlistGoto(r.y, r.m, r.d);
+          }
+        });
+
+        var wrap = document.createElement('div');
+        wrap.className = 'rl-text-wrap';
+        var txt = document.createElement('div');
+        txt.className = 'rl-text';
+        txt.textContent = r.text || '';
+        txt.title = r.text || '';
+        wrap.appendChild(txt);
+        bindTextDrag(wrap);
+
+        var del = document.createElement('button');
+        del.className = 'rl-del';
+        del.textContent = '✕';
+        del.title = '取消关注';
+        del.addEventListener('click', function () {
+          if (window.api && window.api.remindlistRemove) window.api.remindlistRemove(r.id);
+        });
+
+        row.appendChild(dateEl);
+        row.appendChild(wrap);
+        row.appendChild(del);
+        bodyEl.appendChild(row);
+      });
+    }
+
+    // 内容列横向拖动（按住左右拖看完整长文）
+    function bindTextDrag(wrap) {
+      wrap.addEventListener('mousedown', function (e) {
+        if (wrap.scrollWidth <= wrap.clientWidth) return;   // 没超宽就不拦鼠标
+        if (e.button !== 0) return;
+        e.preventDefault();
+        var startX = e.clientX;
+        var startLeft = wrap.scrollLeft;
+        function onMove(ev) { wrap.scrollLeft = startLeft - (ev.clientX - startX); }
+        function onUp() {
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+        }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+    }
+
+    render(payload.reminders);
+
+    // ---------- 关闭 ----------
+    function close() {
+      if (window.api && window.api.remindlistClose) window.api.remindlistClose();
+      setTimeout(function () { try { window.close(); } catch (e) {} }, 80);
+    }
+    document.getElementById('close').addEventListener('click', close);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+
+    // ---------- 主进程推送更新 ----------
+    if (window.api && window.api.onRemindlistData) {
+      window.api.onRemindlistData(function (data) {
+        if (!data) return;
+        if (data.theme) applyTheme(data.theme);
+        render(data.reminders);
+      });
+    }
+    // 主题切换实时跟随（与主窗一致）
+    if (window.api && window.api.onThemeChanged) {
+      window.api.onThemeChanged(function (mode) { applyTheme(mode); });
+    }
+  })();
+</script>
+</body>
+</html>

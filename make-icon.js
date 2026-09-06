@@ -1,22 +1,38 @@
 'use strict';
 /*
- * make-icon.js —— 零依赖生成 icon.ico（含 16/32/48/256 三个尺寸）。
- * 设计：雅蓝圆角磁贴 + 白色日历卡 + 朱砂红表头 + 灰/红网格点。
+ * make-icon.js —— 零依赖生成 icon.ico（16 / 32 / 48 / 256 四档）。
+ *
+ * 设计系统 v2.0「纸与光」图标：
+ *   结构：雅蓝磁贴（带自上而下的体积渐变 + 顶部高光）
+ *        → 白色日历卡（内缩，圆角）
+ *        → 朱砂表头（仅上半圆角，带两枚装订环）
+ *        → 网格点阵（首点朱砂 = 今天）
+ *
+ * 分尺寸策略（16px 下细节会糊成一团，必须减笔画）：
+ *   16px  → 磁贴 + 白卡 + 红条 + 2×3 点阵（不画装订环、不加高光）
+ *   32px  → 加装订环 + 高光
+ *   48/256 → 全套，含卡片底部极淡的分隔感
+ *
  * 运行：node make-icon.js  ->  生成 ./icon.ico
  */
 const fs = require('fs');
 const zlib = require('zlib');
 
-// ---------- 颜色 ----------
-const ACCENT = [59, 111, 212];   // 雅蓝 #3b6fd4
-const WHITE  = [255, 255, 255];
-const CINNA  = [214, 69, 63];    // 朱砂 #d6453f
-const GRAY   = [150, 156, 168];  // 网格点灰
+// ---------- 颜色（与设计系统一致的色板） ----------
+const BLUE_TOP  = [74, 130, 224];   // blue-400 偏亮（磁贴顶部）
+const BLUE_BOT  = [53, 101, 201];   // 磁贴底部
+const BLUE_EDGE = [40, 84, 178];    // 磁贴描边
+const WHITE     = [255, 255, 255];
+const WHITE_HI  = [255, 255, 255];  // 卡片顶部高光
+const CARD_SHAD = [176, 186, 204];  // 卡片底部极淡阴影线
+const CINNA     = [214, 69, 63];    // red-500 朱砂
+const CINNA_DK  = [191, 51, 48];    // red-600
+const GRAY      = [150, 156, 168];  // 网格点灰
 
-// ---------- 像素画布（RGBA） ----------
+// ---------- 像素画布（RGBA，预乘前用 float 叠加） ----------
 function Canvas(size) {
   this.s = size;
-  this.buf = new Float64Array(size * size * 4); // 用 float 做预乘前的叠加，最后转 8bit
+  this.buf = new Float64Array(size * size * 4);
 }
 
 Canvas.prototype.blend = function (x, y, c, a) {
@@ -31,12 +47,21 @@ Canvas.prototype.blend = function (x, y, c, a) {
   this.buf[i + 3] = outA;
 };
 
+// 线性插值两色
+function mix(c1, c2, t) {
+  return [c1[0] + (c2[0] - c1[0]) * t,
+          c1[1] + (c2[1] - c1[1]) * t,
+          c1[2] + (c2[2] - c1[2]) * t];
+}
+
 // 圆角矩形覆盖度（硬边）：corners = [tl, tr, br, bl]
-Canvas.prototype.roundRect = function (x0, y0, w, h, r, c, a, corners) {
+// fill 可为纯色数组，或函数 (y, h) => 颜色数组（用于垂直渐变）
+Canvas.prototype.roundRect = function (x0, y0, w, h, r, fill, a, corners) {
   const tl = corners[0], tr = corners[1], br = corners[2], bl = corners[3];
+  const grad = (typeof fill === 'function');
   for (let y = 0; y < h; y++) {
+    const row = grad ? fill(y, h) : fill;
     for (let x = 0; x < w; x++) {
-      const gx = x0 + x, gy = y0 + y;
       let inside = true;
       if (x < r) {
         if (y < r && tl && (x - r) * (x - r) + (y - r) * (y - r) > r * r) inside = false;
@@ -46,7 +71,20 @@ Canvas.prototype.roundRect = function (x0, y0, w, h, r, c, a, corners) {
         if (y < r && tr && (x - (w - r)) * (x - (w - r)) + (y - r) * (y - r) > r * r) inside = false;
         if (y >= h - r && br && (x - (w - r)) * (x - (w - r)) + (y - (h - r)) * (y - (h - r)) > r * r) inside = false;
       }
-      if (inside) this.blend(gx, gy, c, a);
+      if (inside) this.blend(x0 + x, y0 + y, row, a);
+    }
+  }
+};
+
+// 圆形（实心，带抗锯齿）
+Canvas.prototype.disc = function (cx, cy, r, c, a) {
+  const x0 = Math.floor(cx - r - 1), x1 = Math.ceil(cx + r + 1);
+  const y0 = Math.floor(cy - r - 1), y1 = Math.ceil(cy + r + 1);
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const d = Math.sqrt((x + 0.5 - cx) * (x + 0.5 - cx) + (y + 0.5 - cy) * (y + 0.5 - cy));
+      const cov = Math.max(0, Math.min(1, r + 0.5 - d));
+      if (cov > 0) this.blend(x, y, c, a * cov);
     }
   }
 };
@@ -54,15 +92,15 @@ Canvas.prototype.roundRect = function (x0, y0, w, h, r, c, a, corners) {
 Canvas.prototype.toRGBA8 = function () {
   const out = Buffer.alloc(this.s * this.s * 4);
   for (let i = 0; i < this.buf.length; i += 4) {
-    out[i]     = Math.round(Math.min(255, this.buf[i]));
-    out[i + 1] = Math.round(Math.min(255, this.buf[i + 1]));
-    out[i + 2] = Math.round(Math.min(255, this.buf[i + 2]));
-    out[i + 3] = Math.round(Math.min(255, this.buf[i + 3] * 255));
+    out[i]     = Math.round(Math.max(0, Math.min(255, this.buf[i])));
+    out[i + 1] = Math.round(Math.max(0, Math.min(255, this.buf[i + 1])));
+    out[i + 2] = Math.round(Math.max(0, Math.min(255, this.buf[i + 2])));
+    out[i + 3] = Math.round(Math.max(0, Math.min(255, this.buf[i + 3] * 255)));
   }
   return out;
 };
 
-// ---------- PNG 编码（与 electron-main 同款：RGBA + 每行 filter 0 + zlib） ----------
+// ---------- PNG 编码（RGBA + 每行 filter 0 + zlib） ----------
 const CRC_TABLE = (function () {
   const t = new Uint32Array(256);
   for (let n = 0; n < 256; n++) {
@@ -105,40 +143,67 @@ function encodePNG(size, rgba) {
 // ---------- 绘制一个尺寸的日历图标 ----------
 function renderIcon(S) {
   const cv = new Canvas(S);
-  const m = Math.round(S * 0.06);
+  const detailed = S >= 32;          // 装订环 + 高光只在 32px 以上画
+  const m = Math.round(S * 0.055);
   const tileX = m, tileY = m, tileW = S - 2 * m, tileH = S - 2 * m;
-  const tileR = Math.round(tileW * 0.22);
-  // 1) 雅蓝磁贴
-  cv.roundRect(tileX, tileY, tileW, tileH, tileR, ACCENT, 1, [true, true, true, true]);
+  const tileR = Math.round(tileW * 0.235);
+
+  // 1) 雅蓝磁贴：自上而下的体积渐变（顶部亮、底部沉）
+  cv.roundRect(tileX, tileY, tileW, tileH, tileR,
+    function (y, h) {
+      const t = y / Math.max(1, h - 1);
+      return mix(BLUE_TOP, BLUE_BOT, t * t * 0.72 + t * 0.28);
+    }, 1, [true, true, true, true]);
+  // 磁贴顶沿高光（1px 级，让边缘"起光"）
+  const hiH = Math.max(1, Math.round(tileH * 0.055));
+  cv.roundRect(tileX + 1, tileY + 1, tileW - 2, hiH, Math.max(1, Math.round(tileR * 0.7)),
+    WHITE_HI, 0.26, [true, true, false, false]);
+  // 磁贴外描边（把颜色压住，避免在浅色桌面上发虚）
+  cv.roundRect(tileX, tileY, tileW, tileH, tileR, BLUE_EDGE, 0.0, [true, true, true, true]);
 
   // 2) 白色日历卡（内缩）
-  const inPad = Math.round(S * 0.07);
-  const cX = tileX + inPad, cY = tileY + inPad, cW = tileW - 2 * inPad, cH = tileH - 2 * inPad;
-  const cR = Math.round(cW * 0.18);
+  const inPad = Math.max(1, Math.round(S * 0.075));
+  const cX = tileX + inPad, cY = tileY + inPad;
+  const cW = tileW - 2 * inPad, cH = tileH - 2 * inPad;
+  const cR = Math.round(cW * 0.17);
   cv.roundRect(cX, cY, cW, cH, cR, WHITE, 1, [true, true, true, true]);
+  // 卡片底部极淡的阴影线（营造"纸压在磁贴上"的厚度）
+  cv.roundRect(cX, cY + cH - Math.max(1, Math.round(cH * 0.05)), cW,
+    Math.max(1, Math.round(cH * 0.05)), 1, CARD_SHAD, 0.35, [false, false, true, true]);
 
-  // 3) 朱砂红表头（仅上半圆角）
-  const headH = Math.round(cH * 0.22);
+  // 3) 朱砂表头（仅上半圆角）
+  const headH = Math.round(cH * (detailed ? 0.235 : 0.26));
   const headR = Math.round(cR * 0.92);
   cv.roundRect(cX, cY, cW, headH, headR, CINNA, 1, [true, true, false, false]);
+  // 表头底部一道更深的边（强化"表头"的分界）
+  cv.roundRect(cX, cY + headH - Math.max(1, Math.round(headH * 0.16)), cW,
+    Math.max(1, Math.round(headH * 0.16)), 1, CINNA_DK, 0.55, [false, false, false, false]);
 
-  // 4) 网格点：4 列 x 3 行，首点用朱砂红表示"今天/节假日"
-  const top = cY + headH + Math.round(cH * 0.10);
+  // 4) 装订环（仅 detailed）：表头上两枚小圆点
+  if (detailed) {
+    const ringR = Math.max(1, headH * 0.15);
+    const ringY = cY + headH * 0.46;
+    cv.disc(cX + cW * 0.30, ringY, ringR, [255, 255, 255], 0.85);
+    cv.disc(cX + cW * 0.70, ringY, ringR, [255, 255, 255], 0.85);
+  }
+
+  // 5) 网格点阵：首点朱砂 = 今天
+  const cols = 4;
+  const rows = (S <= 16) ? 2 : 3;                 // 16px 只放 2 行，否则糊成一团
+  const top = cY + headH + Math.round(cH * 0.11);
   const bottom = cY + cH - Math.round(cH * 0.10);
   const areaH = bottom - top;
-  const gapX = cW * 0.07;
+  const gapX = cW * 0.09;
   const areaW = cW - 2 * gapX;
-  const cols = 4, rows = 3;
   const cellW = areaW / cols, cellH = areaH / rows;
-  const dot = Math.max(2, Math.round(Math.min(cellW, cellH) * 0.34));
-  const dotR = Math.max(1, Math.round(dot / 2));
+  const dot = Math.max(1.5, Math.min(cellW, cellH) * 0.42);
+  const dotR = Math.max(0.75, dot / 2);
   for (let r = 0; r < rows; r++) {
     for (let col = 0; col < cols; col++) {
       const cx = cX + gapX + cellW * (col + 0.5);
       const cy = top + cellH * (r + 0.5);
-      const dx = Math.round(cx - dot / 2), dy = Math.round(cy - dot / 2);
       const isToday = (r === 0 && col === 0);
-      cv.roundRect(dx, dy, dot, dot, dotR, isToday ? CINNA : GRAY, 1, [true, true, true, true]);
+      cv.disc(cx, cy, dot, isToday ? CINNA : GRAY, isToday ? 0.95 : 0.72);
     }
   }
   return encodePNG(S, cv.toRGBA8());
@@ -152,9 +217,8 @@ function buildICO(sizes) {
   header.writeUInt16LE(0, 0);          // reserved
   header.writeUInt16LE(1, 2);          // type = icon
   header.writeUInt16LE(count, 4);
-  const entries = [];
-  let offset = 6 + count * 16;
   const dirEntries = [];
+  let offset = 6 + count * 16;
   for (let i = 0; i < count; i++) {
     const S = sizes[i], png = pngs[i];
     const e = Buffer.alloc(16);

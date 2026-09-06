@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="ZgXTocwvWEiiSbPacGWlTD">
+<head data-page-node-id="JoNs6U2QB8t4CBJvLGvh9t">
+<meta charset="UTF-8" data-page-node-id="SXmDWoJSpPvVCKLn7YOuI9">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="89PI7Y4TeU0GE8KUHgzBZN">
+<title>任务栏挂件条</title>
+<style>
+  /* ==========================================================================
+   * 悬浮插件条 · 设计系统 v2.0
+   * --------------------------------------------------------------------------
+   * 定位：桌面上的一枚「微型仪表」—— 垂直接近任务栏高度，横向 116px 紧凑双行。
+   * 与日历主体共享同一套 Token（色板 / 字阶 / 圆角 / 阴影 / 动效），
+   * 保证插件与弹出日历在视觉上是同一件产品的两个部分。
+   *
+   * ⚠️ 硬约束（勿改）：
+   *   1) 卡片 inset 左上 2px、右下 0px —— 见下方 applyDockSize() 的注释，
+   *      右下归零是 v1.7.22.4 修复「插件和任务栏之间有空白」的关键。
+   *   2) 卡片阴影必须 y 偏移为 0（对称），否则底部投影会在插件与任务栏之间
+   *      造出一条视觉缝隙，用户会反馈「没贴住」。
+   * ========================================================================== */
+
+  /* ============================ L1 基础层 ============================ */
+  :root {
+    /* ---------- 色板：中性 ---------- */
+    --ink-900: #14181f;
+    --ink-800: #1f2430;
+    --ink-700: #333a48;
+    --ink-600: #4b5563;
+    --ink-500: #6b7280;
+    --ink-400: #9aa1ad;
+    --ink-300: #c2c8d2;
+    --ink-200: #e2e6ec;
+    --ink-100: #f0f2f5;
+    --ink-50:  #f7f8fa;
+    --ink-25:  #fcfbf9;
+
+    /* ---------- 色板：雅蓝 ---------- */
+    --blue-50:  #eff4fc;
+    --blue-100: #dae6fa;
+    --blue-200: #b9cff5;
+    --blue-300: #8fb0ec;
+    --blue-400: #6389df;
+    --blue-500: #3b6fd4;
+    --blue-600: #1976d2;
+    --blue-700: #155ba6;
+    --blue-800: #10457e;
+    --blue-900: #0c3056;
+
+    /* ---------- 色板：朱砂 ---------- */
+    --red-500: #d6453f;
+    --red-600: #bf3330;
+
+    /* ---------- 字阶（本页仅用 3 级） ---------- */
+    --fs-3xs: 8px;
+    --fs-2xs: 9px;
+    --fs-xs:  10px;
+    --fs-sm:  11px;
+    --fs-md:  13px;
+    --fs-lg:  14px;
+    --fs-xl:  15px;
+    --fs-2xl: 17px;   /* 挂件时钟 */
+    --fs-6xl: 30px;
+
+    --fw-regular: 400;
+    --fw-medium:  500;
+    --fw-semibold: 600;
+    --fw-bold:    700;
+
+    --font-sans: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI",
+                 "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+                 "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
+    --font-num-feat: "tnum" 1, "lnum" 1, "ss01" 1;
+
+    --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px;
+
+    --r-xs: 4px;
+    --r-sm: 6px;
+    --r-md: 10px;   /* 挂件卡片 */
+    --r-lg: 14px;
+    --r-xl: 24px;
+    --r-pill: 999px;
+
+    --dur-instant: 80ms;
+    --dur-fast:    140ms;
+    --dur-normal:  220ms;
+    --ease-out:    cubic-bezier(.22, .61, .36, 1);
+    --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+
+    /* ========== L2 语义层 · 白日 ========== */
+    --card: rgba(250, 250, 252, 0.95);
+    --card-hover: rgba(238, 242, 250, 0.97);
+    --edge: rgba(31, 35, 48, 0.09);
+    --hi: rgba(255, 255, 255, 0.85);          /* 顶部高光 */
+    --ink: var(--ink-800);
+    --ink-soft: var(--ink-600);
+    --accent: var(--blue-500);
+    --accent-soft: rgba(59, 111, 212, 0.10);
+    --hover: rgba(31, 35, 48, 0.055);
+    /* 阴影：y 偏移恒为 0（贴任务栏，不能有向下的投影） */
+    --shadow: 0 0 0 1px rgba(31, 35, 48, 0.055),
+              0 0 7px rgba(31, 35, 48, 0.11),
+              inset 0 1px 0 var(--hi);
+    --shadow-hover: 0 0 0 1px rgba(59, 111, 212, 0.20),
+                    0 0 10px rgba(31, 35, 48, 0.15),
+                    inset 0 1px 0 var(--hi);
+  }
+
+  /* ========== L2 语义层 · 黑夜 ========== */
+  [data-theme="dark"] {
+    --card: rgba(38, 43, 57, 0.95);
+    --card-hover: rgba(48, 55, 72, 0.97);
+    --edge: rgba(255, 255, 255, 0.10);
+    --hi: rgba(255, 255, 255, 0.07);
+    --ink: #eef1f6;
+    --ink-soft: #a8b0be;
+    --accent: #7aa5ff;
+    --accent-soft: rgba(122, 165, 255, 0.16);
+    --hover: rgba(255, 255, 255, 0.075);
+    --shadow: 0 0 0 1px rgba(255, 255, 255, 0.06),
+              0 0 8px rgba(0, 0, 0, 0.30),
+              inset 0 1px 0 var(--hi);
+    --shadow-hover: 0 0 0 1px rgba(122, 165, 255, 0.28),
+                    0 0 12px rgba(0, 0, 0, 0.42),
+                    inset 0 1px 0 var(--hi);
+  }
+
+  /* ============================ L3 组件层 ============================ */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: var(--font-sans);
+    background: transparent;
+    -webkit-user-select: none; user-select: none;
+    cursor: pointer;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #card {
+    position: absolute;
+    /* 初始占位，与 applyDockSize() 的 padL/T/R/B 保持一致（右下 0 让卡片贴死窗口边） */
+    left: 2px; top: 2px; right: auto; bottom: auto;
+    border-radius: var(--r-md);
+    background: var(--card);
+    -webkit-backdrop-filter: blur(10px) saturate(1.3);
+    backdrop-filter: blur(10px) saturate(1.3);
+    border: 1px solid var(--edge);
+    box-shadow: var(--shadow);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 2px;
+    transition: background var(--dur-fast) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out),
+                transform var(--dur-instant) var(--ease-out);
+  }
+  /* hover 高亮只在「实际可点」（body.hit）时出现，与点击热区保持一致 ——
+     鼠标停在方框外的透明区域时不给"这里能点"的错误暗示（此时点击穿透给下面窗口）。 */
+  body.hit #card:hover {
+    background: var(--card-hover);
+    box-shadow: var(--shadow-hover);
+    border-color: var(--accent-soft);
+  }
+  #card:active { transform: scale(0.965); }
+
+  #dockTime {
+    font-size: var(--fs-2xl); font-weight: var(--fw-bold); line-height: 1;
+    letter-spacing: 0.3px;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: var(--font-num-feat);
+  }
+  #dockDate {
+    font-size: var(--fs-xs); font-weight: var(--fw-semibold); line-height: 1;
+    letter-spacing: 0.4px;
+    color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: var(--font-num-feat);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; }
+  }
+
+</style>
+</head>
+<body data-page-node-id="IppGOXXE1GZRBnFK9ZZBEd">
+  <div id="card" data-page-node-id="4R1nm1s3QOxU7AyZct3c3P">
+    <div id="dockTime" data-page-node-id="biML9qHPDIPoYeS24xkdXn">--:--</div>
+    <div id="dockDate" data-page-node-id="vSIUXgsAB0RQf0l5ETxEOG">----/--/--</div>
+  </div>
+  <script>
+    (function () {
+      'use strict';
+      var timeEl = document.getElementById('dockTime');
+      var dateEl = document.getElementById('dockDate');
+      var cardEl = document.getElementById('card');
+
+      function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+      var lastTimeText = '';
+      var lastDateText = '';
+      function tick() {
+        var t = new Date();
+        // v1.7.17 需求6/7：去秒只显示时:分；仅在内容变化时写 DOM（省 CPU 重绘）
+        if (timeEl) {
+          var txt = pad2(t.getHours()) + ':' + pad2(t.getMinutes());
+          if (txt !== lastTimeText) { lastTimeText = txt; timeEl.textContent = txt; }
+        }
+        if (dateEl) {
+          var dtxt = t.getFullYear() + '/' + pad2(t.getMonth() + 1) + '/' + pad2(t.getDate());
+          if (dtxt !== lastDateText) { lastDateText = dtxt; dateEl.textContent = dtxt; }
+        }
+      }
+
+      /* v1.7.19：固定像素布局 —— 绕开 Chromium viewport 错算导致的裁切。
+       * ------------------------------------------------------------------
+       * 症状：嵌入任务栏后（以及部分浮动态）时钟被裁成竖条、日期看不见。
+       * 根因：transparent + 无边框窗口在 SetParent 之后，webContents 的内部 viewport
+       *       会被错算成 ~16px（物理窗口其实是 40~56px）。CSS 的 height:100% 于是 = 16px，
+       *       #card(inset:2px) 内容区只剩 12px，17px 的时钟 + 10px 的日期必然被切掉。
+       * 旧解法（v1.7.16 / v1.7.18）：嵌入后 setSize 强制 resize 让 viewport 重算 ——
+       *       但这会让 Chromium 直接 kill 渲染进程，反而制造崩溃循环，已废弃。
+       * 新解法：主进程把「物理窗口真实宽高」经 dock-size 发过来，这里用固定 px 覆盖
+       *       html / body / #card，不再依赖任何百分比高度。viewport 算错也照样按真实
+       *       尺寸排布，内容完整显示，且不触碰窗口尺寸，不会引发崩溃。 */
+      var sizeW = 116, sizeH = 50;        // 兜底默认值，IPC 到达后立即被真实值覆盖
+      function applyDockSize() {
+        if (!sizeW || !sizeH) return;
+        var de = document.documentElement;
+        de.style.width = sizeW + 'px';
+        de.style.height = sizeH + 'px';
+        document.body.style.width = sizeW + 'px';
+        document.body.style.height = sizeH + 'px';
+        /* v1.7.22.4 修复（"插件和任务栏中间有空白"）：右下两边的 inset 改为 0，
+         * 让卡片底边/右边**贴死窗口边缘**。窗口贴任务栏时，卡片底边即任务栏顶，消除
+         * 原 inset:2px 造成的 2px 缝隙（scale 1.5 下 ≈ 3 物理像素的"没吸附"感）。
+         * 左上仍留 2px 给边框/阴影，右下不留 —— 阴影向右/向下被窗口边界裁掉即可接受。 */
+        var padL = 2, padT = 2, padR = 0, padB = 0;
+        cardEl.style.left = padL + 'px';
+        cardEl.style.top = padT + 'px';
+        cardEl.style.right = 'auto';
+        cardEl.style.bottom = 'auto';
+        cardEl.style.width = (sizeW - padL - padR) + 'px';
+        cardEl.style.height = (sizeH - padT - padB) + 'px';
+      }
+      if (window.api && window.api.onDockSize) {
+        window.api.onDockSize(function (s) {
+          if (!s || !s.w || !s.h) return;
+          sizeW = s.w; sizeH = s.h;
+          applyDockSize();
+        });
+      }
+
+      /* ===== v1.7.21 需求1：点击热区严格 = 插件可视的小方框（#card 矩形） =====
+       * 症状：无边框 + transparent 窗口的点击热区是**整个窗口矩形**，而小方框比窗口小一圈
+       *      （四周留 2px 给边框/阴影，圆角外面也是透明的），于是点方框下面的透明区域
+       *      也会弹出日历 —— 用户反馈"点水平线及以下都能弹出"。
+       * 做法（Electron 官方 click-through 模式）：
+       *   窗口默认是「鼠标穿透」的 setIgnoreMouseEvents(true, { forward: true })，
+       *   forward:true 保证穿透状态下 mousemove 仍然会送进页面。页面按坐标判定：
+       *     在 #card 矩形内 → setIgnoreMouseEvents(false)，窗口收回响应（可点/可拖/可右键）
+       *     在 #card 矩形外 → 保持穿透，事件直接落到下面的窗口，插件完全不拦截
+       *   同理，插件被拖到屏幕中间时，方框外的"隐形区域"不再吃掉任何点击。 */
+      var hitInside = false;      // 与窗口当前的 ignore 状态保持同步（false = 当前穿透中）
+      var hitReported = false;    // 自检用：热区链路就绪只上报一次
+      function isInCard(x, y) {
+        if (!cardEl) return false;
+        var r = cardEl.getBoundingClientRect();
+        return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+      }
+      // force=true 时不走"状态没变就跳过"的短路（松手后必须强制复判一次）
+      function updateHit(x, y, force) {
+        if (dragging) return;                    // 拖动期间绝不切穿透，否则拖到卡片外会掉手
+        var inside = isInCard(x, y);
+        if (!force && inside === hitInside) return;
+        hitInside = inside;
+        // 同步给 CSS：只有真正能点的区域才给 hover 反馈
+        document.body.classList.toggle('hit', inside);
+        if (window.api && window.api.dockSetMouse) window.api.dockSetMouse(!inside);
+        if (!hitReported && window.api && window.api.dockHitReady) {
+          hitReported = true;      // 只报一次：证明穿透状态下 mousemove 确实 forward 进来了
+          window.api.dockHitReady();
+        }
+      }
+
+      /* v1.7.22.5 拖拽改写 —— 绝对定位，禁止累加漂移（详见下方注释）。
+       * v1.7.17 需求5 + v1.7.21 需求3/6：按住拖动，落点受工作区限制，松手不吸附。
+       *
+       * ===== 历史 bug（v1.7.22.4 及之前） =====
+       * 旧实现：dock.html 内部用 `dragStart = mousePos` 跟踪鼠标，每帧算 `dy = mouse - dragStart`
+       * 再更新 dragStart，传给主进程 dx/dy；主进程做 `b.y + dy`（累加）。
+       * 当窗口被 clampDockToWorkArea 夹紧时，主进程返回的窗口位置 ≠ dock.html 期望的位置，
+       * dock.html 内部 dragStart 只跟踪鼠标、不感知窗口实际位置，下一次 mousedown 时的
+       * dragStart 已经是远离窗口的鼠标屏幕坐标，dy 算出来是从那个"远点"起的相对量，
+       * 累加到 clamp 后的窗口位置产生数据漂移 —— 表现为用户拖动 N 次后"底部边界逐渐上移"。
+       *
+       * ===== 新实现（按用户给的 WinForms 标准模板） =====
+       *   1. mousedown：把当前鼠标屏幕坐标告诉主进程，主进程记下 `offset = mousePos - windowPos`
+       *   2. mousemove：直接传当前鼠标屏幕坐标给主进程，主进程算 `newPos = mousePos - offset`
+       *   3. 主进程实时获取 workArea，clampDockToWorkArea 后 setBounds
+       * 整个 mousemove 期间窗口位置不参与 `+=` 计算，clamp 介入不影响下次计算结果。 */
+      var dragging = false;
+      var dragMoved = false;             // 已超 4px 阈值（区分 click vs drag）
+      var dragDownX = 0, dragDownY = 0;  // mousedown 时的鼠标屏幕坐标（仅用于阈值判断）
+
+      /* 统一收口：结束拖动 + 按当前坐标强制复判热区。
+       * e 可为 null（兜底路径没有坐标）——此时按"不在卡片内"处理，先恢复穿透，
+       * 等下一次 mousemove 再据实切回。 */
+      function endDrag(e) {
+        if (!dragging) return;
+        dragging = false;
+        if (dragMoved && window.api && window.api.dockDragEnd) window.api.dockDragEnd();
+        // 拖动期间 updateHit 全程被短路（防止拖到卡片外掉手），松手必须强制复判一次
+        if (e && typeof e.clientX === 'number') updateHit(e.clientX, e.clientY, true);
+        else updateHit(-1, -1, true);
+      }
+
+      document.addEventListener('mousedown', function (e) {
+        if (e.button !== 0) return;                                   // 仅左键
+        dragging = true;
+        dragMoved = false;
+        dragDownX = e.screenX;                                        // 仅做阈值判断，不参与位置计算
+        dragDownY = e.screenY;
+        /* 【v1.7.21 关键修复】捕获指针，保证拖到窗口外松手时 mouseup 仍能回到本窗口。
+         * 不加这段的后果：光标移出窗口后窗口就收不到鼠标消息，mouseup 永远丢失，
+         * dragging 卡死在 true → 之后鼠标一回到插件上就继续跟着走（粘鼠标），
+         * 必须再点一次才解开。v1.7.20 曾用 pointercancel/失焦兜底，v1.7.21 重写时丢失。 */
+        try {
+          if (e.pointerId !== undefined && e.target && e.target.setPointerCapture) {
+            e.target.setPointerCapture(e.pointerId);
+          }
+        } catch (err) {}
+        // 【v1.7.22.5】通知主进程记录 mousedown 时的鼠标屏幕坐标（用于算 offset = mouse - window）
+        try { if (window.api && window.api.dockDragStart) window.api.dockDragStart(e.screenX, e.screenY); } catch (err) {}
+      });
+      document.addEventListener('mousemove', function (e) {
+        if (!dragging) { updateHit(e.clientX, e.clientY); return; }   // 未拖动 → 只做热区判定
+        // 4px 阈值用于区分"点击"和"拖动"：阈值内静默，跨过阈值才算真正开始拖
+        if (!dragMoved) {
+          var dist = Math.abs(e.screenX - dragDownX) + Math.abs(e.screenY - dragDownY);
+          if (dist < 4) return;
+          dragMoved = true;
+        }
+        // 【v1.7.22.5】绝对定位：直接传当前鼠标屏幕坐标，不在 dock.html 这边算 dx/dy，
+        // 主进程算 newPos = mousePos - offset（与累加的 b.y + dy 完全不同，零漂移）
+        if (window.api && window.api.dockDragMove) window.api.dockDragMove(e.screenX, e.screenY);
+      });
+      document.addEventListener('mouseup', function (e) { endDrag(e); });
+      // 兜底：指针捕获也没兜住时（切窗口、系统弹窗抢焦点等），失焦/取消一律收口
+      window.addEventListener('blur', function () { endDrag(null); });
+      document.addEventListener('pointercancel', function () { endDrag(null); });
+      // 鼠标移出窗口 → 恢复穿透（避免窗口边缘残留的非透明热区）
+      document.addEventListener('mouseleave', function () {
+        if (dragging) return;
+        if (hitInside) {
+          hitInside = false;
+          document.body.classList.remove('hit');
+          if (window.api && window.api.dockSetMouse) window.api.dockSetMouse(true);
+        }
+      });
+
+      // 左键：开 / 关日历主窗（拖动结束后松手的 click 不触发）
+      document.addEventListener('click', function (e) {
+        e.preventDefault();
+        if (dragMoved) { dragMoved = false; return; }
+        if (window.api && window.api.dockToggleMain) window.api.dockToggleMain();
+      });
+      // 右键：弹出托盘同款菜单
+      document.addEventListener('contextmenu', function (e) {
+        e.preventDefault();
+        if (window.api && window.api.dockShowMenu) window.api.dockShowMenu();
+      });
+      // v1.7.20：挂件条恒为浮动卡片，配色始终跟随软件主题（嵌入态让位系统主题的逻辑已删除）
+      if (window.api && window.api.onThemeChanged) {
+        window.api.onThemeChanged(function (mode) {
+          document.documentElement.dataset.theme = (mode === 'dark') ? 'dark' : 'light';
+        });
+      }
+
+      applyDockSize();      // v1.7.19：先用默认尺寸占位，IPC 到达后再校准为真实值
+      tick();
+      setInterval(tick, 1000);
+    })();
+  </script>
+</body>
+</html>
+

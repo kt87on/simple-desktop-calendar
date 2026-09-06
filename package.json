@@ -1,6 +1,6 @@
 {
   "name": "simple-desktop-calendar",
-  "version": "1.4.0",
+  "version": "2.0.0",
   "description": "简洁桌面日历：极简 Windows 桌面日历，核心只做一件事——看日历、看放假、看上班。",
   "author": "YG",
   "homepage": "https://github.com/kt87on/simple-desktop-calendar",
@@ -12,6 +12,12 @@
   "main": "electron-main.js",
   "scripts": {
     "dev": "electron .",
+    "verify": "node verify_v1721.js",
+    "smoke": "node smoke-test.js",
+    "runtime": "node runtime-test_v1721.js",
+    "asar": "node verify_asar_v1721.js",
+    "check": "node verify_v1721.js && node smoke-test.js && node runtime-test_v1721.js",
+    "prebuild": "node verify_v1721.js && node smoke-test.js && node runtime-test_v1721.js",
     "build": "node make-icon.js && node build.js && electron-builder --win nsis"
   },
   "build": {
@@ -20,10 +26,6 @@
     "executableName": "SimpleCalendar",
     "copyright": "Copyright © 2026 YG",
     "asar": true,
-    "asarUnpack": [
-      "node_modules/koffi/**",
-      "node_modules/@koromix/**"
-    ],
     "files": [
       "app.js",
       "template.html",
@@ -31,10 +33,12 @@
       "build.js",
       "preload.js",
       "electron-main.js",
+      "holidays.js",
       "calendar.html",
-      "widget.html",
-      "widget.js",
-      "taskbar.js",
+      "reminder.html",
+      "remindlist.html",
+      "dock.html",
+      "exit.html",
       "icon.ico",
       "README.md",
       "使用说明.html",
@@ -64,8 +68,5 @@
   "devDependencies": {
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3"
-  },
-  "dependencies": {
-    "koffi": "^3.1.6"
   }
 }

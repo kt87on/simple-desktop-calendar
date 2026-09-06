@@ -2,24 +2,81 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
-// 3.0 preload：在保持 contextIsolation 安全约定的前提下，
-// 向渲染进程暴露以下能力（均由主进程通过 IPC 处理）：
-//   toggleExpand -> 切换 mini / expanded 双窗口模式（R4）
-//   requestSnap  -> 拖拽结束后请求窗口吸附到最近屏幕边（R4）
-//   setTooltip   -> 推送农历+星期字符串作为托盘 tooltip（R3）
+/* v1.6.2 preload：在 contextIsolation 安全沙箱内向渲染进程暴露以下能力
+ *   基础（v1.6 沿用）：
+ *     toggleExpand / exitApp / setTheme / resizeWindow / onThemeChanged / onGotoYm
+ *   特别关注（v1.6.2 新增）：
+ *     listReminders          <- 主进程下发的关注列表
+ *     addReminder            -> 新增关注项
+ *     removeReminder         -> 删除关注项（"取消选择"）
+ *     onRemindersChanged     <- 订阅主进程列表变化（写盘后推回）
+ *     onReminderTrigger      <- 主进程推送到期提醒，渲染层负责弹窗 UI
+ *     ackReminder            -> 用户在弹窗里点"知道了/稍后提醒" → 主进程记录
+ */
 contextBridge.exposeInMainWorld('api', {
-  toggleExpand: function () {
-    ipcRenderer.send('toggle-expand');
+  // ---- v1.6 基础 ----
+  toggleExpand: function () { ipcRenderer.send('toggle-expand'); },
+  // v1.7.11：主进程在 mini/expanded 切换后回推，渲染层据此同步 #widget 的 .max 类
+  onExpandChanged: function (cb) {
+    ipcRenderer.on('expand-changed', function (e, expanded) { try { cb && cb(!!expanded); } catch (err) {} });
   },
-  requestSnap: function () {
-    ipcRenderer.send('request-snap');
+  // v1.7.11：任务栏挂件条
+  dockToggleMain: function () { ipcRenderer.send('dock-toggle-main'); },
+  dockShowMenu: function () { ipcRenderer.send('dock-show-menu'); },
+  // v1.7.17 需求8：主窗右键弹菜单（去托盘后）
+  mainShowMenu: function () { ipcRenderer.send('main-show-menu'); },
+  // v1.7.17 需求5：浮动态拖动挂件条（绝对定位，详见 electron-main.js dock-drag-* 与 dock.html 注释）
+  // v1.7.22.5：传的是鼠标**屏幕坐标**（不是 dx/dy 增量），主进程算 newPos = mousePos - offset，零累加漂移
+  dockDragStart: function (mouseX, mouseY) { ipcRenderer.send('dock-drag-start', mouseX, mouseY); },
+  dockDragMove: function (mouseX, mouseY) { ipcRenderer.send('dock-drag-move', mouseX, mouseY); },
+  dockDragEnd: function () { ipcRenderer.send('dock-drag-end'); },
+  // v1.7.21 需求1：页面按鼠标坐标动态开关「鼠标穿透」，把点击热区精确限制在
+  // 插件可视的小方框（#card 矩形）内；方框外的透明区域一律穿透，不拦鼠标。
+  dockSetMouse: function (ignore) { ipcRenderer.send('dock-set-mouse', !!ignore); },
+  // 仅仅用于自检：证明"鼠标穿透"状态下 mousemove 确实被 forward 进了页面。
+  // 若这条始终没上报，说明 forward 在当前环境失效 → 插件会完全点不动（热区方案失效）。
+  dockHitReady: function () { ipcRenderer.send('dock-hit-ready'); },
+  // v1.7.20：原 onDockEmbedded（主进程回推"是否已嵌入任务栏"）随嵌入方案一并删除。
+  // v1.7.19：主进程下发挂件条物理窗口的真实宽高，页面用固定像素布局，
+  // 绕开 Chromium viewport 被错算成 ~16px 导致的内容裁切（不再用 setSize 硬撑）。
+  onDockSize: function (cb) {
+    ipcRenderer.on('dock-size', function (e, size) { try { cb && cb(size); } catch (err) {} });
   },
-  // 任务栏部件点击 → 打开/关闭主日历
-  openCalendar: function () {
-    ipcRenderer.send('widget-click');
+  exitApp: function () { ipcRenderer.send('exit-app'); },
+  setTheme: function (mode) { ipcRenderer.send('set-theme', mode); },
+  resizeWindow: function (w) { ipcRenderer.send('resize-window', w); },
+  onThemeChanged: function (cb) { ipcRenderer.on('theme-changed', function (e, mode) { cb(mode); }); },
+  onGotoYm: function (cb) { ipcRenderer.on('goto-ym', function (e, y, m, d) { cb(y, m, d); }); },
+
+  // ---- v1.6.2 关注 ----
+  listReminders: function () { return ipcRenderer.invoke('list-reminders'); },
+  addReminder: function (item) { return ipcRenderer.invoke('add-reminder', item); },
+  removeReminder: function (id) { return ipcRenderer.invoke('remove-reminder', id); },
+  onRemindersChanged: function (cb) {
+    ipcRenderer.on('reminders-changed', function (e, list) { cb(list); });
   },
-  // 退出软件：主进程弹原生确认框，确认后还原原生时钟并退出
-  exitApp: function () {
-    ipcRenderer.send('exit-app');
+  onReminderTrigger: function (cb) {
+    ipcRenderer.on('reminder-trigger', function (e, item) { cb(item); });
+  },
+  ackReminder: function (id, action) {
+    // action: 'dismiss' = 知道了（标记今天已确认，保留关注项，今天不再弹）
+    //         'snooze'  = 稍后提醒（30 分钟后再弹）
+    ipcRenderer.send('ack-reminder', id, action);
+  },
+
+  // ---- v2.0 退出确认弹窗（原生 dialog → 卡片弹窗）----
+  confirmExit: function () { ipcRenderer.send('exit-confirm'); },
+  cancelExit: function () { ipcRenderer.send('exit-cancel'); },
+
+  // ---- v1.7.12：关注列表改为独立窗口 ----
+  // 原先 #reminderList 是 #widget 内的 DOM 浮层，拖动被限制在日历窗口可视区内。
+  // 改为独立 BrowserWindow 后，表头用 -webkit-app-region: drag 由 Electron 原生拖动，
+  // 可拖到屏幕任意位置，不受主窗口裁剪。
+  openReminderListWindow: function () { ipcRenderer.send('remindlist-open'); },
+  remindlistGoto: function (y, m, d) { ipcRenderer.send('remindlist-goto-ym', y, m, d); },
+  remindlistRemove: function (id) { ipcRenderer.send('remindlist-remove', id); },
+  remindlistClose: function () { ipcRenderer.send('remindlist-close'); },
+  onRemindlistData: function (cb) {
+    ipcRenderer.on('remindlist-data', function (e, data) { try { cb && cb(data); } catch (err) {} });
   }
 });

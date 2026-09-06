@@ -1,0 +1,228 @@
+  /* ==========================================================================
+   * 特别关注提醒弹窗 · 设计系统 v2.0
+   * --------------------------------------------------------------------------
+   * 语义定位：这是一次「打断」—— 用朱砂色头部建立 urgency，内容区保持安静。
+   * v2.0 补齐了此前缺失的黑夜模式（此前无论什么主题都是白底，夜里刺眼）。
+   * ========================================================================== */
+
+  /* ============================ L1 基础层 ============================ */
+  :root {
+    --ink-900: #14181f;
+    --ink-800: #1f2430;
+    --ink-700: #333a48;
+    --ink-600: #4b5563;
+    --ink-500: #6b7280;
+    --ink-400: #9aa1ad;
+    --ink-300: #c2c8d2;
+    --ink-200: #e2e6ec;
+    --ink-100: #f0f2f5;
+    --ink-50:  #f7f8fa;
+    --ink-25:  #fcfbf9;
+
+    --blue-50:  #eff4fc;
+    --blue-100: #dae6fa;
+    --blue-200: #b9cff5;
+    --blue-300: #8fb0ec;
+    --blue-400: #6389df;
+    --blue-500: #3b6fd4;
+    --blue-600: #1976d2;
+    --blue-700: #155ba6;
+
+    --red-50:  #fdf0ef;
+    --red-100: #fbdcd9;
+    --red-200: #f6bab4;
+    --red-300: #ee9187;
+    --red-400: #e46659;
+    --red-500: #d6453f;
+    --red-600: #bf3330;
+    --red-700: #9a2826;
+
+    --fs-3xs: 8px;
+    --fs-2xs: 9px;
+    --fs-xs:  10px;
+    --fs-sm:  11px;
+    --fs-md:  13px;
+    --fs-lg:  14px;
+    --fs-xl:  15px;
+    --fs-2xl: 19px;
+
+    --fw-regular: 400;
+    --fw-medium:  500;
+    --fw-semibold: 600;
+    --fw-bold:    700;
+
+    --font-sans: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI",
+                 "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+                 "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
+    --font-num-feat: "tnum" 1, "lnum" 1, "ss01" 1;
+
+    --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px;
+
+    --r-xs: 4px;
+    --r-sm: 6px;
+    --r-md: 10px;
+    --r-lg: 14px;
+    --r-xl: 16px;
+    --r-pill: 999px;
+
+    --dur-instant: 80ms;
+    --dur-fast:    140ms;
+    --dur-normal:  220ms;
+    --ease-out:    cubic-bezier(.22, .61, .36, 1);
+    --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+
+    /* ========== L2 语义层 · 白日 ========== */
+    --paper: #ffffff;
+    --paper-edge: rgba(31, 35, 48, 0.10);
+    --paper-hi: rgba(255, 255, 255, 0.85);
+    --ink: var(--ink-800);
+    --ink-soft: var(--ink-500);
+    --ink-faint: var(--ink-400);
+
+    --warn: var(--red-500);
+    --warn-ink: var(--red-600);
+    --warn-soft: rgba(214, 69, 63, 0.10);
+    --warn-glow: rgba(214, 69, 63, 0.18);
+
+    --accent: var(--blue-500);
+    --accent-hover: var(--blue-600);
+    --accent-glow: rgba(59, 111, 212, 0.30);
+
+    --head-bg: linear-gradient(180deg, rgba(214, 69, 63, 0.11), rgba(214, 69, 63, 0));
+    --head-line: rgba(31, 35, 48, 0.07);
+    --field-bg: rgba(31, 35, 48, 0.028);
+    --field-edge: rgba(31, 35, 48, 0.06);
+    --foot-bg: rgba(252, 251, 249, 0.65);
+    --btn-ghost-bg: var(--ink-100);
+    --btn-ghost-ink: var(--ink-600);
+    --btn-ghost-hover: var(--ink-200);
+
+    --e-3: 0 20px 52px rgba(31, 35, 48, 0.26), 0 4px 14px rgba(31, 35, 48, 0.10),
+           inset 0 1px 0 var(--paper-hi);
+  }
+
+  /* ========== L2 语义层 · 黑夜 ========== */
+  html[data-theme="dark"] {
+    --paper: #1e222e;
+    --paper-edge: rgba(255, 255, 255, 0.09);
+    --paper-hi: rgba(255, 255, 255, 0.055);
+    --ink: #e8eaf0;
+    --ink-soft: #9aa3b3;
+    --ink-faint: #6a7283;
+
+    --warn: #ef6b65;
+    --warn-ink: #f08b86;
+    --warn-soft: rgba(239, 107, 101, 0.14);
+    --warn-glow: rgba(239, 107, 101, 0.24);
+
+    --accent: #4a86ef;
+    --accent-hover: #5f97f5;
+    --accent-glow: rgba(74, 134, 239, 0.32);
+
+    --head-bg: linear-gradient(180deg, rgba(239, 107, 101, 0.14), rgba(239, 107, 101, 0));
+    --head-line: rgba(255, 255, 255, 0.07);
+    --field-bg: rgba(255, 255, 255, 0.045);
+    --field-edge: rgba(255, 255, 255, 0.07);
+    --foot-bg: rgba(255, 255, 255, 0.028);
+    --btn-ghost-bg: rgba(255, 255, 255, 0.08);
+    --btn-ghost-ink: #b6bdcc;
+    --btn-ghost-hover: rgba(255, 255, 255, 0.14);
+
+    --e-3: 0 24px 60px rgba(0, 0, 0, 0.66), 0 6px 16px rgba(0, 0, 0, 0.42),
+           inset 0 1px 0 var(--paper-hi);
+  }
+
+  /* ============================ L3 组件层 ============================ */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    font-family: var(--font-sans);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* 外层 = 真正承载阴影的不透明容器。窗口 backgroundColor 透明，
+     但本容器不透明，避免 Windows 透明背景渲黑块。 */
+  #card {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    background: var(--paper);
+    border-radius: var(--r-xl);
+    border: 1px solid var(--paper-edge);
+    box-shadow: var(--e-3);
+    overflow: hidden;
+  }
+
+  /* 头部：朱砂 —— 提醒的紧急语义 */
+  #head {
+    flex: 0 0 52px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 var(--s-4) 0 var(--s-4);
+    background: var(--head-bg);
+    border-bottom: 1px solid var(--head-line);
+  }
+  #head .title { display: flex; align-items: center; gap: var(--s-2); color: var(--warn-ink); font-size: var(--fs-xl); font-weight: var(--fw-bold); letter-spacing: 0.3px; }
+  #head .dot {
+    width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+    background: var(--warn); box-shadow: 0 0 0 3px var(--warn-glow);
+  }
+  #head .date { font-size: var(--fs-sm); color: var(--ink-soft); font-weight: var(--fw-medium); }
+
+  #body {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column;
+    padding: var(--s-4) var(--s-5) var(--s-3);
+  }
+  #body .label {
+    font-size: var(--fs-sm); color: var(--ink-faint); margin-bottom: var(--s-2);
+    letter-spacing: 1.5px; font-weight: var(--fw-semibold);
+  }
+  #text-wrap {
+    flex: 1; min-height: 0;
+    display: flex;
+    padding: var(--s-4) var(--s-4);
+    background: var(--field-bg);
+    border: 1px solid var(--field-edge);
+    border-radius: var(--r-md);
+    overflow-y: auto;
+  }
+  #text {
+    width: 100%;
+    margin: auto 0;   /* 内容短时垂直居中；长时 auto 边距归零，保证能滚到顶部不被裁 */
+    font-size: var(--fs-2xl); line-height: 1.6; font-weight: var(--fw-semibold);
+    color: var(--ink);
+    word-break: break-all; white-space: pre-wrap;
+    text-align: center;
+  }
+
+  #actions {
+    flex: 0 0 auto;
+    display: flex; gap: var(--s-2); justify-content: flex-end;
+    padding: var(--s-3) var(--s-4) var(--s-4);
+    background: var(--foot-bg);
+    border-top: 1px solid var(--head-line);
+  }
+  button {
+    border: none; border-radius: var(--r-md); padding: 10px 22px;
+    font-family: inherit; font-size: var(--fs-md); font-weight: var(--fw-semibold);
+    cursor: pointer; outline: none;
+    transition: background-color var(--dur-fast) var(--ease-out),
+                transform var(--dur-instant) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out);
+  }
+  button:active { transform: scale(0.965); }
+  button:focus-visible { box-shadow: 0 0 0 3px var(--accent-glow); }
+  #btnSnooze { background: var(--btn-ghost-bg); color: var(--btn-ghost-ink); }
+  #btnSnooze:hover { background: var(--btn-ghost-hover); }
+  #btnDismiss { background: var(--accent); color: #fff; box-shadow: 0 3px 10px var(--accent-glow); }
+  #btnDismiss:hover { background: var(--accent-hover); }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.16); border-radius: var(--r-pill); }
+  html[data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; }
+  }

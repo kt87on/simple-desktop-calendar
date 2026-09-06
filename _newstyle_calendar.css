@@ -1,10 +1,3 @@
-<!DOCTYPE html>
-<html lang="zh-CN" data-page-node-id="HASPxEJqL2AAdp9K7wx1Pk">
-<head data-page-node-id="FNrGrvcM4GapMaelxqp2Cj">
-<meta charset="UTF-8" data-page-node-id="bDccl9WynfliJFAvPFwblY">
-<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="aV4dGU6tRPDldpVuH4Cuyu">
-<title>简洁桌面日历</title>
-<style>
   /* ==========================================================================
    * 简洁桌面日历 · 设计系统 v2.0（UI Design System）
    * --------------------------------------------------------------------------
@@ -742,13 +735,6 @@
   ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.18); border-radius: var(--r-pill); }
   ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.28); }
   [data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); }
-
-  @media (prefers-reduced-motion: reduce) {
-    * {
-      transition-duration: 0.01ms !important;
-      animation-duration: 0.01ms !important;
-    }
-  }
   [data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.26); }
 
   /* 无障碍：尊重系统的"减少动效"偏好 */
@@ -758,97 +744,3 @@
       animation-duration: 0.01ms !important;
     }
   }
-
-</style>
-</head>
-<body data-page-node-id="6aYTFEaNbDm30w49jbFbFv">
-  <div id="widget" data-page-node-id="mo7ae0U7n5qawBaahP44p2">
-    <div id="infoBar" data-page-node-id="RgfUhLBO8seCGR2UdKrSWb">
-      <div id="clkTime" data-page-node-id="pcw5NfsBWw4VHNNw3wtOnV">--:--:--</div>
-      <div class="info-right" data-page-node-id="kBuQNT8MxzuLCLBzfpk5Jw">
-        <div id="infoDate" data-page-node-id="nmO1QVdeuLfhQ25TukE3kL">---- 年 -- 月 -- 日</div>
-        <div id="infoLunar" data-page-node-id="R08HYuRz84guOnaPN7XCUn">----</div>
-      </div>
-    </div>
-    <div id="dragBar" data-page-node-id="jMWNP6ZcPUeSsY0JKHGLFc">
-      <div class="toolbar" data-page-node-id="R21qvBvzukfgkFiP4awyhN">
-        <div class="ym-select" data-page-node-id="7sQnmzQDrEDVTlrHcAdYLp">
-          <select id="yearSel" class="sel s-y" aria-label="选择年份" data-page-node-id="PdHUO2DxoPH3nzIt1x6VPi"></select>
-          <select id="monthSel" class="sel s-m" aria-label="选择月份" data-page-node-id="jQvDBrWSUaqLLalGB9Cq94"></select>
-        </div>
-        <button class="nav-btn" id="prevBtn" title="上一月" aria-label="上一月" data-page-node-id="ZqeGaHwOKVjfGjX2dzZID7">‹</button>
-        <button class="nav-btn" id="nextBtn" title="下一月" aria-label="下一月" data-page-node-id="oCrA8GL7k4FKGWV26VWRaQ">›</button>
-        <button class="today-btn" id="todayBtn" title="回到今天" data-page-node-id="h0w0rODfeAM7WzlrJwCfNi">今</button>
-      </div>
-      <div class="bar-right" data-page-node-id="fyvpC2B79kAL1UEXPcxPT4">
-        <div id="wkSwitch" class="wk-switch mon" title="切换每周起始日（周一 / 周日）" data-page-node-id="tXEdofH0EwQ9iQtbVd3g3U">
-          <span class="wk-toggle" id="wkToggle" data-page-node-id="6lVBL03GoBWS9jdyuga9of">
-            <span class="wk-opt wk-opt-l" data-page-node-id="hMopaSmhZLLwBnq1BMEa31">一</span>
-            <span class="wk-opt wk-opt-r" data-page-node-id="uEGSIcFkLWiul4iSZs0Azt">日</span>
-            <span class="wk-knob" data-page-node-id="LXiXfZEDKf3g8peaYKaHyL"></span>
-          </span>
-        </div>
-        <button id="themeBtn" class="zoom-btn" title="主题：白日（点击切换为黑夜）" aria-label="主题" data-page-node-id="tEWnbLTk9QlGd2QjJqkHJj">
-          <!-- v1.6：衣服形状 + 胸口图标。JS 根据 theme 切换太阳/月亮 -->
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="MlzSfa9kYNq6WdvHpx9kvm">
-            <!-- 衣服外轮廓：圆领短袖 -->
-            <path d="M9 5 L7 7 L4 8 L7 11 L7 20 L17 20 L17 11 L20 8 L17 7 L15 5" data-page-node-id="NCoGtFDRYHFR2oNoTJCFuN"></path>
-            <path d="M9 5 Q12 7.5 15 5" data-page-node-id="iuHyKfNQCuj2VLfWhGJjl3"></path>
-            <!-- 胸口图标：JS 替换此 g 元素的内容 -->
-            <g id="themeIcon" data-page-node-id="QnHrNvIdEYr8jCzwH8MUP4"><circle cx="12" cy="13.5" r="2.2" data-page-node-id="80g5m0uHmXjnkHkND09rQS"></circle><path d="M12 9.5 L12 11" data-page-node-id="gFtuNddpYfUtTVHnXPG1u7"></path><path d="M12 16 L12 17.5" data-page-node-id="CkujipvxQ5KND7wN5NjQxk"></path><path d="M8.5 13.5 L7.5 13.5" data-page-node-id="0AklH4Inhp17pJIth9X77U"></path><path d="M16.5 13.5 L15 13.5" data-page-node-id="CPVVdQeKQMCPeHMMv762Oo"></path></g>
-          </svg>
-        </button>
-        <!-- v1.7.9 需求 3：关注列表按钮（一本书图标）—— 点击弹三列弹窗 -->
-        <button id="bookBtn" class="zoom-btn" title="关注列表" aria-label="关注列表" data-page-node-id="QBCj3ynesbFVgQGRY9jSKM">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="WMP852brE81gjDDt5pkYRr">
-            <!-- 翻开的书 -->
-            <path d="M3 5.5 Q3 4.5 4 4.5 Q9 4.5 12 7 Q15 4.5 20 4.5 Q21 1 21 5.5 L21 18.5 Q21 19.5 20 19.5 Q15 19.5 12 17 Q9 19.5 4 19.5 Q3 19.5 3 18.5 Z" data-page-node-id="cakfn3JeIyIysimqLmGV0k"></path>
-            <path d="M12 7 L12 17" data-page-node-id="TR0AIFmPmnb1qrDMA9rZQh"></path>
-          </svg>
-        </button>
-        <button id="maxBtn" class="zoom-btn" title="放大 / 还原" aria-label="放大" data-page-node-id="QM5Or4bAS0nPO4ApwELcnS">
-          <!-- v1.7.17 需求9：放大/缩小按钮图标改「左上大 · 右下小 · 中间斜杠」，大小两字一样大 -->
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="7VCqGXBOYiLft4LvRIipSK">
-            <line x1="5" y1="19" x2="19" y2="5" data-page-node-id="x9oA36RBEcc1LN1e1HB4ds"></line>
-            <text x="7.5" y="8.5" font-size="9" text-anchor="middle" dominant-baseline="central" fill="currentColor" stroke="none" style="font-family:'Segoe UI','Microsoft YaHei',sans-serif;font-weight:700;" data-page-node-id="kwXjJAi523yWLpCHe7qRsW">大</text>
-            <text x="16.5" y="17.5" font-size="9" text-anchor="middle" dominant-baseline="central" fill="currentColor" stroke="none" style="font-family:'Segoe UI','Microsoft YaHei',sans-serif;font-weight:700;" data-page-node-id="rrBkjFNrdakSnUIwRkjwBL">小</text>
-          </svg>
-        </button>
-        <!-- v1.6.2：需求 5 — 删掉主界面关闭按钮；退出请用托盘右键菜单「⏻ 退出软件」 -->
-      </div>
-    </div>
-    <div id="body" data-page-node-id="koyH9bcEnCMsLCFaxoD0tU">
-      <div id="calendar" data-page-node-id="CafazjO8E92rKogIde5EFB">
-        <div id="bgMonth" data-page-node-id="fLuoaHZbbT8KMhQu0NpJc4"></div>
-        <div id="litGlow" data-page-node-id="EsWbNKMwU71P2hsKCn51UC"></div>
-        <div id="weekHeader" data-page-node-id="6AlrjXKM4ij96EUDApFO8j"></div>
-        <div id="grid" role="grid" aria-label="日历" data-page-node-id="JCLCA7CIeNZEPkh14ZTQxB"></div>
-        <div id="dayCount" data-page-node-id="bN1U4SEl2iX5wqRcKnimIr"></div>
-      </div>
-    </div>
-    <!-- v1.6.2 需求 6：单元格右键 → 弹出"定时关注栏"输入关注内容 -->
-    <div id="remindInput" role="dialog" aria-label="添加特别关注" data-page-node-id="GmvJFAyzv5iEVEgeHxdvGa">
-      <div class="label" data-page-node-id="N2c1nFNK3xDlbUEMHVfncX">特别关注 <strong id="remindDateLabel" data-page-node-id="uPJITeBFVyB6FESMaPqXXv"></strong></div>
-      <div class="hint" data-page-node-id="SSTpFxpHdvLBrma1meqAwN">（到日期会弹窗提醒）</div>
-      <!-- v1.7.11 需求 1：最多 15 字，placeholder 里直接说明 -->
-      <input id="remindText" type="text" maxlength="15" placeholder="请输入：（15字以内）" data-page-node-id="gvzaGfFA51iyRAnjlNUn0m" />
-      <div class="actions" data-page-node-id="6SwwtIsyXDef9fcP8faqAo">
-        <button class="btn-cancel" id="remindCancel" data-page-node-id="PDv6j7BLc3qGFcI0f07yLt">取消</button>
-        <button class="btn-ok" id="remindOk" data-page-node-id="RiC4zBEzrVQ4wtwUUE5Uz6">确定</button>
-      </div>
-    </div>
-
-    <!-- v1.7.11 需求 3：删掉"黄色格 hover 2s 显示内容"——直接看单元格上的「关」小标注即可 -->
-
-
-    <!-- v1.7.11：轻量提示条 -->
-    <div id="toast" role="status" aria-live="polite" data-page-node-id="00fzsENTf4WxITx9ABOKCd"></div>
-    <!-- v1.6：放大模式 resize 手柄（仅 .max 时显示，比例由主进程 setAspectRatio + 渲染层手动锁定双重保障） -->
-    <div id="resize-e" class="resize-handle" data-dir="e" aria-hidden="true" data-page-node-id="pNREyGNbUXB2mQfA1B0NRb"></div>
-    <div id="resize-s" class="resize-handle" data-dir="s" aria-hidden="true" data-page-node-id="TTygwKQYCem1QTgODkABFA"></div>
-    <div id="resize-se" class="resize-handle" data-dir="se" aria-hidden="true" data-page-node-id="LJzfdbO1oykLXvbf5Tn4Ra"></div>
-  </div>
-  <script>/*__LUNAR_LIB__*/</script>
-  <script>/*__APP__*/</script>
-</body>
-</html>
