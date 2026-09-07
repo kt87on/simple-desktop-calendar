@@ -942,6 +942,13 @@ function confirmRemindInput() {
       window.api.onExpandChanged(function (expanded) {
         if (!widgetEl) return;
         widgetEl.classList.toggle('max', !!expanded);
+        // v2.3.2 需求3：放大镜图标按钮的 title / aria 随状态切换（加号=放大、减号=缩小）
+        var mb = $('maxBtn');
+        if (mb) {
+          var on = !!expanded;
+          mb.title = on ? '缩小' : '放大';
+          mb.setAttribute('aria-label', on ? '缩小' : '放大');
+        }
         // 关注列表已改独立窗口，此处无需重定位；输入栏在显示中时重新定位即可
         if (remindInputEl && remindInputEl.classList.contains('show')) {
           var k = pendingRemind;

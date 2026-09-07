@@ -41,7 +41,7 @@ const whenReadyBody = main.slice(main.indexOf('app.whenReady'), main.indexOf("ap
 // =====================================================================
 // 版本号
 // =====================================================================
-check('版本号=2.3.1', pkg.version === '2.3.1', 'package.json version=' + pkg.version);
+check('版本号=2.3.2', pkg.version === '2.3.2', 'package.json version=' + pkg.version);
 
 // =====================================================================
 // v2.3.0 Phase 3：设置窗口拖动 / 解除特别关注数量限制 / 安装后说明弹出
@@ -367,15 +367,18 @@ check('[v1.7.22.7] resize 事件记录尺寸漂移（不强制回弹，避免死
   /dockWin\.on\('resize'[\s\S]{0,300}dock resized to/.test(mainCode));
 /* 注意：clampDockToWorkArea 自身体里有 `width: b.width`（它按契约原样回传入参尺寸），
  * 那是合法的。要卡的是"外部调用点"—— 只允许 dockClamped / desktopClamped 两个包装器
- * （v2.2.0 桌面插件复用了同一套夹取），不该再有别的调用。 */
-check('[v1.7.22.7] clampDockToWorkArea 的外部调用点只剩 dockClamped / desktopClamped 两处',
+ * （v2.2.0 桌面插件复用了同一套夹取）+ v2.3.2 放大模式拖动夹取（win.on('move')），
+ * 不该再有别的调用。 */
+check('[v1.7.22.7] clampDockToWorkArea 的外部调用点只剩 dockClamped / desktopClamped / 放大拖动夹取三处',
   (function () {
     const all = (mainCode.match(/clampDockToWorkArea\(/g) || []).length;
-    // 1 处定义 + dockClamped/desktopClamped 各 1 处内部调用 = 3，多出来就是有人绕过包装器直接调
-    return all === 3 && /function clampDockToWorkArea\(/.test(mainCode) &&
+    // 1 处定义 + dockClamped/desktopClamped 各 1 处内部调用 + 放大拖动夹取 1 处 = 4，多出来就是有人绕过包装器直接调
+    return all === 4 && /function clampDockToWorkArea\(/.test(mainCode) &&
       /return clampDockToWorkArea\(\{ x: x, y: y, width: dockW, height: dockH \}\)/.test(mainCode) &&
       /return clampDockToWorkArea\(\{ x: x, y: y, width: DESKTOP_W, height: DESKTOP_H \}\)/.test(mainCode);
   })());
+check('[v2.3.2] 放大模式拖动夹取到工作区（win.on move + isResizable 判断 + 防重入）',
+  /win\.on\('move'/.test(mainCode) && /win\.isResizable\(\)/.test(mainCode) && /mainClampLock/.test(mainCode));
 check('[v1.7.22.7] [关键·反向] 插件定位已无 width: cur.width / b.width 写法',
   !/dockWin\.setBounds\(\{[\s\S]{0,200}width:\s*(b|cur)\.width/.test(mainCode));
 check('[v1.7.22.6] 无 extraResources 残留', !/extraResources/.test(mainCode));
@@ -389,7 +392,9 @@ check('[v2.2.0] 需求3 显示秒 + 星期',
   /getSeconds\(\)/.test(dock) && /--:--:--/.test(dock) && /周/.test(dock));
 check('[回归] 需求8 去托盘改为按需托盘 + 主窗右键',
   /main-show-menu/.test(main) && /mainShowMenu/.test(preload) && /mainShowMenu/.test(appjs));
-check('[回归] 需求9 放大图标', />大</.test(tmpl) && />小</.test(tmpl));
+check('[回归] 需求9 放大图标（v2.3.2 改为放大镜 + 镜片内加号/减号随状态切换）',
+  /zoom-sign-plus/.test(tmpl) && /zoom-sign-minus/.test(tmpl) &&
+  /<circle cx="11" cy="11" r="7"/.test(tmpl));
 check('[回归] 需求10 角标注', />注</.test(appjs) && !/chip-focus[\s\S]{0,120}>关</.test(appjs));
 check('[回归] 固定像素布局（applyDockSize）仍在',
   /function applyDockSize\(\)/.test(dock) && /style\.height = \(sizeH - padT - padB\)/.test(dock));

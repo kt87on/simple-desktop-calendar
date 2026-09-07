@@ -1346,6 +1346,7 @@ let trayTooltipTimer = null;
 /* =====================================================================
  * 主窗
  * ===================================================================== */
+let mainClampLock = false;   // v2.3.2：放大模式拖动夹取防重入标志（move→setBounds→move 短路）
 function createWindow() {
   win = new BrowserWindow({
     width: MINI_W, height: MINI_H,
@@ -1389,6 +1390,22 @@ function createWindow() {
   // v2.2.0 需求2：系统拖拽窗口边框（resizable）时实时下发新宽，内容等比缩放跟随
   win.on('resize', function () {
     try { pushWinSize(); } catch (e) {}
+  });
+  // v2.3.2 需求2：放大模式（resizable）拖动窗口时夹进工作区 —— 不越屏幕/任务栏。
+  // 复用 clampDockToWorkArea（按窗口所在屏取 workArea，多显示器自动适配）。
+  // move 在拖动中连续触发，mainClampLock 防重入；setBounds 回写会再触发一次 move，靠标志位短路。
+  win.on('move', function () {
+    if (mainClampLock) return;
+    if (!win.isResizable()) return;   // 仅放大模式夹取，mini 保持原生拖动行为
+    try {
+      const b = win.getBounds();
+      const c = clampDockToWorkArea(b);
+      if (c.x !== b.x || c.y !== b.y) {
+        mainClampLock = true;
+        try { win.setBounds({ x: c.x, y: c.y, width: b.width, height: b.height }); } catch (e) {}
+        mainClampLock = false;
+      }
+    } catch (e) {}
   });
   win.on('closed', function () { win = null; });
 }
