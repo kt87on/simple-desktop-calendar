@@ -185,8 +185,8 @@
 </head>
 <body data-page-node-id="IppGOXXE1GZRBnFK9ZZBEd">
   <div id="card" data-page-node-id="4R1nm1s3QOxU7AyZct3c3P">
-    <div id="dockTime" data-page-node-id="biML9qHPDIPoYeS24xkdXn">--:--</div>
-    <div id="dockDate" data-page-node-id="vSIUXgsAB0RQf0l5ETxEOG">----/--/--</div>
+    <div id="dockTime" data-page-node-id="biML9qHPDIPoYeS24xkdXn">--:--:--</div>
+    <div id="dockDate" data-page-node-id="vSIUXgsAB0RQf0l5ETxEOG">周- --/--</div>
   </div>
   <script>
     (function () {
@@ -197,17 +197,21 @@
 
       function pad2(n) { return n < 10 ? '0' + n : '' + n; }
 
+      // v2.2.0 需求3：新增秒与星期几。宽度 116px 下"周X MM/DD"去掉年份更紧凑，
+      // 风格（字号/颜色/字重/tabular-nums）沿用原 token 不变。
+      var WEEK_CN = ['日', '一', '二', '三', '四', '五', '六'];
+
       var lastTimeText = '';
       var lastDateText = '';
       function tick() {
         var t = new Date();
-        // v1.7.17 需求6/7：去秒只显示时:分；仅在内容变化时写 DOM（省 CPU 重绘）
+        // 仅在内容变化时写 DOM（省 CPU 重绘）；时间含秒后每秒变化
         if (timeEl) {
-          var txt = pad2(t.getHours()) + ':' + pad2(t.getMinutes());
+          var txt = pad2(t.getHours()) + ':' + pad2(t.getMinutes()) + ':' + pad2(t.getSeconds());
           if (txt !== lastTimeText) { lastTimeText = txt; timeEl.textContent = txt; }
         }
         if (dateEl) {
-          var dtxt = t.getFullYear() + '/' + pad2(t.getMonth() + 1) + '/' + pad2(t.getDate());
+          var dtxt = '周' + WEEK_CN[t.getDay()] + ' ' + pad2(t.getMonth() + 1) + '/' + pad2(t.getDate());
           if (dtxt !== lastDateText) { lastDateText = dtxt; dateEl.textContent = dtxt; }
         }
       }

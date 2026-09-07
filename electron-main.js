@@ -77,6 +77,13 @@ function loadSettings() {
       if (o.remindlistBounds && typeof o.remindlistBounds.x === 'number') {
         lastRemindlistBounds = o.remindlistBounds;
       }
+      // v2.2.0 需求4/5：桌面插件开关/锁定/位置 + 三窗口透明度
+      desktopOn = o.desktopOn === true;
+      desktopLocked = o.desktopLocked === true;
+      if (o.desktopBounds && typeof o.desktopBounds.x === 'number') desktopBounds = o.desktopBounds;
+      dockOpacity = clampOpacity(o.dockOpacity, 1);
+      mainOpacity = clampOpacity(o.mainOpacity, 1);
+      desktopOpacity = clampOpacity(o.desktopOpacity, 1);
       /* v2.1.0 节假日年度更新节流：
        *   holidayLastCheck     上次真正做过检查的 ISO 时间（7 天内不自动弹窗骚扰）
        *   holidayDismissedYear 用户点过「以后再说」的年份（该年不再自动提示） */
@@ -102,9 +109,23 @@ function saveSettings() {
       // v2.1.0 节假日年度更新节流
       holidayLastCheck: holidayLastCheck,
       holidayDismissedYear: holidayDismissedYear,
-      holidayFailCount: holidayFailCount
+      holidayFailCount: holidayFailCount,
+      // v2.2.0 需求4/5：桌面插件 + 三窗口透明度
+      desktopOn: desktopOn,
+      desktopLocked: desktopLocked,
+      desktopBounds: desktopBounds,
+      dockOpacity: dockOpacity,
+      mainOpacity: mainOpacity,
+      desktopOpacity: desktopOpacity
     }, null, 2), 'utf8');
   } catch (e) {}
+}
+
+// 透明度取值夹在 [0.3, 1.0]，非法值回落到默认 def
+function clampOpacity(v, def) {
+  const n = Number(v);
+  if (!isFinite(n)) return def;
+  return Math.max(0.3, Math.min(1, n));
 }
 
 /* ===== v1.7.22 需求3：Windows 版本检测 =====
@@ -220,6 +241,21 @@ let dockBounds = null;
 /* v1.7.21：插件置顶开关。默认开，但置顶等级用 'floating'（低于 'screen-saver'），
  * 不跟全屏游戏/视频抢最高层；用户看全屏视频时可在这里手动关掉。 */
 let dockPinned = true;
+
+/* ===== v2.2.0 需求4：桌面插件（日历板块独立桌面工具） =====
+ * 与浮动挂件条（dock）是两码事：dock 是一枚只显示时间的小方框，桌面插件是
+ * 把「日历板块」（不含顶部时间那一排）作为一块桌面工具，可拖动、可锁定。
+ * 复用 calendar.html，靠 query `mode=desktopWidget` 让渲染层进入桌面模式。
+ * 尺寸 340×370（= mini 宽，去掉 62px 信息条后的自然高度）。 */
+let desktopWin = null;
+let desktopOn = false;             // 桌面插件开关（默认关，避免和现有形态抢桌面）
+let desktopLocked = false;         // 锁定：锁定后不可拖动，其余功能正常
+let desktopBounds = null;          // 上次位置
+let _desktopSaveTimer = null;      // 拖动结束位置落盘防抖
+const DESKTOP_W = 340, DESKTOP_H = 370;
+// 透明度（需求5）：三窗口各自一份，默认不透明
+let dockOpacity = 1, mainOpacity = 1, desktopOpacity = 1;
+
 let quitting = false;          // 退出中，禁止窗口自动重建
 /* v1.7.20：浮动态下的渲染进程崩溃保护。浮动态也偶发 crash（GPU/驱动/D3D），但不会"嵌入崩溃循环"，
  * 这里保留有限重建次数：偶发一次 OK，连续多次就放弃重建避免堆进程。 */
@@ -261,7 +297,7 @@ const MINI_W = 340, MINI_H = 430;
 // 放大模式：默认按 mini 的 2.24x 比例开（760×959），让"放大"看起来图真的变大
 const ASPECT = MINI_W / MINI_H;
 const EXP_DEF_W = 760, EXP_DEF_H = Math.round(EXP_DEF_W / ASPECT);   // 等比 760×959
-const EXP_MIN_W = 700;   // v1.7.3：放大窗口可缩小下限（再小固定 px 字号会溢出被裁）
+const EXP_MIN_W = 420;   // v2.2.0：降到 420 —— 内容已用 zoom 等比缩放，不再靠固定字号兜底
 
 /* ===== 工作区 ===== */
 function workArea() {
@@ -572,6 +608,22 @@ function _glyphMask(name) {
       line(8, 32, 42, 32, 7);
       poly([[38, 17], [57, 32], [38, 47]]);
       break;
+    /* 锁定：闭合挂锁（锁梁 + 锁体 + 锁孔） */
+    case 'lock':
+      ring(32, 23, 9, T, 180, 360);          // 锁梁：上半圆环
+      rr(16, 26, 48, 50, 6, 0, 'fill');      // 锁体
+      circle(32, 34, 3.4, 'fill', 0, -1);    // 锁孔（挖空）
+      break;
+    /* 设置：齿轮（外环 + 8 齿 + 中心孔） */
+    case 'settings':
+      circle(32, 32, 11, 'stroke', T);       // 外环
+      for (var gi = 0; gi < 8; gi++) {
+        var ga = gi * Math.PI / 4;
+        line(32 + Math.cos(ga) * 15, 32 + Math.sin(ga) * 15,
+             32 + Math.cos(ga) * 19, 32 + Math.sin(ga) * 19, 5);
+      }
+      circle(32, 32, 4.5, 'fill', 0, -1);    // 中心孔（挖空）
+      break;
   }
   return m;
 }
@@ -762,6 +814,7 @@ function showMini() {
   if (!win.isVisible()) win.show();
   win.focus();
   notifyExpandState();       // v1.7.11：告诉渲染层"现在是 mini"
+  pushWinSize();             // v2.2.0：mini 宽 340 → zoom 复位
 }
 
 /* v1.7.11 严重 bug 修复（放大一直无效的真因）：
@@ -794,6 +847,7 @@ function showExpanded() {
   if (!win.isVisible()) win.show();
   win.focus();
   notifyExpandState();       // v1.7.11：告诉渲染层"现在是 expanded"
+  pushWinSize();             // v2.2.0：下发当前窗口宽，驱动等比缩放
 }
 
 // 托盘左键 / IPC 切换：已显示就隐藏，未显示就 mini 唤起
@@ -805,6 +859,9 @@ function toggleFromTray() {
     win.hide();
   } else {
     showMini();
+    // v2.2.0 需求7：每次打开日历都回到「当前月份」（之前是停留在上次关闭时翻到的月份）。
+    // 只在"手动打开"这里重置，trayGotoYm / 关注跳转走的是指定日期，不重置。
+    try { setTimeout(function () { if (win && !win.isDestroyed()) win.webContents.send('reset-month'); }, 60); } catch (e) {}
   }
 }
 
@@ -1062,6 +1119,124 @@ function toggleDockPinned() {
     try { dockWin.setAlwaysOnTop(dockPinned, 'floating'); } catch (e) {}
   }
   refreshTrayMenu();
+  pushSettingsState();
+}
+
+/* ===== v2.2.0 需求4：桌面插件（日历板块桌面工具） ===== */
+function desktopClamped(x, y) {
+  return clampDockToWorkArea({ x: x, y: y, width: DESKTOP_W, height: DESKTOP_H });
+}
+function pushThemeToDesktop() {
+  if (desktopWin && desktopWin.webContents && !desktopWin.webContents.isDestroyed()) {
+    try { desktopWin.webContents.send('theme-changed', themeMode); } catch (e) {}
+  }
+}
+// 锁定状态 → 渲染层（锁图标 / 是否可拖）
+function pushDesktopState() {
+  if (desktopWin && desktopWin.webContents && !desktopWin.webContents.isDestroyed()) {
+    try { desktopWin.webContents.send('desktop-locked', desktopLocked); } catch (e) {}
+  }
+}
+function createDesktopWidget() {
+  if (desktopWin) return;
+  try {
+    desktopWin = new BrowserWindow({
+      width: DESKTOP_W, height: DESKTOP_H,
+      frame: false, transparent: true, resizable: false,
+      alwaysOnTop: false, skipTaskbar: true,
+      backgroundColor: '#00000000', show: false,
+      webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.js') }
+    });
+    desktopWin.loadFile(path.join(__dirname, 'calendar.html'), { query: { mode: 'desktopWidget' } });
+    desktopWin.webContents.on('did-finish-load', function () {
+      pushThemeToDesktop();
+      pushDesktopState();
+    });
+    desktopWin.once('ready-to-show', function () {
+      try {
+        if (desktopBounds) desktopWin.setBounds(desktopClamped(desktopBounds.x, desktopBounds.y));
+        else desktopWin.center();
+        desktopWin.setOpacity(desktopOpacity);   // 需求5：应用透明度
+        desktopWin.show();
+      } catch (e) {}
+    });
+    // 拖动结束记位置（防抖写 settings）
+    desktopWin.on('moved', function () {
+      clearTimeout(_desktopSaveTimer);
+      _desktopSaveTimer = setTimeout(function () {
+        if (!desktopWin || desktopWin.isDestroyed()) return;
+        try { desktopBounds = desktopWin.getBounds(); saveSettings(); } catch (e) {}
+      }, 400);
+    });
+    desktopWin.on('closed', function () { desktopWin = null; });
+    log('desktop widget created OK');
+  } catch (e) {
+    log('desktop widget FAILED: ' + (e && e.stack || e));
+    desktopWin = null;
+  }
+}
+function toggleDesktop() {
+  desktopOn = !desktopOn;
+  saveSettings();
+  if (desktopOn) {
+    createDesktopWidget();
+  } else {
+    if (desktopWin && !desktopWin.isDestroyed()) { try { desktopWin.destroy(); } catch (e) {} }
+    desktopWin = null;
+  }
+  refreshTrayMenu();
+  pushSettingsState();
+}
+
+/* ===== v2.2.0 需求5：设置弹窗 =====
+ * 菜单瘦身后，主题/置顶/自启/挂件条开关/形态/插件置顶/桌面插件/检查更新/透明度
+ * 全部收进这个独立卡片弹窗。主进程是唯一真相：每个操作执行完 pushSettingsState()，
+ * 弹窗只渲染收到的状态，保证与菜单、主窗实时一致。 */
+let settingsWin = null;
+function settingsSnapshot() {
+  return {
+    theme: themeMode,
+    pinned: pinned,
+    autoLaunch: autoLaunch,
+    dockOn: dockOn,
+    dockMode: dockMode,
+    dockPinned: dockPinned,
+    desktopOn: desktopOn,
+    desktopLocked: desktopLocked,
+    dockOpacity: dockOpacity,
+    mainOpacity: mainOpacity,
+    desktopOpacity: desktopOpacity,
+    mainVisible: !!(win && win.isVisible())
+  };
+}
+function pushSettingsState() {
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    try { settingsWin.webContents.send('settings-state', settingsSnapshot()); } catch (e) {}
+  }
+}
+function openSettingsWindow() {
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    try { settingsWin.focus(); } catch (e) {}
+    pushSettingsState();
+    return;
+  }
+  const wa = screen.getPrimaryDisplay().workAreaSize;
+  const W = 360, H = 600;
+  settingsWin = new BrowserWindow({
+    width: W, height: H,
+    x: Math.round((wa.width - W) / 2),
+    y: Math.round((wa.height - H) / 2),
+    frame: false, transparent: true, resizable: false,
+    alwaysOnTop: true, skipTaskbar: true,
+    backgroundColor: '#00000000', show: false,
+    webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.js') }
+  });
+  settingsWin.setAlwaysOnTop(true, 'screen-saver');
+  settingsWin.loadFile(path.join(__dirname, 'settings.html'), { query: { theme: themeMode } });
+  settingsWin.once('ready-to-show', function () {
+    try { settingsWin.show(); pushSettingsState(); } catch (e) {}
+  });
+  settingsWin.on('closed', function () { settingsWin = null; });
 }
 
 function buildTrayMenu() {
@@ -1079,38 +1254,10 @@ function buildTrayMenu() {
   // 关注
   menu = menu.concat(buildReminderMenuItems());
   menu.push({ type: 'separator' });
-  // 主题 / 置顶 / 自启 / 任务栏挂件条 / 退出
-  // v2.0 视觉：emoji 换成菜单图标后，标签里的状态用「：开 / 关」统一后缀，文字基线对齐
+  /* v2.2.0 需求5：右键菜单瘦身 —— 只保留「最近节日 / 特别关注 / 显示隐藏日历 / 设置 / 退出」，
+   * 主题/置顶/自启/挂件条开关/形态/插件置顶/桌面插件/检查更新/透明度 全部收进「设置」弹窗。 */
   menu.push({ label: '显示 / 隐藏日历', icon: menuIcon('calendar'), click: function () { toggleFromTray(); } });
-  menu.push({
-    label: '主题：' + (themeMode === 'light' ? '白日' : '黑夜'),
-    icon: menuIcon(themeMode === 'light' ? 'sun' : 'moon'), click: toggleTheme
-  });
-  menu.push({ label: '日历窗口置顶：' + (pinned ? '开' : '关'), icon: menuIcon('pinTop'), click: togglePinned });
-  menu.push({ label: '开机自启：' + (autoLaunch ? '开' : '关'), icon: menuIcon('power'), click: toggleAutoLaunch });
-  menu.push({ type: 'separator' });
-  menu.push({ label: '挂件条总开关：' + (dockOn ? '开' : '关'), icon: menuIcon('dock'), click: toggleDock });
-  if (dockOn) {
-    /* v1.7.21 需求2：形态切换（替代早已废弃的"嵌入任务栏"）。
-     * v1.7.21 需求6：删除「贴回任务栏上沿」——物理嵌入已放弃，吸附/复位语义都不再成立；
-     *   这里只保留不影响形态的置顶开关。 */
-    menu.push({
-      label: dockMode === 'icon' ? '切回桌面插件' : '缩小至桌面图标',
-      icon: menuIcon(dockMode === 'icon' ? 'restore' : 'minimize'),
-      click: function () { setDockMode(dockMode === 'icon' ? 'dock' : 'icon'); }
-    });
-    if (dockMode === 'dock') {
-      /* v1.7.21：置顶等级固定 'floating'（低于 'screen-saver'），不跟全屏游戏/视频抢层。
-       * 仍觉得挡事（比如无边框全屏视频）就在这里一键关掉。 */
-      menu.push({
-        label: '　└ 插件总在最前：' + (dockPinned ? '开' : '关'),
-        icon: menuIcon('pinTop'), click: toggleDockPinned
-      });
-    }
-  }
-  menu.push({ type: 'separator' });
-  // v2.1.0：手动检查节假日更新（忽略 7 天节流，无更新时只写日志，不弹窗骚扰）
-  menu.push({ label: '检查节假日更新', icon: menuIcon('sparkle'), click: function () { maybeHolidayUpdate(true); } });
+  menu.push({ label: '设置…', icon: menuIcon('settings'), click: function () { openSettingsWindow(); } });
   menu.push({ type: 'separator' });
   menu.push({ label: '退出软件', icon: menuIcon('power'), click: function () { requestExit(); } });
   return Menu.buildFromTemplate(menu);
@@ -1209,6 +1356,7 @@ function createWindow() {
     webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.js') }
   });
   win.loadFile(path.join(__dirname, 'calendar.html'));
+  try { win.setOpacity(mainOpacity); } catch (e) {}   // v2.2.0 需求5：应用日历透明度
 
   win.webContents.on('did-finish-load', function () {
     pushThemeToRenderer();
@@ -1230,8 +1378,18 @@ function createWindow() {
     try {
       if (remindlistWin && !remindlistWin.isDestroyed() && remindlistWin.isVisible()) return;
       if (reminderWin && !reminderWin.isDestroyed() && reminderWin.isVisible()) return;
+      /* v2.2.0 需求1：点击浮动插件 toggle 主窗时，焦点会从主窗转移到插件窗口，
+       * 这个 blur 会先于插件的 click 触发并把主窗 hide()，随后 toggle 又判"不可见"→重新 show，
+       * 结果表现为"点插件关不掉，只能点别处"。这里只要焦点还在插件（或桌面插件）上就不隐藏，
+       * 让 toggleFromTray 的 isVisible() 判断看到真实状态。 */
+      if (dockWin && !dockWin.isDestroyed() && dockWin.isFocused()) return;
+      if (desktopWin && !desktopWin.isDestroyed() && desktopWin.isFocused()) return;
     } catch (e) {}
     if (win && win.isVisible()) win.hide();
+  });
+  // v2.2.0 需求2：系统拖拽窗口边框（resizable）时实时下发新宽，内容等比缩放跟随
+  win.on('resize', function () {
+    try { pushWinSize(); } catch (e) {}
   });
   win.on('closed', function () { win = null; });
 }
@@ -1239,6 +1397,16 @@ function createWindow() {
 function pushThemeToRenderer() {
   if (win && win.webContents && !win.webContents.isDestroyed()) {
     try { win.webContents.send('theme-changed', themeMode); } catch (e) {}
+  }
+}
+/* v2.2.0 需求2：把主窗物理宽高下发渲染层，驱动放大模式的 CSS zoom 等比缩放。
+ * getBounds() 拿到的是物理窗口尺寸（不受页面 zoom 影响），渲染层据此算 --uizoom。 */
+function pushWinSize() {
+  if (win && win.webContents && !win.webContents.isDestroyed()) {
+    try {
+      const b = win.getBounds();
+      win.webContents.send('win-size', { width: b.width, height: b.height });
+    } catch (e) {}
   }
 }
 function pushThemeToDock() {
@@ -1420,6 +1588,7 @@ function createDock() {
       } catch (e) {}
     });
     dockWin.loadFile(path.join(__dirname, 'dock.html'));
+    try { dockWin.setOpacity(dockOpacity); } catch (e) {}   // v2.2.0 需求5：应用浮动插件透明度
     /* v1.7.21：置顶等级用 'floating'，不再用 'screen-saver'。
      * 'screen-saver' 是 Electron 的最高置顶层，会盖在全屏视频 / 游戏 / 投屏之上很碍事；
      * 'floating' 依然是最顶层（普通窗口盖不住插件），但不再跟全屏应用抢最高层。
@@ -1726,7 +1895,9 @@ ipcMain.on('set-theme', function (evt, mode) {
     } catch (e) {}
   }
   pushThemeToDock();
+  pushThemeToDesktop();   // v2.2.0：桌面插件跟随主题
   pushDataToRemindlist();  // v1.7.12：关注列表独立窗口跟随主题
+  pushSettingsState();     // v2.2.0：设置弹窗（若开着）同步
   saveSettings();          // v1.7.11：主题持久化
   refreshTrayMenu();
 });
@@ -1738,6 +1909,126 @@ ipcMain.on('resize-window', function (evt, w) {
   h = Math.max(MINI_H, h);
   var b = win.getBounds();
   win.setBounds({ x: b.x, y: b.y, width: w, height: h });
+  pushWinSize();             // v2.2.0：resize 后立刻下发新宽，缩放实时跟随
+});
+
+/* =====================================================================
+ * v2.2.0 需求4：桌面插件（日历板块桌面工具）拖动 / 锁定 / 开关
+ * ---------------------------------------------------------------------
+ * 拖动复用 dock 的「绝对定位 + 零累加漂移」范式：mousedown 记 offset =
+ * 鼠标屏幕坐标 - 窗口左上角，移动时 newPos = 鼠标 - offset，绝不读 getBounds()
+ * 累加，杜绝 clamp 后漂移。锁定状态下主进程直接拒绝拖动（双保险，渲染层也拦）。
+ * ===================================================================== */
+var desktopDragOX = 0, desktopDragOY = 0;
+ipcMain.on('desktop-drag-start', function (evt, mouseX, mouseY) {
+  if (!desktopWin || desktopWin.isDestroyed() || desktopLocked) return;
+  try {
+    var b = desktopWin.getBounds();
+    desktopDragOX = Math.round(mouseX) - b.x;
+    desktopDragOY = Math.round(mouseY) - b.y;
+  } catch (e) { log('desktop drag-start failed: ' + (e && e.message || e)); }
+});
+ipcMain.on('desktop-drag-move', function (evt, mouseX, mouseY) {
+  if (!desktopWin || desktopWin.isDestroyed() || desktopLocked) return;
+  try {
+    var nx = Math.round(mouseX) - desktopDragOX;
+    var ny = Math.round(mouseY) - desktopDragOY;
+    desktopWin.setBounds(desktopClamped(nx, ny));
+  } catch (e) { log('desktop drag-move failed: ' + (e && e.message || e)); }
+});
+ipcMain.on('desktop-drag-end', function () {
+  if (!desktopWin || desktopWin.isDestroyed()) return;
+  try {
+    var cur = desktopWin.getBounds();
+    var nb = desktopClamped(cur.x, cur.y);
+    desktopWin.setBounds(nb);
+    desktopBounds = { x: nb.x, y: nb.y, width: DESKTOP_W, height: DESKTOP_H };  // 内存立即更新
+    clearTimeout(_desktopSaveTimer);
+    _desktopSaveTimer = setTimeout(function () { _desktopSaveTimer = null; saveSettings(); }, 400);
+  } catch (e) { log('desktop drag-end failed: ' + (e && e.message || e)); }
+});
+ipcMain.on('desktop-lock-toggle', function () {
+  desktopLocked = !desktopLocked;
+  saveSettings();
+  pushDesktopState();
+  pushSettingsState();
+});
+ipcMain.on('desktop-toggle', function () { toggleDesktop(); });
+
+/* =====================================================================
+ * v2.2.0 需求5：设置弹窗 IPC
+ * ---------------------------------------------------------------------
+ * 统一用一个 settings-set(key, value) 通道写入所有状态；瞬时动作（检查更新 /
+ * 关闭弹窗）走 settings-action(action)。每个操作执行完 pushSettingsState()，
+ * 让弹窗始终渲染主进程这一唯一真相。setDockMode / toggleDesktop 内部已 saveSettings
+ * + refreshTrayMenu，故这里不再重复。
+ * ===================================================================== */
+ipcMain.on('settings-set', function (evt, key, value) {
+  switch (key) {
+    case 'theme':
+      themeMode = (value === 'dark') ? 'dark' : 'light';
+      pushThemeToRenderer();
+      pushThemeToDock();
+      pushThemeToRemindlist();
+      pushThemeToDesktop();
+      if (tray) { try { tray.setImage(trayIconByTheme()); } catch (e) {} }
+      break;
+    case 'pinned':
+      pinned = !!value;
+      if (win) win.setAlwaysOnTop(pinned);
+      break;
+    case 'autoLaunch':
+      autoLaunch = !!value;
+      try { app.setLoginItemSettings({ openAtLogin: autoLaunch, path: process.execPath }); } catch (e) {}
+      break;
+    case 'dockOn':
+      dockOn = !!value;
+      if (dockOn) applyDockMode();
+      else {
+        if (dockWin && !dockWin.isDestroyed()) { try { dockWin.hide(); } catch (e) {} }
+        destroyTray();
+      }
+      break;
+    case 'dockMode':
+      setDockMode(value === 'icon' ? 'icon' : 'dock');
+      pushSettingsState();
+      return;   // setDockMode 内部已 saveSettings + refreshTrayMenu
+    case 'dockPinned':
+      dockPinned = !!value;
+      if (dockWin && !dockWin.isDestroyed()) { try { dockWin.setAlwaysOnTop(dockPinned, 'floating'); } catch (e) {} }
+      break;
+    case 'desktopOn':
+      toggleDesktop();
+      return;   // toggleDesktop 内部已 saveSettings + refreshTrayMenu + pushSettingsState
+    case 'desktopLocked':
+      desktopLocked = !!value;
+      pushDesktopState();
+      break;
+    case 'dockOpacity':
+      dockOpacity = clampOpacity(value, 1);
+      if (dockWin && !dockWin.isDestroyed()) { try { dockWin.setOpacity(dockOpacity); } catch (e) {} }
+      break;
+    case 'mainOpacity':
+      mainOpacity = clampOpacity(value, 1);
+      if (win && !win.isDestroyed()) { try { win.setOpacity(mainOpacity); } catch (e) {} }
+      break;
+    case 'desktopOpacity':
+      desktopOpacity = clampOpacity(value, 1);
+      if (desktopWin && !desktopWin.isDestroyed()) { try { desktopWin.setOpacity(desktopOpacity); } catch (e) {} }
+      break;
+    default:
+      return;
+  }
+  saveSettings();
+  refreshTrayMenu();
+  pushSettingsState();
+});
+ipcMain.on('settings-action', function (evt, action) {
+  if (action === 'check-holiday') {
+    try { maybeHolidayUpdate(true); } catch (e) { log('settings check-holiday failed: ' + (e && e.stack || e)); }
+  } else if (action === 'close') {
+    if (settingsWin && !settingsWin.isDestroyed()) { try { settingsWin.close(); } catch (e) {} }
+  }
 });
 
 /* =====================================================================
@@ -2348,6 +2639,8 @@ app.whenReady().then(function () {
    * 菜单入口始终是「主窗右键 + 挂件条右键 + 托盘右键」三处（tray 只在 icon 形态存在）。 */
   createDock();
   if (dockOn && dockMode === 'icon') createTray();
+  /* v2.2.0 需求4：桌面插件开关持久化 —— 启动时若上次开着就恢复显示。 */
+  if (desktopOn) createDesktopWidget();
   /* v1.7.21 需求3：显示器 / 分辨率 / 任务栏高度变化后，插件可能落到工作区之外。
    * 只做「越界纠正」——保留用户自定义位置，仅把跑出去的部分拉回来；
    * 不再拽回默认位置（那属于已删除的"贴回任务栏"行为）。不调 setSize，避免触发崩溃。 */
@@ -2390,8 +2683,11 @@ app.on('before-quit', function () {
   if (holidayWin) { try { holidayWin.destroy(); } catch (e) {} holidayWin = null; }
   if (reminderWin) { try { reminderWin.close(); } catch (e) {} reminderWin = null; }
   if (dockWin) { try { dockWin.destroy(); } catch (e) {} dockWin = null; }
+  if (desktopWin) { try { desktopWin.destroy(); } catch (e) {} desktopWin = null; }
+  if (settingsWin) { try { settingsWin.destroy(); } catch (e) {} settingsWin = null; }
   if (remindlistWin) { try { remindlistWin.destroy(); } catch (e) {} remindlistWin = null; }
   if (_rlSaveTimer) { clearTimeout(_rlSaveTimer); _rlSaveTimer = null; }
+  if (_desktopSaveTimer) { clearTimeout(_desktopSaveTimer); _desktopSaveTimer = null; }
   /* v1.7.22.6：dock 落点防抖的兜底 —— 退出前必须立即 flush。
    * 否则用户拖完插件 500ms 内就退出的话，最后一次落点会因为防抖丢掉，
    * 下次启动回到上一次的位置（看起来像"位置记不住"）。 */

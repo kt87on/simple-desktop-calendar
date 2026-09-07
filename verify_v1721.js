@@ -41,7 +41,7 @@ const whenReadyBody = main.slice(main.indexOf('app.whenReady'), main.indexOf("ap
 // =====================================================================
 // 版本号
 // =====================================================================
-check('版本号=1.7.22', pkg.version === '1.7.22', 'package.json version=' + pkg.version);
+check('版本号=2.2.0', pkg.version === '2.2.0', 'package.json version=' + pkg.version);
 
 // =====================================================================
 // 需求1：修复点击热区（Hit Test）
@@ -87,8 +87,9 @@ check('[需求2] 托盘失效重试也只在图标形态进行',
   /function scheduleTrayRetry[\s\S]{0,200}dockMode !== 'icon'\) return;/.test(mainCode));
 check('[需求2] tooltip 看门狗只在图标形态跑',
   /if \(!tray \|\| dockMode !== 'icon'\) return;/.test(mainCode));
-check('[需求2] 菜单含「缩小至桌面图标」', /缩小至桌面图标/.test(main));
-check('[需求2] 菜单含「切回桌面插件」', /切回桌面插件/.test(main));
+check('[v2.2.0] 形态切换移入设置（菜单无形态项，settings-set 支持 dockMode）',
+  !/缩小至桌面图标/.test(mainCode) && !/切回桌面插件/.test(mainCode) &&
+  /ipcMain\.on\('settings-set'/.test(mainCode) && /case 'dockMode'/.test(mainCode));
 check('[需求2] 菜单含「显示 / 隐藏日历」（图标态也能开日历）',
   /'显示 \/ 隐藏日历'/.test(main));
 check('[需求2] 菜单项带单色图标（v2.0 去 emoji）',
@@ -305,7 +306,7 @@ check('[v1.7.22.6] dock-drag-end 落盘 500ms 防抖（内存 dockBounds 立即�
   /dockBounds = \{ x: nb\.x, y: nb\.y, width: dockW, height: dockH \};[\s\S]{0,120}clearTimeout\(_dockSaveTimer\)/.test(mainCode));
 check('[v1.7.22.6] 退出前 flushDockBounds 兜底（防抖不能丢最后一次落点）',
   /function flushDockBounds\(\)/.test(mainCode) &&
-  /before-quit[\s\S]{0,900}flushDockBounds\(\)/.test(mainCode));
+  /before-quit[\s\S]{0,2000}flushDockBounds\(\)/.test(mainCode));
 check('[v1.7.22.6] Win11 像素补偿套 Math.round（防高 DPI 1px 白边）',
   /Math\.round\(best\.x \+ compX\)/.test(mainCode) &&
   /Math\.round\(best\.y \+ compY\)/.test(mainCode));
@@ -342,13 +343,15 @@ check('[v1.7.22.7] 建窗后自诊断：记录实际 vs 意图尺寸',
 check('[v1.7.22.7] resize 事件记录尺寸漂移（不强制回弹，避免死循环）',
   /dockWin\.on\('resize'[\s\S]{0,300}dock resized to/.test(mainCode));
 /* 注意：clampDockToWorkArea 自身体里有 `width: b.width`（它按契约原样回传入参尺寸），
- * 那是合法的。要卡的是"外部调用点"—— 除了 dockClamped 内那一次，不该再有别的调用。 */
-check('[v1.7.22.7] [关键·反向] clampDockToWorkArea 的外部调用点只剩 dockClamped 一处',
+ * 那是合法的。要卡的是"外部调用点"—— 只允许 dockClamped / desktopClamped 两个包装器
+ * （v2.2.0 桌面插件复用了同一套夹取），不该再有别的调用。 */
+check('[v1.7.22.7] clampDockToWorkArea 的外部调用点只剩 dockClamped / desktopClamped 两处',
   (function () {
     const all = (mainCode.match(/clampDockToWorkArea\(/g) || []).length;
-    // 1 处定义 + 1 处 dockClamped 内部调用 = 2，多出来就是有人绕过 dockClamped 直接调
-    return all === 2 && /function clampDockToWorkArea\(/.test(mainCode) &&
-      /return clampDockToWorkArea\(\{ x: x, y: y, width: dockW, height: dockH \}\)/.test(mainCode);
+    // 1 处定义 + dockClamped/desktopClamped 各 1 处内部调用 = 3，多出来就是有人绕过包装器直接调
+    return all === 3 && /function clampDockToWorkArea\(/.test(mainCode) &&
+      /return clampDockToWorkArea\(\{ x: x, y: y, width: dockW, height: dockH \}\)/.test(mainCode) &&
+      /return clampDockToWorkArea\(\{ x: x, y: y, width: DESKTOP_W, height: DESKTOP_H \}\)/.test(mainCode);
   })());
 check('[v1.7.22.7] [关键·反向] 插件定位已无 width: cur.width / b.width 写法',
   !/dockWin\.setBounds\(\{[\s\S]{0,200}width:\s*(b|cur)\.width/.test(mainCode));
@@ -359,8 +362,8 @@ check('[v1.7.22.5] 4px 阈值改为基于 dragDownX/Y 的曼哈顿距离',
 check('[回归] 需求5 拖动 IPC 仍在',
   /dock-drag-move/.test(main) && /dock-drag-end/.test(main) &&
   /dockDragMove/.test(preload) && /dockDragMove/.test(dock));
-check('[回归] 需求6 去秒',
-  /lastTimeText/.test(dock) && /id="dockTime"[^>]*>--:--</.test(dock) && !/--:--:--/.test(dock));
+check('[v2.2.0] 需求3 显示秒 + 星期',
+  /getSeconds\(\)/.test(dock) && /--:--:--/.test(dock) && /周/.test(dock));
 check('[回归] 需求8 去托盘改为按需托盘 + 主窗右键',
   /main-show-menu/.test(main) && /mainShowMenu/.test(preload) && /mainShowMenu/.test(appjs));
 check('[回归] 需求9 放大图标', />大</.test(tmpl) && />小</.test(tmpl));

@@ -315,6 +315,9 @@
   [data-theme="dark"] #dragBar { background: rgba(255, 255, 255, 0.045); }
   #dragBar .sel, #dragBar .nav-btn, #dragBar .today-btn,
   #dragBar .bar-right, #dragBar .bar-right * { -webkit-app-region: no-drag; }
+  /* v2.2.0 需求4：桌面插件模式下禁用原生拖拽（改由 IPC 绝对定位 + 工作区夹取），
+   * 否则 -webkit-app-region:drag 会抢走 mousedown，导致自定义拖动 + 边界夹取失效。 */
+  body.desktop-mode #dragBar { -webkit-app-region: no-drag; }
   .toolbar { display: flex; align-items: center; gap: var(--s-1); flex: 1; }
   .ym-select { display: flex; align-items: center; gap: var(--s-1); }
 
@@ -649,7 +652,14 @@
     width: 100%; height: 100%;
     border-radius: var(--r-lg);   /* 透明窗口的圆角=卡片圆角，桌面从四角透出 */
   }
-  body.electron #widget.max { width: 100%; height: 100%; border-radius: var(--r-xl); }
+  /* v2.2.0 需求2：放大模式内容按 760×961 设计尺寸固定，再用 zoom 随窗口物理宽等比缩放，
+   * 修掉"窗口缩小但内容固定字号不变、被裁切显示不全"的问题。zoom 由主进程下发
+   * --uizoom（= 窗口宽 / 760）驱动；mini 模式无 .max，不受 zoom 影响。 */
+  body.electron #widget.max {
+    width: 760px; height: 961px;
+    border-radius: var(--r-xl);
+    zoom: var(--uizoom, 1);
+  }
   body:not(.electron) #widget.max {
     width: min(760px, calc(100vw - 48px), calc((100vh - 48px) * 0.7907));
     aspect-ratio: 340 / 430;

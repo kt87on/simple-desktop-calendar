@@ -189,9 +189,11 @@ setTimeout(function () {
   assert(ssLevel.length === 0, '置顶等级不再是 screen-saver(不抢全屏应用层)');
   assert(s.alwaysOnTopCalls.length >= 1, '插件已设置置顶(' + s.alwaysOnTopCalls.length + '次)');
 
-  // 需求2：菜单里必须有「缩小至桌面图标」
+  // v2.2.0 需求5：菜单瘦身 —— 形态切换收进「设置」，菜单只保留「设置」入口
+  const hasSettings = s.menuLabels.some(function (l) { return /设置/.test(l); });
+  assert(hasSettings, 'v2.2.0 菜单含「设置」入口');
   const hasShrink = s.menuLabels.some(function (l) { return /缩小至桌面图标/.test(l); });
-  assert(hasShrink, '需求2 菜单含「缩小至桌面图标」');
+  assert(!hasShrink, 'v2.2.0 菜单已无「缩小至桌面图标」（移入设置）');
   // 需求6：菜单里不得再有「贴回任务栏上沿」
   const hasSnap = s.menuLabels.some(function (l) { return /贴回任务栏/.test(l); });
   assert(!hasSnap, '需求6 菜单已删除「贴回任务栏上沿」');
@@ -222,12 +224,12 @@ setTimeout(function () {
       assert(s2.hidden >= 1, '图标形态下插件窗口被隐藏(' + s2.hidden + ')');
       const hasBack = s2.menuLabels.some(function (l) { return /切回桌面插件/.test(l); });
       // 轮 2 还没触发菜单构建的话这里会 false，主动触发一次
-      if (!hasBack && ipcHandlers['dock-show-menu']) {
+      if (ipcHandlers['dock-show-menu']) {
         try { ipcHandlers['dock-show-menu'](); } catch (e) {}
         const hasBack2 = s2.menuLabels.some(function (l) { return /切回桌面插件/.test(l); });
-        assert(hasBack2, '需求2 菜单含「切回桌面插件」');
+        assert(!hasBack2, 'v2.2.0 菜单已无「切回桌面插件」（移入设置）');
       } else {
-        assert(hasBack, '需求2 菜单含「切回桌面插件」');
+        assert(!hasBack, 'v2.2.0 菜单已无「切回桌面插件」（移入设置）');
       }
     }
 

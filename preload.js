@@ -47,6 +47,23 @@ contextBridge.exposeInMainWorld('api', {
   resizeWindow: function (w) { ipcRenderer.send('resize-window', w); },
   onThemeChanged: function (cb) { ipcRenderer.on('theme-changed', function (e, mode) { cb(mode); }); },
   onGotoYm: function (cb) { ipcRenderer.on('goto-ym', function (e, y, m, d) { cb(y, m, d); }); },
+  // v2.2.0 需求7：每次打开日历回到当前月份
+  onResetMonth: function (cb) { ipcRenderer.on('reset-month', function () { try { cb && cb(); } catch (err) {} }); },
+  // v2.2.0 需求2：放大模式等比缩放 —— 主进程下发窗口实际宽高，渲染层据此算 zoom
+  onWinSize: function (cb) { ipcRenderer.on('win-size', function (e, size) { try { cb && cb(size); } catch (err) {} }); },
+
+  // ---- v2.2.0 需求4：桌面插件（日历板块桌面工具）----
+  desktopDragStart: function (mouseX, mouseY) { ipcRenderer.send('desktop-drag-start', mouseX, mouseY); },
+  desktopDragMove: function (mouseX, mouseY) { ipcRenderer.send('desktop-drag-move', mouseX, mouseY); },
+  desktopDragEnd: function () { ipcRenderer.send('desktop-drag-end'); },
+  desktopLockToggle: function () { ipcRenderer.send('desktop-lock-toggle'); },
+  desktopToggle: function () { ipcRenderer.send('desktop-toggle'); },
+  onDesktopLocked: function (cb) { ipcRenderer.on('desktop-locked', function (e, locked) { try { cb && cb(!!locked); } catch (err) {} }); },
+
+  // ---- v2.2.0 需求5：设置弹窗 ----
+  settingsSet: function (key, value) { ipcRenderer.send('settings-set', key, value); },
+  settingsAction: function (action) { ipcRenderer.send('settings-action', action); },
+  onSettingsState: function (cb) { ipcRenderer.on('settings-state', function (e, state) { try { cb && cb(state); } catch (err) {} }); },
 
   // ---- v1.6.2 关注 ----
   listReminders: function () { return ipcRenderer.invoke('list-reminders'); },

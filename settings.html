@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>设置</title>
+<style>
+  /* ==========================================================================
+   * 设置弹窗 · 设计系统 v2.2
+   * --------------------------------------------------------------------------
+   * 语义定位：一处「克制、安静的调校台」。右键菜单瘦身后，主题/置顶/自启/挂件条/
+   * 形态/插件置顶/桌面插件/透明度/检查更新 全部收进这里。主进程是唯一真相：
+   * 弹窗只渲染 onSettingsState 推送的状态，每个操作实时回写，无需「保存」。
+   * 视觉沿用 exit.html 的 Token 体系（暖纸 + 雅蓝 + 圆角卡），补齐 switch/seg/slider。
+   * ========================================================================== */
+
+  /* ============================ L1 基础层 ============================ */
+  :root {
+    --ink-900: #14181f; --ink-800: #1f2430; --ink-700: #333a48; --ink-600: #4b5563;
+    --ink-500: #6b7280; --ink-400: #9aa1ad; --ink-300: #c2c8d2; --ink-200: #e2e6ec;
+    --ink-100: #f0f2f5; --ink-50: #f7f8fa; --ink-25: #fcfbf9;
+
+    --blue-50: #eff4fc; --blue-100: #dae6fa; --blue-200: #b9cff5; --blue-300: #8fb0ec;
+    --blue-400: #6389df; --blue-500: #3b6fd4; --blue-600: #1976d2; --blue-700: #155ba6;
+
+    --fs-3xs: 8px; --fs-2xs: 9px; --fs-xs: 10px; --fs-sm: 11px; --fs-md: 13px;
+    --fs-lg: 14px; --fs-xl: 15px;
+
+    --fw-regular: 400; --fw-medium: 500; --fw-semibold: 600; --fw-bold: 700;
+
+    --font-sans: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI",
+                 "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+                 "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
+    --font-num-feat: "tnum" 1, "lnum" 1, "ss01" 1;
+
+    --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px;
+    --r-xs: 4px; --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 16px; --r-pill: 999px;
+
+    --dur-instant: 80ms; --dur-fast: 140ms; --dur-normal: 220ms;
+    --ease-out: cubic-bezier(.22, .61, .36, 1);
+    --ease-spring: cubic-bezier(.34, 1.46, .64, 1);
+
+    /* ========== L2 语义层 · 白日 ========== */
+    --paper: #ffffff;
+    --paper-edge: rgba(31, 35, 48, 0.10);
+    --paper-hi: rgba(255, 255, 255, 0.85);
+    --ink: var(--ink-800);
+    --ink-soft: var(--ink-500);
+    --ink-faint: var(--ink-400);
+
+    --accent: var(--blue-500);
+    --accent-hover: var(--blue-600);
+    --accent-glow: rgba(59, 111, 212, 0.30);
+    --accent-ink: var(--blue-700);
+    --accent-soft: rgba(59, 111, 212, 0.10);
+
+    --head-bg: linear-gradient(180deg, rgba(59, 111, 212, 0.10), rgba(59, 111, 212, 0));
+    --head-line: rgba(31, 35, 48, 0.07);
+    --row-line: rgba(31, 35, 48, 0.05);
+    --ctl-bg: #ffffff;
+    --ctl-edge: rgba(31, 35, 48, 0.12);
+    --track-off: rgba(31, 35, 48, 0.14);
+    --foot-bg: rgba(252, 251, 249, 0.65);
+
+    --e-3: 0 20px 52px rgba(31, 35, 48, 0.26), 0 4px 14px rgba(31, 35, 48, 0.10),
+           inset 0 1px 0 var(--paper-hi);
+  }
+
+  /* ========== L2 语义层 · 黑夜 ========== */
+  html[data-theme="dark"] {
+    --paper: #1e222e;
+    --paper-edge: rgba(255, 255, 255, 0.09);
+    --paper-hi: rgba(255, 255, 255, 0.055);
+    --ink: #e8eaf0;
+    --ink-soft: #9aa3b3;
+    --ink-faint: #6a7283;
+
+    --accent: #4a86ef;
+    --accent-hover: #5f97f5;
+    --accent-glow: rgba(74, 134, 239, 0.32);
+    --accent-ink: #8fb2f7;
+    --accent-soft: rgba(74, 134, 239, 0.16);
+
+    --head-bg: linear-gradient(180deg, rgba(74, 134, 239, 0.14), rgba(74, 134, 239, 0));
+    --head-line: rgba(255, 255, 255, 0.07);
+    --row-line: rgba(255, 255, 255, 0.05);
+    --ctl-bg: rgba(255, 255, 255, 0.07);
+    --ctl-edge: rgba(255, 255, 255, 0.12);
+    --track-off: rgba(255, 255, 255, 0.18);
+    --foot-bg: rgba(255, 255, 255, 0.028);
+
+    --e-3: 0 24px 60px rgba(0, 0, 0, 0.66), 0 6px 16px rgba(0, 0, 0, 0.42),
+           inset 0 1px 0 var(--paper-hi);
+  }
+
+  /* ============================ L3 组件层 ============================ */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: transparent; }
+  body {
+    font-family: var(--font-sans); color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  #card {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    background: var(--paper); border-radius: var(--r-xl);
+    border: 1px solid var(--paper-edge); box-shadow: var(--e-3); overflow: hidden;
+  }
+
+  #head {
+    flex: 0 0 48px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 var(--s-3) 0 var(--s-4);
+    background: var(--head-bg); border-bottom: 1px solid var(--head-line);
+  }
+  #head .title { display: flex; align-items: center; gap: var(--s-2); color: var(--accent-ink); font-size: var(--fs-xl); font-weight: var(--fw-bold); letter-spacing: 0.3px; }
+  #head .icon { width: 18px; height: 18px; flex: 0 0 auto; color: var(--accent); }
+  #btnClose {
+    width: 26px; height: 26px; border: none; border-radius: var(--r-sm);
+    background: transparent; color: var(--ink-faint); cursor: pointer;
+    font-size: var(--fs-lg); line-height: 1; display: flex; align-items: center; justify-content: center;
+    transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  }
+  #btnClose:hover { background: var(--accent-soft); color: var(--ink); }
+
+  #body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--s-1) 0 var(--s-2); }
+
+  /* 分组标题 */
+  .section {
+    padding: var(--s-3) var(--s-4) var(--s-1);
+    font-size: var(--fs-2xs); font-weight: var(--fw-bold); color: var(--ink-faint);
+    letter-spacing: 1.4px;
+  }
+
+  /* 普通开关行 */
+  .row {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
+    padding: 9px var(--s-4);
+    transition: opacity var(--dur-fast) var(--ease-out);
+  }
+  .row .txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .row .label { font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--ink); }
+  .row .hint { font-size: var(--fs-2xs); color: var(--ink-faint); }
+  .row.disabled { opacity: 0.4; pointer-events: none; }
+
+  /* 分段选择（主题 / 显示形态） */
+  .seg { display: flex; border: 1px solid var(--ctl-edge); border-radius: var(--r-sm); overflow: hidden; flex: 0 0 auto; }
+  .seg button {
+    border: none; background: var(--ctl-bg); color: var(--ink-soft);
+    font-family: inherit; font-size: var(--fs-sm); font-weight: var(--fw-semibold);
+    padding: 4px 12px; cursor: pointer; white-space: nowrap;
+    transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  }
+  .seg button + button { border-left: 1px solid var(--ctl-edge); }
+  .seg button.active { background: var(--accent); color: #fff; }
+
+  /* 开关（toggle switch） */
+  .switch {
+    position: relative; width: 40px; height: 22px; flex: 0 0 auto;
+    border-radius: var(--r-pill); background: var(--track-off);
+    border: 1px solid var(--ctl-edge); cursor: pointer;
+    transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  }
+  .switch .knob {
+    position: absolute; top: 1px; left: 1px; width: 18px; height: 18px;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.22);
+    transition: transform var(--dur-normal) var(--ease-spring);
+  }
+  .switch.on { background: var(--accent); border-color: var(--accent); }
+  .switch.on .knob { transform: translateX(18px); }
+
+  /* 动作按钮行（检查节假日更新） */
+  .action-row { padding: 9px var(--s-4); }
+  .action-row button {
+    width: 100%; border: 1px solid var(--ctl-edge); border-radius: var(--r-sm);
+    background: var(--ctl-bg); color: var(--ink); font-family: inherit;
+    font-size: var(--fs-md); font-weight: var(--fw-semibold); padding: 8px 0; cursor: pointer;
+    transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  }
+  .action-row button:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+  .action-row button:active { transform: scale(0.985); }
+
+  /* 透明度滑杆 */
+  .slider { padding: 9px var(--s-4) 11px; }
+  .slider + .slider { border-top: 1px solid var(--row-line); }
+  .slider .slider-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+  .slider .label { font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--ink); }
+  .slider .val { font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--accent-ink); font-variant-numeric: tabular-nums; }
+  .slider input[type="range"] {
+    width: 100%; height: 4px; accent-color: var(--accent); cursor: pointer;
+  }
+  .slider input[type="range"]:disabled { opacity: 0.4; cursor: default; }
+
+  #foot {
+    flex: 0 0 auto; display: flex; justify-content: flex-end;
+    padding: var(--s-3) var(--s-4);
+    background: var(--foot-bg); border-top: 1px solid var(--head-line);
+  }
+  #btnDone {
+    border: none; border-radius: var(--r-md); padding: 8px 22px;
+    background: var(--accent); color: #fff; font-family: inherit;
+    font-size: var(--fs-md); font-weight: var(--fw-semibold); cursor: pointer;
+    box-shadow: 0 3px 10px var(--accent-glow);
+    transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-instant) var(--ease-out);
+  }
+  #btnDone:hover { background: var(--accent-hover); }
+  #btnDone:active { transform: scale(0.965); }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.16); border-radius: var(--r-pill); }
+  html[data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.16); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; }
+  }
+</style>
+</head>
+<body>
+  <div id="card">
+    <div id="head">
+      <span class="title">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"></path>
+        </svg>
+        设置
+      </span>
+      <button id="btnClose" title="关闭" aria-label="关闭">✕</button>
+    </div>
+
+    <div id="body">
+      <div class="section">显示</div>
+
+      <div class="row">
+        <div class="txt"><div class="label">主题</div></div>
+        <div class="seg" data-seg="theme">
+          <button data-v="light">白日</button>
+          <button data-v="dark">黑夜</button>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="txt"><div class="label">桌面插件</div><div class="hint">日历板块作为桌面工具</div></div>
+        <div class="switch" data-toggle="desktopOn" role="switch" tabindex="0"><span class="knob"></span></div>
+      </div>
+
+      <div class="row" data-dep="dockOn">
+        <div class="txt"><div class="label">显示形态</div><div class="hint">浮动插件 / 托盘图标</div></div>
+        <div class="seg" data-seg="dockMode">
+          <button data-v="dock">插件</button>
+          <button data-v="icon">图标</button>
+        </div>
+      </div>
+
+      <div class="section">窗口行为</div>
+
+      <div class="row">
+        <div class="txt"><div class="label">日历窗口置顶</div></div>
+        <div class="switch" data-toggle="pinned" role="switch" tabindex="0"><span class="knob"></span></div>
+      </div>
+
+      <div class="row">
+        <div class="txt"><div class="label">开机自启</div></div>
+        <div class="switch" data-toggle="autoLaunch" role="switch" tabindex="0"><span class="knob"></span></div>
+      </div>
+
+      <div class="row">
+        <div class="txt"><div class="label">挂件条总开关</div><div class="hint">关闭后插件与托盘图标都不显示</div></div>
+        <div class="switch" data-toggle="dockOn" role="switch" tabindex="0"><span class="knob"></span></div>
+      </div>
+
+      <div class="row" data-dep="dockOn,dockMode=dock">
+        <div class="txt"><div class="label">插件总在最前</div></div>
+        <div class="switch" data-toggle="dockPinned" role="switch" tabindex="0"><span class="knob"></span></div>
+      </div>
+
+      <div class="section">窗口透明度</div>
+
+      <div class="slider">
+        <div class="slider-head"><span class="label">浮动插件</span><span class="val" data-val="dockOpacity">100%</span></div>
+        <input type="range" data-slider="dockOpacity" min="0.3" max="1" step="0.05" value="1">
+      </div>
+      <div class="slider">
+        <div class="slider-head"><span class="label">日历</span><span class="val" data-val="mainOpacity">100%</span></div>
+        <input type="range" data-slider="mainOpacity" min="0.3" max="1" step="0.05" value="1">
+      </div>
+      <div class="slider">
+        <div class="slider-head"><span class="label">桌面插件</span><span class="val" data-val="desktopOpacity">100%</span></div>
+        <input type="range" data-slider="desktopOpacity" min="0.3" max="1" step="0.05" value="1">
+      </div>
+
+      <div class="section">数据</div>
+
+      <div class="action-row">
+        <button id="btnCheckHoliday">检查节假日更新</button>
+      </div>
+    </div>
+
+    <div id="foot">
+      <button id="btnDone">完成</button>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+      var api = window.api;
+      var params = new URLSearchParams(location.search);
+      if (params.get('theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+
+      function pct(v) { return Math.round(Number(v) * 100) + '%'; }
+
+      function setSwitch(key, on) {
+        var el = document.querySelector('[data-toggle="' + key + '"]');
+        if (el) el.classList.toggle('on', !!on);
+      }
+      function setSeg(key, val) {
+        var seg = document.querySelector('[data-seg="' + key + '"]');
+        if (!seg) return;
+        var btns = seg.querySelectorAll('button');
+        for (var i = 0; i < btns.length; i++) {
+          btns[i].classList.toggle('active', btns[i].getAttribute('data-v') === val);
+        }
+      }
+      function setSlider(key, val) {
+        var input = document.querySelector('[data-slider="' + key + '"]');
+        if (input) input.value = val;
+        var v = document.querySelector('[data-val="' + key + '"]');
+        if (v) v.textContent = pct(val);
+      }
+      /* 依赖项灰显：data-dep="dockOn" 表示 dockOn 为真时才可点；
+       * data-dep="dockOn,dockMode=dock" 表示还需 dockMode==='dock'。 */
+      function applyDep(state) {
+        var rows = document.querySelectorAll('.row[data-dep]');
+        for (var i = 0; i < rows.length; i++) {
+          var r = rows[i];
+          var dep = r.getAttribute('data-dep');
+          var ok = true;
+          var parts = dep.split(',');
+          for (var j = 0; j < parts.length; j++) {
+            var p = parts[j];
+            var eq = p.indexOf('=');
+            if (eq >= 0) {
+              var k = p.slice(0, eq), v = p.slice(eq + 1);
+              if (state[k] !== v) { ok = false; break; }
+            } else {
+              if (!state[p]) { ok = false; break; }
+            }
+          }
+          r.classList.toggle('disabled', !ok);
+        }
+      }
+
+      function applyState(state) {
+        if (!state) return;
+        // 弹窗自身跟随主题（用户在本弹窗里切主题，或主窗切主题时弹窗同步）
+        document.documentElement.setAttribute('data-theme', state.theme === 'dark' ? 'dark' : 'light');
+        setSeg('theme', state.theme);
+        setSeg('dockMode', state.dockMode);
+        setSwitch('desktopOn', state.desktopOn);
+        setSwitch('pinned', state.pinned);
+        setSwitch('autoLaunch', state.autoLaunch);
+        setSwitch('dockOn', state.dockOn);
+        setSwitch('dockPinned', state.dockPinned);
+        setSlider('dockOpacity', state.dockOpacity);
+        setSlider('mainOpacity', state.mainOpacity);
+        setSlider('desktopOpacity', state.desktopOpacity);
+        applyDep(state);
+      }
+
+      // 开关点击
+      var switches = document.querySelectorAll('.switch');
+      for (var i = 0; i < switches.length; i++) {
+        (function (el) {
+          function fire() {
+            var key = el.getAttribute('data-toggle');
+            var on = el.classList.contains('on');
+            el.classList.toggle('on', !on);
+            if (api && api.settingsSet) api.settingsSet(key, !on);
+          }
+          el.addEventListener('click', fire);
+          el.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fire(); }
+          });
+        })(switches[i]);
+      }
+
+      // 分段选择
+      var segs = document.querySelectorAll('.seg');
+      for (var j = 0; j < segs.length; j++) {
+        (function (seg) {
+          var btns = seg.querySelectorAll('button');
+          for (var k = 0; k < btns.length; k++) {
+            btns[k].addEventListener('click', function () {
+              var key = seg.getAttribute('data-seg');
+              var v = this.getAttribute('data-v');
+              setSeg(key, v);
+              if (api && api.settingsSet) api.settingsSet(key, v);
+            });
+          }
+        })(segs[j]);
+      }
+
+      // 透明度滑杆（实时回写，主进程 setOpacity 即时生效）
+      var sliders = document.querySelectorAll('input[type="range"]');
+      for (var s = 0; s < sliders.length; s++) {
+        (function (input) {
+          function fire() {
+            var key = input.getAttribute('data-slider');
+            var val = parseFloat(input.value);
+            var v = document.querySelector('[data-val="' + key + '"]');
+            if (v) v.textContent = pct(val);
+            if (api && api.settingsSet) api.settingsSet(key, val);
+          }
+          input.addEventListener('input', fire);
+          input.addEventListener('change', fire);
+        })(sliders[s]);
+      }
+
+      // 检查节假日更新
+      var btnCheck = document.getElementById('btnCheckHoliday');
+      if (btnCheck) btnCheck.addEventListener('click', function () {
+        if (api && api.settingsAction) api.settingsAction('check-holiday');
+      });
+
+      // 关闭
+      function closeWin() {
+        if (api && api.settingsAction) api.settingsAction('close');
+        setTimeout(function () { window.close(); }, 60);
+      }
+      document.getElementById('btnClose').addEventListener('click', closeWin);
+      document.getElementById('btnDone').addEventListener('click', closeWin);
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeWin();
+      });
+
+      // 订阅主进程推送的状态（唯一真相）
+      if (api && api.onSettingsState) api.onSettingsState(applyState);
+    })();
+  </script>
+</body>
+</html>

@@ -267,7 +267,9 @@ ok('[关键] 主进程已无 SetParent / ReBarWindow32',
 ok('[关键] 已无 setSize 调用', !/\.setSize\s*\(/.test(code));
 // 注意：必须用剥掉注释的 code —— 「贴回任务栏」只应出现在说明"为什么删掉它"的注释里
 ok('[关键] 菜单已无「贴回任务栏」（代码层零残留）', !/贴回任务栏/.test(code));
-ok('[关键] 拖动逻辑已无吸附（snap）', !/snap/i.test(code));
+// v2.2.0：settingsSnapshot（设置弹窗状态快照）里含 "Snap"，故用负向前瞻排除 "shot"，
+// 避免把「snapshot」误判成「snap 吸附」逻辑。
+ok('[关键] 拖动逻辑已无吸附（snap）', !/snap(?!shot)/i.test(code));
 
 /* ============ v1.7.22.3 修复（"卡在半空"回归） ============ */
 console.log('\n【v1.7.22.3】挂件条"卡在半空"回归修复');

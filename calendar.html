@@ -315,6 +315,9 @@
   [data-theme="dark"] #dragBar { background: rgba(255, 255, 255, 0.045); }
   #dragBar .sel, #dragBar .nav-btn, #dragBar .today-btn,
   #dragBar .bar-right, #dragBar .bar-right * { -webkit-app-region: no-drag; }
+  /* v2.2.0 需求4：桌面插件模式下禁用原生拖拽（改由 IPC 绝对定位 + 工作区夹取），
+   * 否则 -webkit-app-region:drag 会抢走 mousedown，导致自定义拖动 + 边界夹取失效。 */
+  body.desktop-mode #dragBar { -webkit-app-region: no-drag; }
   .toolbar { display: flex; align-items: center; gap: var(--s-1); flex: 1; }
   .ym-select { display: flex; align-items: center; gap: var(--s-1); }
 
@@ -649,7 +652,14 @@
     width: 100%; height: 100%;
     border-radius: var(--r-lg);   /* 透明窗口的圆角=卡片圆角，桌面从四角透出 */
   }
-  body.electron #widget.max { width: 100%; height: 100%; border-radius: var(--r-xl); }
+  /* v2.2.0 需求2：放大模式内容按 760×961 设计尺寸固定，再用 zoom 随窗口物理宽等比缩放，
+   * 修掉"窗口缩小但内容固定字号不变、被裁切显示不全"的问题。zoom 由主进程下发
+   * --uizoom（= 窗口宽 / 760）驱动；mini 模式无 .max，不受 zoom 影响。 */
+  body.electron #widget.max {
+    width: 760px; height: 961px;
+    border-radius: var(--r-xl);
+    zoom: var(--uizoom, 1);
+  }
   body:not(.electron) #widget.max {
     width: min(760px, calc(100vw - 48px), calc((100vh - 48px) * 0.7907));
     aspect-ratio: 340 / 430;
@@ -865,6 +875,15 @@
 (function () {
   'use strict';
   var Solar = window.Solar, Lunar = window.Lunar;
+
+  /* ===== v2.2.0 需求4：桌面插件模式 =====
+   * calendar.html 被主进程以 query `mode=desktopWidget` 加载时进入桌面模式：
+   * 只显示「日历板块」（隐藏顶部时间信息条），换肤键替换为锁定键，
+   * 拖动改为 IPC 绝对定位 + 工作区夹取。 */
+  var IS_DESKTOP = (function () {
+    try { return new URLSearchParams(location.search).get('mode') === 'desktopWidget'; } catch (e) { return false; }
+  })();
+  var desktopLocked = false;   // 桌面插件锁定态（锁定时不可拖动，其余正常）
 
   /* ===== 节假日放假数据（按年索引） =====
    * v2.1.0：原来只有一份 2026 硬编码表，看 2025/2027 也拿 2026 的去套（附带 bug）。
@@ -1504,12 +1523,12 @@ function confirmRemindInput() {
     var root = document.documentElement;
     if (S.theme === 'dark') {
       root.dataset.theme = 'dark';
-      if (themeBtnEl) { themeBtnEl.title = '主题：黑夜（点击切回白日）'; themeBtnEl.classList.add('active'); }
+      if (!IS_DESKTOP && themeBtnEl) { themeBtnEl.title = '主题：黑夜（点击切回白日）'; themeBtnEl.classList.add('active'); }
     } else {
       root.dataset.theme = 'light';
-      if (themeBtnEl) { themeBtnEl.title = '主题：白日（点击切换为黑夜）'; themeBtnEl.classList.remove('active'); }
+      if (!IS_DESKTOP && themeBtnEl) { themeBtnEl.title = '主题：白日（点击切换为黑夜）'; themeBtnEl.classList.remove('active'); }
     }
-    syncThemeIcon();
+    if (!IS_DESKTOP) syncThemeIcon();   // v2.2.0：桌面模式下换肤键已改为锁键，图标由锁逻辑接管
   }
 
   /* ===== R3. 托盘 tooltip：农历 + 星期字符串 ===== */
@@ -1622,8 +1641,9 @@ function confirmRemindInput() {
       }
     });
 
-    // 主题切换（白日/黑夜两态）
+    // 主题切换（白日/黑夜两态）；v2.2.0 桌面模式下换肤键已改为锁定键
     themeBtnEl.addEventListener('click', function () {
+      if (IS_DESKTOP) { onLockClick(); return; }
       S.theme = (S.theme === 'light') ? 'dark' : 'light';
       applyTheme();
       if (window.api && window.api.setTheme) window.api.setTheme(S.theme);
@@ -1669,6 +1689,10 @@ function confirmRemindInput() {
      这里在渲染层监听 3 个手柄（右下角 + 右边缘 + 下边缘），通过 IPC 让主进程 setBounds，
      比例锁定：'e' / 'se' 按宽度驱动，'s' 按高度驱动，统一折算成宽度再传主进程。 */
   var RESIZE_ASPECT = 340 / 430;
+  // v2.2.0 需求2：放大模式内容按 760 设计（与主进程 EXP_DEF_W 一致），zoom = 窗口宽/760。
+  var EXPAND_BASE_W = 760;
+  // 主进程下发的窗口物理宽高（resize 手柄按物理像素算，zoom 只影响视觉不影响坐标）
+  var winSize = { w: EXPAND_BASE_W, h: Math.round(EXPAND_BASE_W / RESIZE_ASPECT) };
   function bindResize() {
     if (!window.api || !window.api.resizeWindow) return;
     var handles = document.querySelectorAll('.resize-handle');
@@ -1679,7 +1703,8 @@ function confirmRemindInput() {
         active = {
           dir: h.dataset.dir,
           sx: e.screenX, sy: e.screenY,
-          startW: widgetEl.offsetWidth, startH: widgetEl.offsetHeight
+          // v2.2.0：zoom 会让 offsetWidth 恒等于 760 设计值，改用主进程下发的物理宽
+          startW: winSize.w, startH: winSize.h
         };
       });
     });
@@ -1768,6 +1793,17 @@ function confirmRemindInput() {
     if (window.api.onGotoYm) {
       window.api.onGotoYm(function (y, m, d) { gotoYm(y, m, d); });
     }
+    // v2.2.0 需求7：每次打开日历回到当前月份（只重置年/月，不打扰用户选中的日期）
+    if (window.api.onResetMonth) {
+      window.api.onResetMonth(function () {
+        var t = new Date();
+        if (S.year !== t.getFullYear() || S.month !== t.getMonth() + 1) {
+          S.year = t.getFullYear();
+          S.month = t.getMonth() + 1;
+          renderAll();
+        }
+      });
+    }
     if (window.api.onRemindersChanged) {
       window.api.onRemindersChanged(function (list) {
         reminders = (list || []).slice();
@@ -1791,6 +1827,17 @@ function confirmRemindInput() {
         }
       });
     }
+    // v2.2.0 需求2：放大模式等比缩放 —— 主进程每次 resize/showMini/showExpanded 都会
+    // 下发窗口物理宽高；这里据此设 CSS 变量 --uizoom，配合 CSS 的 #widget.max{zoom:...}
+    // 让固定 760 设计的内容随窗口等比缩放（修掉"窗口缩小内容不变被裁"）。
+    if (window.api.onWinSize) {
+      window.api.onWinSize(function (s) {
+        if (!s || typeof s.width !== 'number') return;
+        winSize.w = s.width;
+        winSize.h = (typeof s.height === 'number') ? s.height : Math.round(s.width / RESIZE_ASPECT);
+        document.documentElement.style.setProperty('--uizoom', (s.width / EXPAND_BASE_W).toFixed(5));
+      });
+    }
   }
 
   /* ===== v1.6.2：特别关注输入栏 DOM 绑定 ===== */
@@ -1803,6 +1850,61 @@ function confirmRemindInput() {
         if (e.key === 'Enter') { e.preventDefault(); confirmRemindInput(); }
         else if (e.key === 'Escape') { e.preventDefault(); hideRemindInput(); }
       });
+    }
+  }
+
+  /* ===== v2.2.0 需求4：桌面插件模式 =====
+   * 桌面模式下：隐藏信息条 + 放大按钮，把换肤键改成锁定键，绑定 IPC 拖动。
+   * 拖动只认顶部功能栏（#dragBar），锁定态拒绝；移动按屏幕坐标绝对定位（主进程夹取）。 */
+  var LOCKED_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+    '<rect x="5" y="11" width="14" height="9" rx="2.5"></rect>' +
+    '<path d="M8 11 V7.5 a4 4 0 0 1 8 0 V11"></path></svg>';
+  var UNLOCKED_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+    '<rect x="5" y="11" width="14" height="9" rx="2.5"></rect>' +
+    '<path d="M8 11 V7.5 a4 4 0 0 1 7.6 -1.4"></path></svg>';
+  function onLockClick() {
+    if (window.api && window.api.desktopLockToggle) window.api.desktopLockToggle();
+  }
+  function setDesktopLocked(locked) {
+    desktopLocked = !!locked;
+    if (!themeBtnEl) return;
+    themeBtnEl.innerHTML = locked ? LOCKED_SVG : UNLOCKED_SVG;
+    themeBtnEl.classList.toggle('active', !!locked);
+    themeBtnEl.title = locked ? '已锁定（点击解锁后可拖动）' : '未锁定（点击锁定后不可拖动）';
+  }
+  function bindDesktopDrag() {
+    if (!window.api || !window.api.desktopDragStart) return;
+    var bar = $('dragBar');
+    if (!bar) return;
+    var dragging = false;
+    bar.addEventListener('mousedown', function (e) {
+      if (desktopLocked) return;
+      if (e.target && e.target.closest && e.target.closest('button, select, #wkSwitch')) return;
+      dragging = true;
+      window.api.desktopDragStart(e.screenX, e.screenY);
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', function (e) {
+      if (!dragging) return;
+      window.api.desktopDragMove(e.screenX, e.screenY);
+    });
+    window.addEventListener('mouseup', function () {
+      if (!dragging) return;
+      dragging = false;
+      window.api.desktopDragEnd();
+    });
+  }
+  function setupDesktopMode() {
+    if (!IS_DESKTOP) return;
+    document.body.classList.add('desktop-mode');
+    var infoBar = $('infoBar');
+    if (infoBar) infoBar.style.display = 'none';
+    var maxBtn = $('maxBtn');
+    if (maxBtn) maxBtn.style.display = 'none';
+    setDesktopLocked(false);
+    bindDesktopDrag();
+    if (window.api && window.api.onDesktopLocked) {
+      window.api.onDesktopLocked(function (locked) { setDesktopLocked(locked); });
     }
   }
 
@@ -1842,6 +1944,7 @@ function confirmRemindInput() {
     applyTheme();
     fillSelectors();
     bind();
+    setupDesktopMode();    // v2.2.0 需求4：桌面模式下隐藏信息条/放大键、换肤键改锁定键
     bindResize();           // v1.6：放大模式窗口边缘 resize（保证比例不变）
     bindTrayEvents();       // v1.6：订阅主进程（托盘右键菜单）下发的事件
     bindRemindInput();      // v1.6.2：特别关注输入栏事件
