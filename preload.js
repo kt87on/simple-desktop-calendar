@@ -68,6 +68,23 @@ contextBridge.exposeInMainWorld('api', {
   confirmExit: function () { ipcRenderer.send('exit-confirm'); },
   cancelExit: function () { ipcRenderer.send('exit-cancel'); },
 
+  // ---- v2.1.0 节假日年度联网更新 ----
+  // 渲染层首帧拉取全量数据；主进程更新成功后经 holiday-data-changed 推送增量同步。
+  getHolidayData: function () { return ipcRenderer.invoke('holiday-get-data'); },
+  onHolidayDataChanged: function (cb) {
+    ipcRenderer.on('holiday-data-changed', function (e, payload) { try { cb && cb(payload); } catch (err) {} });
+  },
+  // 更新弹窗（holidayupd.html）专用：手动触发检查 / 执行更新 / 推迟 / 从文件导入 / 关闭
+  holidayCheckUpdate: function () { ipcRenderer.send('holiday-check-update'); },
+  holidayDoUpdate: function (year) { ipcRenderer.send('holiday-do-update', year); },
+  holidayPostpone: function (year) { ipcRenderer.send('holiday-postpone', year); },
+  holidayImportFile: function () { ipcRenderer.send('holiday-import-file'); },
+  holidayCloseDialog: function () { ipcRenderer.send('holiday-dialog-close'); },
+  // 主进程 → 弹窗：推送状态机状态 { state, year, detail, missing }
+  onHolidayDialog: function (cb) {
+    ipcRenderer.on('holiday-dialog', function (e, payload) { try { cb && cb(payload); } catch (err) {} });
+  },
+
   // ---- v1.7.12：关注列表改为独立窗口 ----
   // 原先 #reminderList 是 #widget 内的 DOM 浮层，拖动被限制在日历窗口可视区内。
   // 改为独立 BrowserWindow 后，表头用 -webkit-app-region: drag 由 Electron 原生拖动，

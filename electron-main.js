@@ -1,12 +1,17 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, screen, nativeImage, nativeTheme, ipcMain, Menu } = require('electron');
+const { app, BrowserWindow, Tray, screen, nativeImage, nativeTheme, ipcMain, Menu, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const zlib = require('zlib');
 const { spawn } = require('child_process');
 const holidays = require('./holidays');
+const holidayStore = require('./holiday-store');
+
+/* v2.1.0：先把用户数据目录注入 holiday-store，之后所有读写都落在 userData/holidays.json。
+ * holiday-store 顶层不 require('electron')（纯 Node 可加载），这里显式注入最稳妥。 */
+try { holidayStore.configure({ userDataDir: app.getPath('userData') }); } catch (e) {}
 
 // 农历库（UMD 格式，主进程可直接 require；加载失败则 tooltip 退化显示公历+星期）
 let lunarLib = null;
@@ -72,6 +77,14 @@ function loadSettings() {
       if (o.remindlistBounds && typeof o.remindlistBounds.x === 'number') {
         lastRemindlistBounds = o.remindlistBounds;
       }
+      /* v2.1.0 节假日年度更新节流：
+       *   holidayLastCheck     上次真正做过检查的 ISO 时间（7 天内不自动弹窗骚扰）
+       *   holidayDismissedYear 用户点过「以后再说」的年份（该年不再自动提示） */
+      holidayLastCheck = (typeof o.holidayLastCheck === 'string') ? o.holidayLastCheck : '';
+      holidayDismissedYear = (typeof o.holidayDismissedYear === 'number') ? o.holidayDismissedYear : 0;
+      // v2.1.0 P2-4：连续失败次数（默认 0，失败累计、成功清零）
+      holidayFailCount = (typeof o.holidayFailCount === 'number' && isFinite(o.holidayFailCount) && o.holidayFailCount >= 0)
+        ? Math.floor(o.holidayFailCount) : 0;
     }
   } catch (e) { /* 首次启动无文件，用默认值 */ }
 }
@@ -85,7 +98,11 @@ function saveSettings() {
       dockPinned: dockPinned,                         // v1.7.21：插件置顶开关
       dockBounds: dockBounds,                         // v1.7.21 需求3：插件上次落点
       isWin11: isWin11,                               // v1.7.22 需求3：Windows 版本标记
-      remindlistBounds: lastRemindlistBounds          // v1.7.12：关注列表窗口位置
+      remindlistBounds: lastRemindlistBounds,         // v1.7.12：关注列表窗口位置
+      // v2.1.0 节假日年度更新节流
+      holidayLastCheck: holidayLastCheck,
+      holidayDismissedYear: holidayDismissedYear,
+      holidayFailCount: holidayFailCount
     }, null, 2), 'utf8');
   } catch (e) {}
 }
@@ -125,6 +142,21 @@ if (!gotLock) {
     try { createWindow(); } catch (e) { log('second-instance recreate failed: ' + (e && e.message || e)); }
   });
 }
+
+/* ===== v2.1.0 节假日年度更新状态 =====
+ * holidayLastCheck：上次检查时间（ISO），7 天内不自动弹窗；
+ * holidayDismissedYear：用户点「以后再说」的年份，该年不再自动提示。 */
+let holidayLastCheck = '';
+let holidayDismissedYear = 0;
+let holidayWin = null;          // 更新弹窗（holidayupd.html）
+let holidayCheckTimer = null;   // 周期性检查定时器
+let holidayBusy = false;        // 正在联网更新，避免重入
+let holidayLastState = '';      // 最近一次推给弹窗的状态（关闭时据此判定是否算一次失败）
+let holidayFailCounted = false; // 本次弹窗会话是否已计过失败（防 close + closed 重复计数）
+/* v2.1.0 P2-4：连续失败计数。长期离线用户若每 7 天被弹一次会烦，
+ * 累计失败 2 次起把自动提示窗口拉长到 28 天；成功一次即清零。 */
+let holidayFailCount = 0;
+const HOLIDAY_CHECK_THROTTLE_MS = 7 * 24 * 3600 * 1000;   // 自动提示 7 天节流
 
 /* ===== 状态 ===== */
 let win = null;
@@ -814,8 +846,16 @@ const HOLIDAY_RANGE = {
 };
 
 function holidayRangeLabel(h) {
-  const r = HOLIDAY_RANGE[h.name];
+  /* v2.1.0：优先查运行时的 holidays.json（联网更新后就是新数据），
+   * 查不到再回退内置常量表（旧版本行为）。否则更新完日历变了、菜单文案还是旧的。 */
+  let r = null;
+  try { r = holidays.rangeOf(h.name, h.y); } catch (e) { r = null; }
+  if (!r) r = HOLIDAY_RANGE[h.name];
   if (!r) return pad2(h.m) + '/' + pad2(h.d);
+  /* v2.1.0 P2-3：跨月段（如春节 1/28–2/4）两端都要带月份，
+   * 否则会退化成「01/28-31」把后半段吞掉。旧内置常量没有 em 字段 → 按同月处理。 */
+  const em = (typeof r.em === 'number') ? r.em : r.m;
+  if (em !== r.m) return r.m + '/' + pad2(r.s) + '-' + em + '/' + pad2(r.e);
   if (r.s === r.e) return pad2(r.m) + '/' + pad2(r.s);
   return pad2(r.m) + '/' + pad2(r.s) + '-' + pad2(r.e);
 }
@@ -1068,6 +1108,9 @@ function buildTrayMenu() {
       });
     }
   }
+  menu.push({ type: 'separator' });
+  // v2.1.0：手动检查节假日更新（忽略 7 天节流，无更新时只写日志，不弹窗骚扰）
+  menu.push({ label: '检查节假日更新', icon: menuIcon('sparkle'), click: function () { maybeHolidayUpdate(true); } });
   menu.push({ type: 'separator' });
   menu.push({ label: '退出软件', icon: menuIcon('power'), click: function () { requestExit(); } });
   return Menu.buildFromTemplate(menu);
@@ -1898,6 +1941,393 @@ ipcMain.on('exit-cancel', function () {
   if (exitWin && !exitWin.isDestroyed()) { try { exitWin.close(); } catch (e) {} }
 });
 
+/* =====================================================================
+ * v2.1.0 节假日年度联网更新
+ * ---------------------------------------------------------------------
+ * 背景：国务院每年 11 月左右发布次年放假安排，硬编码的 2026 表过完年就是废数据。
+ * 机制：每年自动检测一次 → 弹窗确认 → 联网更新 → 成功显示明细 / 失败显示原因。
+ *   自动：启动 5s 后查一次 + 每 6 小时轮询（7 天节流 + 用户可"以后再说"）
+ *   手动：托盘右键「检查节假日更新」（忽略节流）
+ * 数据：userData/holidays.json（holiday-store.js 负责读写 / 抓取 / 归一化）
+ * ===================================================================== */
+
+/** 写回"上次检查时间"（自动与手动都记，避免重复骚扰） */
+function markHolidayChecked() {
+  holidayLastCheck = new Date().toISOString();
+  saveSettings();
+}
+
+/**
+ * 当前自动提示的节流窗口。
+ * v2.1.0 P2-4：首次失败仍 7 天；累计失败 ≥2 次（典型：长期离线）拉长到 28 天，
+ * 否则用户每 7 天就要被弹一次。
+ */
+function holidayThrottleWindowMs() {
+  return HOLIDAY_CHECK_THROTTLE_MS * (holidayFailCount >= 2 ? 4 : 1);
+}
+
+/** 距上次检查是否已超过节流窗口 */
+function holidayThrottlePassed(now) {
+  if (!holidayLastCheck) return true;
+  try {
+    const t = new Date(holidayLastCheck).getTime();
+    if (!isFinite(t)) return true;
+    return (now.getTime() - t) >= holidayThrottleWindowMs();
+  } catch (e) { return true; }
+}
+
+/**
+ * 记一次失败。
+ * holidayFailCounted 的语义是「当前这次「尝试 / 弹窗状态」是否已计过数」：
+ *   - 每次进入 updating（新一次尝试）或 confirm（新一轮询问）时清零；
+ *   - 计过之后，同一状态下的重复收尾（IPC close + 窗口 closed 事件）不会双记。
+ * 这样「点了 立即更新 失败 → 再点 重试 又失败」会如实记 2 次，
+ * 而「失败一次 → 关窗」只记 1 次。
+ */
+function bumpHolidayFail() {
+  if (holidayFailCounted) return;
+  holidayFailCounted = true;
+  holidayFailCount = Math.min((holidayFailCount || 0) + 1, 5);
+  saveSettings();
+  log('holiday: fail count -> ' + holidayFailCount);
+}
+
+/** 更新成功 → 失败计数清零（下次回归 7 天节流） */
+function resetHolidayFail() {
+  holidayFailCounted = true;      // 本会话已定论，不再倒扣
+  if (holidayFailCount === 0) return;
+  holidayFailCount = 0;
+  saveSettings();
+  log('holiday: fail count reset');
+}
+
+/**
+ * 数据来源文案，用于「已是最新」态的副行：
+ *   「已联网获取 · 2026-09-07（来源 cdn.jsdelivr.net）」
+ *   「本地文件导入 · 2026-09-07」
+ *   「软件内置数据 · 2026-01-01」（兜底：needsUpdate 见内置必返回 need，uptodate 态走不到）
+ */
+function holidaySourceLabel() {
+  try {
+    const d = holidayStore.getData();
+    const src = (d && d.source) || '内置';
+    let when = '';
+    if (d && d.updatedAt) {
+      const t = new Date(d.updatedAt);
+      if (!isNaN(t.getTime())) {
+        when = t.getFullYear() + '-' + pad2(t.getMonth() + 1) + '-' + pad2(t.getDate());
+      }
+    }
+    if (src === '内置' || src === '未知') return '软件内置数据' + (when ? ' · ' + when : '');
+    /* v2.1.0 P3-1：本地导入的数据不能说成「已联网获取」——
+     * 原来会输出「已联网获取 · 2026-09-07（来源 本地文件）」，自己打自己脸。 */
+    if (src === '本地文件' || src.indexOf('本地文件') === 0) {
+      return '本地文件导入' + (when ? ' · ' + when : '');
+    }
+    let host = src;
+    try {
+      const m = /^https?:\/\/([^/]+)/.exec(src);
+      if (m) host = m[1];
+    } catch (e) {}
+    return '已联网获取' + (when ? ' · ' + when : '') + '（来源 ' + host + '）';
+  } catch (e) {
+    return '';
+  }
+}
+
+/** 把某年数据压成一句人话明细，如「元旦 1/1–1/3 · 春节 2/15–2/23 … 共 11 天假期、5 天补班」 */
+function summarizeHolidayYear(yearPayload) {
+  try {
+    const segs = (yearPayload && yearPayload.holidays) || [];
+    const parts = [];
+    let days = 0;
+    for (let i = 0; i < segs.length; i++) {
+      const a = holidayStore.parseYmd(segs[i].s);
+      const b = holidayStore.parseYmd(segs[i].e) || holidayStore.parseYmd(segs[i].s);
+      if (!a || !b) continue;
+      days += Math.max(1, Math.round((new Date(b.y, b.m - 1, b.d) - new Date(a.y, a.m - 1, a.d)) / 86400000) + 1);
+      parts.push(segs[i].name + ' ' + a.m + '/' + a.d + '–' + b.m + '/' + b.d);
+    }
+    const wd = ((yearPayload && yearPayload.workdays) || []).length;
+    const head = parts.slice(0, 4).join(' · ') + (parts.length > 4 ? ' …' : '');
+    return (head ? head + '；' : '') + '共 ' + days + ' 天假期、' + wd + ' 天补班';
+  } catch (e) {
+    return '';
+  }
+}
+
+/** 主进程 → 更新弹窗：推送状态机状态 */
+function pushHolidayDialog(payload) {
+  const p = payload || {};
+  if (p.state) holidayLastState = p.state;
+  // 新一轮尝试（updating）或新一轮询问（confirm）→ 允许再记一次失败
+  if (p.state === 'updating' || p.state === 'confirm') holidayFailCounted = false;
+  if (holidayWin && holidayWin.webContents && !holidayWin.webContents.isDestroyed()) {
+    try { holidayWin.webContents.send('holiday-dialog', p); } catch (e) {}
+  }
+}
+
+/** 屏幕工作区尺寸（对 mock/异常环境做兜底，避免弹窗定位时整段失败） */
+function holidayWorkArea() {
+  try {
+    const d = screen.getPrimaryDisplay();
+    if (d && d.workAreaSize && d.workAreaSize.width > 0) return d.workAreaSize;
+    if (d && d.workArea && d.workArea.width > 0) return { width: d.workArea.width, height: d.workArea.height };
+  } catch (e) {}
+  return { width: 1280, height: 720 };
+}
+
+/** 打开（或复用）holidayupd.html 卡片弹窗，复刻 showExitDialog() 的窗口范式 */
+function showHolidayDialog(payload) {
+  try {
+    if (holidayWin && !holidayWin.isDestroyed()) {
+      pushHolidayDialog(payload);
+      try { holidayWin.focus(); } catch (e) {}
+      return;
+    }
+    const wa = holidayWorkArea();
+    /* v2.1.0 P2-1：原来 252 放不下 success 态的明细（7 个假期段会被裁掉），加高到 300。 */
+    const W = 400, H = 300;
+    holidayWin = new BrowserWindow({
+      width: W, height: H,
+      x: Math.round((wa.width - W) / 2),
+      y: Math.round((wa.height - H) / 2),
+      frame: false,
+      transparent: true,           // HTML 内部用 #card 不透明圆角容器
+      alwaysOnTop: true,
+      resizable: false,
+      skipTaskbar: true,
+      backgroundColor: '#00000000',
+      show: false,
+      webPreferences: {
+        contextIsolation: true,
+        preload: path.join(__dirname, 'preload.js')
+      }
+    });
+    holidayWin.setAlwaysOnTop(true, 'screen-saver');
+    holidayLastState = (payload && payload.state) || '';
+    holidayWin.loadFile(path.join(__dirname, 'holidayupd.html'), {
+      query: { theme: themeMode }
+    });
+    // 页面 load 完成后再推状态（否则 onHolidayDialog 还没订阅上就发完了）
+    holidayWin.webContents.once('did-finish-load', function () { pushHolidayDialog(payload); });
+    holidayWin.once('ready-to-show', function () { try { holidayWin.show(); } catch (e) {} });
+    holidayWin.on('closed', function () {
+      // 没拿到数据就关窗（× / Esc / 关闭）也算一次失败，避免长期离线用户每 7 天被弹一次
+      if (holidayLastState === 'failed' || holidayLastState === 'confirm') bumpHolidayFail();
+      holidayWin = null;
+      holidayBusy = false;
+    });
+  } catch (e) {
+    log('showHolidayDialog failed: ' + (e && e.stack || e));
+  }
+}
+
+function closeHolidayDialog() {
+  if (holidayLastState === 'failed' || holidayLastState === 'confirm') bumpHolidayFail();
+  if (holidayWin && !holidayWin.isDestroyed()) { try { holidayWin.close(); } catch (e) {} }
+  holidayWin = null;
+  holidayBusy = false;
+}
+
+/** 更新成功后把新数据推给日历主窗（渲染层 applyHolidayData → renderAll） */
+function broadcastHolidayData() {
+  try {
+    const payload = { data: holidayStore.getData() };
+    if (win && win.webContents && !win.webContents.isDestroyed()) {
+      win.webContents.send('holiday-data-changed', payload);
+    }
+  } catch (e) { log('broadcastHolidayData failed: ' + (e && e.message || e)); }
+}
+
+/** 真正执行联网更新（confirm → updating → success / failed） */
+function doHolidayUpdate(year) {
+  const y = Number(year) || holidayStore.targetYear(new Date());
+  if (holidayBusy) return;
+  holidayBusy = true;
+  pushHolidayDialog({ state: 'updating', year: y });
+  log('holiday: start update year=' + y);
+  let p;
+  try {
+    p = Promise.resolve(holidayStore.fetchYear(y));
+  } catch (e) {
+    p = Promise.resolve({ ok: false, reason: '联网请求异常：' + ((e && e.message) || e) });
+  }
+  p.then(function (res) {
+    if (!res || !res.ok) {
+      const reason = (res && res.reason) || '网络不可用，请检查网络后重试';
+      log('holiday: fetch failed year=' + y + ' reason=' + reason);
+      holidayBusy = false;
+      bumpHolidayFail();
+      pushHolidayDialog({ state: 'failed', year: y, detail: reason });
+      return;
+    }
+    const applied = holidayStore.applyYear({
+      holidays: res.data.holidays,
+      workdays: res.data.workdays,
+      source: res.source
+    }, y);
+    if (!applied || !applied.ok) {
+      const reason = (applied && applied.reason) || '写入本地数据失败';
+      log('holiday: apply failed year=' + y + ' reason=' + reason);
+      holidayBusy = false;
+      bumpHolidayFail();
+      pushHolidayDialog({ state: 'failed', year: y, detail: reason });
+      return;
+    }
+    // holidays.js 缓存清掉重算 → 托盘「本年最近节日」菜单立即用上新数据
+    holidays.setData(holidayStore.getData());
+    markHolidayChecked();
+    resetHolidayFail();
+    broadcastHolidayData();
+    refreshTrayMenu();
+    holidayBusy = false;
+    log('holiday: update OK year=' + y + ' source=' + res.source);
+    pushHolidayDialog({
+      state: 'success',
+      year: y,
+      detail: summarizeHolidayYear(res.data)
+    });
+  }, function (err) {
+    holidayBusy = false;
+    bumpHolidayFail();
+    log('holiday: update crashed year=' + y + ' ' + (err && err.stack || err));
+    pushHolidayDialog({ state: 'failed', year: y, detail: '联网请求异常：' + ((err && err.message) || err) });
+  });
+}
+
+/** 从本地 JSON 文件导入（离线兜底），复用 holiday-store 的 normalize() */
+function importHolidayFile() {
+  try {
+    if (!dialog || typeof dialog.showOpenDialog !== 'function') {
+      bumpHolidayFail();
+      pushHolidayDialog({ state: 'failed', detail: '当前环境不支持打开文件对话框' });
+      return;
+    }
+    const y = holidayStore.targetYear(new Date());
+    const opts = {
+      title: '选择节假日数据文件（JSON）',
+      filters: [{ name: 'JSON 数据', extensions: ['json'] }],
+      properties: ['openFile']
+    };
+    const parent = (holidayWin && !holidayWin.isDestroyed()) ? holidayWin : undefined;
+    Promise.resolve(dialog.showOpenDialog(parent, opts))
+      .then(function (r) {
+        if (!r || r.canceled || !r.filePaths || !r.filePaths.length) return;   // 取消 → 留在 failed 态
+        return holidayStore.importFromFile(r.filePaths[0]).then(function (res) {
+          if (!res || !res.ok) {
+            bumpHolidayFail();
+            pushHolidayDialog({ state: 'failed', year: y, detail: (res && res.reason) || '文件内容无效' });
+            return;
+          }
+          const applied = holidayStore.applyYear({
+            holidays: res.data.holidays, workdays: res.data.workdays, source: res.source
+          }, res.year || y);
+          if (!applied || !applied.ok) {
+            bumpHolidayFail();
+            pushHolidayDialog({ state: 'failed', year: res.year || y, detail: (applied && applied.reason) || '写入本地数据失败' });
+            return;
+          }
+          holidays.setData(holidayStore.getData());
+          markHolidayChecked();
+          resetHolidayFail();
+          broadcastHolidayData();
+          refreshTrayMenu();
+          log('holiday: import OK year=' + (res.year || y) + ' file=' + r.filePaths[0]);
+          pushHolidayDialog({ state: 'success', year: res.year || y, detail: summarizeHolidayYear(res.data) });
+        });
+      })
+      .catch(function (e) {
+        bumpHolidayFail();
+        log('holiday: import crashed ' + (e && e.stack || e));
+        pushHolidayDialog({ state: 'failed', year: y, detail: '导入失败：' + ((e && e.message) || e) });
+      });
+  } catch (e) {
+    log('holiday: importHolidayFile failed: ' + (e && e.stack || e));
+    try {
+      bumpHolidayFail();
+      pushHolidayDialog({ state: 'failed', detail: '打开文件对话框失败：' + ((e && e.message) || e) });
+    } catch (_) {}
+  }
+}
+
+/**
+ * 检查是否需要更新。
+ * @param {boolean} manual true = 用户手动点菜单（忽略 7 天节流与被推迟标记）
+ */
+function maybeHolidayUpdate(manual) {
+  try {
+    const now = new Date();
+    const st = holidayStore.needsUpdate(now);
+    const y = st.year;
+    if (!st.need) {
+      /* v2.1.0 P2-2：手动点「检查节假日更新」时若已是最新，原来什么都不做，
+       * 用户会以为菜单失灵。现在给一个明确的「已是最新」态 + 数据来源。 */
+      log('holiday: ' + y + ' 年数据已是最新，无需更新');
+      if (manual) {
+        markHolidayChecked();
+        resetHolidayFail();
+        showHolidayDialog({ state: 'uptodate', year: y, detail: holidaySourceLabel() });
+      }
+      return;
+    }
+    if (!manual) {
+      if (holidayDismissedYear === y) { log('holiday: ' + y + ' 用户已选「以后再说」，跳过自动提示'); return; }
+      if (!holidayThrottlePassed(now)) {
+        log('holiday: 距上次检查不足 ' + Math.round(holidayThrottleWindowMs() / 86400000) + ' 天，跳过自动提示');
+        return;
+      }
+    }
+    markHolidayChecked();
+    log('holiday: prompt update year=' + y + ' reason=' + st.reason);
+    // reason: missing / partial / builtin —— 弹窗按原因给不同正文；missing 兼容旧字段
+    showHolidayDialog({
+      state: 'confirm',
+      year: y,
+      reason: st.reason,
+      missing: (st.reason === 'missing')
+    });
+  } catch (e) {
+    log('maybeHolidayUpdate failed: ' + (e && e.stack || e));
+  }
+}
+
+/* ---- IPC ---- */
+ipcMain.handle('holiday-get-data', function () {
+  try {
+    const data = holidayStore.getData();
+    const st = holidayStore.needsUpdate(new Date());
+    return { data: data, meta: { targetYear: st.year, need: st.need, reason: st.reason } };
+  } catch (e) {
+    log('holiday-get-data failed: ' + (e && e.message || e));
+    return { data: null, meta: null };
+  }
+});
+ipcMain.on('holiday-check-update', function () {
+  try { maybeHolidayUpdate(true); } catch (e) { log('holiday-check-update failed: ' + (e && e.stack || e)); }
+});
+ipcMain.on('holiday-do-update', function (evt, year) {
+  try { doHolidayUpdate(year); } catch (e) { log('holiday-do-update failed: ' + (e && e.stack || e)); }
+});
+ipcMain.on('holiday-postpone', function (evt, year) {
+  try {
+    holidayDismissedYear = Number(year) || 0;
+    saveSettings();
+    log('holiday: user postponed year=' + holidayDismissedYear);
+  } catch (e) { log('holiday-postpone failed: ' + (e && e.stack || e)); }
+  /* v2.1.0 P3-2：「以后再说」是用户主动推迟，不是更新失败，不该计入 holidayFailCount。
+   * 复用防重复计数标记，让随后的 closeHolidayDialog() 不再 bumpHolidayFail()。
+   * 关窗路径（× / 关闭按钮）保持原语义：只有真失败才计数。 */
+  holidayFailCounted = true;
+  closeHolidayDialog();
+});
+ipcMain.on('holiday-import-file', function () {
+  try { importHolidayFile(); } catch (e) { log('holiday-import-file failed: ' + (e && e.stack || e)); }
+});
+ipcMain.on('holiday-dialog-close', function () {
+  closeHolidayDialog();
+});
+
 app.whenReady().then(function () {
   log('=========== app start v' + app.getVersion() + ' ===========');
   // v1.7.20：必须在建任何窗口之前先清残留（越早越好，此时 Electron 还没 fork 渲染/GPU 进程）。
@@ -1940,6 +2370,12 @@ app.whenReady().then(function () {
   // v1.6.2：每 60s 巡检到期关注；启动时先跑一次避免重启后错过今天
   reminderCheckTimer = setInterval(checkReminders, 60 * 1000);
   setTimeout(checkReminders, 500);
+  /* v2.1.0 节假日年度更新：启动 5s 后查一次（让主窗先渲染完，别一开机就弹窗），
+   * 之后每 6 小时轮询一次。真正的自动提示还受「7 天节流 + 用户已推迟」双重约束。 */
+  setTimeout(function () { try { maybeHolidayUpdate(false); } catch (e) { log('holiday: auto check failed ' + (e && e.stack || e)); } }, 5000);
+  holidayCheckTimer = setInterval(function () {
+    try { maybeHolidayUpdate(false); } catch (e) { log('holiday: periodic check failed ' + (e && e.stack || e)); }
+  }, 6 * 3600 * 1000);
 });
 
 app.on('before-quit', function () {
@@ -1950,6 +2386,8 @@ app.on('before-quit', function () {
   try { if (tray) tray.destroy(); tray = null; } catch (e) {}
   if (trayTooltipTimer) { clearInterval(trayTooltipTimer); trayTooltipTimer = null; }
   if (reminderCheckTimer) { clearInterval(reminderCheckTimer); reminderCheckTimer = null; }
+  if (holidayCheckTimer) { clearInterval(holidayCheckTimer); holidayCheckTimer = null; }
+  if (holidayWin) { try { holidayWin.destroy(); } catch (e) {} holidayWin = null; }
   if (reminderWin) { try { reminderWin.close(); } catch (e) {} reminderWin = null; }
   if (dockWin) { try { dockWin.destroy(); } catch (e) {} dockWin = null; }
   if (remindlistWin) { try { remindlistWin.destroy(); } catch (e) {} remindlistWin = null; }

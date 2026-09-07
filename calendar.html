@@ -866,33 +866,112 @@
   'use strict';
   var Solar = window.Solar, Lunar = window.Lunar;
 
-  /* ===== 2026 国务院办公厅节假日数据 ===== */
-  var HOLIDAYS_2026 = (function () {
-    var H = {
-      1:  [{ s: 1,  e: 3,  name: '元旦' }],
-      2:  [{ s: 15, e: 23, name: '春节' }],
-      4:  [{ s: 4,  e: 6,  name: '清明节' }],
-      5:  [{ s: 1,  e: 5,  name: '劳动节' }],
-      6:  [{ s: 19, e: 21, name: '端午节' }],
-      9:  [{ s: 25, e: 27, name: '中秋节' }],
-      10: [{ s: 1,  e: 7,  name: '国庆节' }]
-    };
-    var WK = { 1: [4], 2: [14, 28], 5: [9], 9: [20], 10: [10] };
-    function find(m, d) {
-      var segs = H[m];
-      if (!segs) return null;
-      for (var i = 0; i < segs.length; i++) {
-        var s = segs[i];
-        if (d >= s.s && d <= s.e) return { name: s.name, idx: d - s.s + 1, total: s.e - s.s + 1, s: s.s, e: s.e };
-      }
-      return null;
+  /* ===== 节假日放假数据（按年索引） =====
+   * v2.1.0：原来只有一份 2026 硬编码表，看 2025/2027 也拿 2026 的去套（附带 bug）。
+   * 现在按年存表：HOLIDAY_FALLBACK 是出厂内置（浏览器预览 + 首帧），
+   * HOLIDAY_YEARS 是运行时真值（Electron 下由主进程 holidays.json 下发覆盖）。
+   * 某年无数据 → 该年既不放假也不补班，不再误套别年的表。 */
+  var HOLIDAY_FALLBACK = {
+    2026: {
+      holidays: [
+        { name: '元旦',   s: '2026-01-01', e: '2026-01-03' },
+        { name: '春节',   s: '2026-02-15', e: '2026-02-23' },
+        { name: '清明节', s: '2026-04-04', e: '2026-04-06' },
+        { name: '劳动节', s: '2026-05-01', e: '2026-05-05' },
+        { name: '端午节', s: '2026-06-19', e: '2026-06-21' },
+        { name: '中秋节', s: '2026-09-25', e: '2026-09-27' },
+        { name: '国庆节', s: '2026-10-01', e: '2026-10-07' }
+      ],
+      workdays: ['2026-01-04', '2026-02-14', '2026-02-28', '2026-05-09', '2026-09-20', '2026-10-10']
     }
-    function isWork(m, d) {
-      var a = WK[m];
-      return !!a && a.indexOf(d) >= 0;
+  };
+  // 运行时数据表（引用稳定，applyHolidayData 只改属性不改引用，方便测试钩子持有）
+  var HOLIDAY_YEARS = {};
+  (function seedFallback() {
+    for (var k in HOLIDAY_FALLBACK) {
+      if (Object.prototype.hasOwnProperty.call(HOLIDAY_FALLBACK, k)) HOLIDAY_YEARS[k] = HOLIDAY_FALLBACK[k];
     }
-    return { find: find, isWork: isWork };
   })();
+
+  var _holidayCache = {};   // y -> { find(m,d), isWork(m,d) }，避免每次翻月重复解析字符串
+
+  function parseYmd(s) {
+    if (typeof s !== 'string') return null;
+    var m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+    if (!m) return null;
+    return { y: +m[1], m: +m[2], d: +m[3] };
+  }
+  function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
+  function dayDiff(a, b) {
+    return Math.round((new Date(b.y, b.m - 1, b.d) - new Date(a.y, a.m - 1, a.d)) / 86400000);
+  }
+
+  /* 把某年的 {holidays:[{name,s,e}], workdays:[...]} 编译成按月索引的查询器。
+   * 放假期段可能跨月（如 12/30–1/1），这里按月裁剪成「月内子段」，
+   * 但 idx/total 仍按整段算，保证节首日只显示一次节日名。 */
+  function buildYearTable(t) {
+    var segs = {}, wk = {}, i, m;
+    var hs = (t && t.holidays) || [];
+    for (i = 0; i < hs.length; i++) {
+      var a = parseYmd(hs[i].s), b = parseYmd(hs[i].e) || parseYmd(hs[i].s);
+      if (!a || !b) continue;
+      for (m = a.m; m <= b.m; m++) {
+        var ms = (m === a.m) ? a.d : 1;
+        var me = (m === b.m) ? b.d : daysInMonth(b.y, m);
+        if (!segs[m]) segs[m] = [];
+        segs[m].push({ s: ms, e: me, name: String(hs[i].name || '节假日'), sAbs: hs[i].s, eAbs: hs[i].e });
+      }
+    }
+    var ws = (t && t.workdays) || [];
+    for (i = 0; i < ws.length; i++) {
+      var w = parseYmd(ws[i]);
+      if (!w) continue;
+      if (!wk[w.m]) wk[w.m] = {};
+      wk[w.m][w.d] = true;
+    }
+    return {
+      find: function (m, d) {
+        var arr = segs[m];
+        if (!arr) return null;
+        for (var k = 0; k < arr.length; k++) {
+          var s = arr[k];
+          if (d < s.s || d > s.e) continue;
+          var pa = parseYmd(s.sAbs), pb = parseYmd(s.eAbs) || parseYmd(s.sAbs);
+          var total = dayDiff(pa, pb) + 1;
+          var idx = dayDiff(pa, { y: pa.y, m: m, d: d }) + 1;
+          return { name: s.name, idx: idx, total: total, s: s.s, e: s.e };
+        }
+        return null;
+      },
+      isWork: function (m, d) { return !!(wk[m] && wk[m][d]); }
+    };
+  }
+
+  /** 取某年的放假查询器；该年无数据返回 null（调用方按"无假无补班"处理） */
+  function holidayTable(y) {
+    if (_holidayCache[y]) return _holidayCache[y];
+    var t = HOLIDAY_YEARS[y];
+    if (!t) return null;
+    var api = buildYearTable(t);
+    _holidayCache[y] = api;
+    return api;
+  }
+
+  /** 主进程下发 holidays.json → 合并进运行时表并重绘 */
+  function applyHolidayData(payload) {
+    if (!payload || typeof payload !== 'object') return false;
+    var years = payload.years || (payload.data && payload.data.years);
+    if (!years) return false;
+    for (var y in years) {
+      if (Object.prototype.hasOwnProperty.call(years, y)) HOLIDAY_YEARS[y] = years[y];
+    }
+    _holidayCache = {};
+    // DOM 还没准备好时（首帧之前收到推送）只更新数据，等 init 自己 renderAll
+    if (!gridEl) return true;
+    renderAll();
+    updateInfo();
+    return true;
+  }
 
   /* ===== 法定节假日（仅用于副字显示节日名，不依赖放假年） ===== */
   var NATIONAL = {
@@ -941,9 +1020,11 @@
     var sF = solar.getFestivals() || [];
     var lF = lunar.getFestivals() || [];
 
-    var hol = HOLIDAYS_2026.find(m, d);
+    // v2.1.0：按年份取表 —— 该年没有放假数据就不再拿别年的表去套
+    var tbl = holidayTable(y);
+    var hol = tbl ? tbl.find(m, d) : null;
     var isHoliday = !!hol;
-    var isWork = HOLIDAYS_2026.isWork(m, d);
+    var isWork = tbl ? tbl.isWork(m, d) : false;
 
     // 副文字优先级：
     //  1) 24 节气始终显示
@@ -975,7 +1056,15 @@
   }
 
 /* ===== 状态 ===== */
+/* v2.1.0 跨天修复：`now` 曾只在启动时算一次，跨过午夜后 isToday() 仍认昨天，
+ * 而且 9/30→10/1、12/31→1/1 连月/年都不跟随。现在 now 仅作"启动时刻"保留，
+ * 所有"今天"判定一律走实时 todayParts()。 */
 var now = new Date();
+function refreshNow() { now = new Date(); }
+function todayParts() {
+  var t = new Date();
+  return { y: t.getFullYear(), m: t.getMonth() + 1, d: t.getDate() };
+}
 var S = {
   year: now.getFullYear(),
   month: now.getMonth() + 1,
@@ -1003,7 +1092,11 @@ var remindInputEl, remindDateLabelEl, remindTextEl, remindOkEl, remindCancelEl, 
 // v1.7.12：关注列表已改为独立窗口（remindlist.html），主窗口内不再有弹窗 DOM
 var bookBtnEl;
 
-  function isToday(y, m, d) { return y === now.getFullYear() && m === now.getMonth() + 1 && d === now.getDate(); }
+  // 实时计算：不再读冻结的 now（跨天/跨月/跨年后今日高亮自动跟随）
+  function isToday(y, m, d) {
+    var t = todayParts();
+    return y === t.y && m === t.m && d === t.d;
+  }
   function isSel(y, m, d) { return y === S.selY && m === S.selM && d === S.selD; }
 
   /* ===== 单元格序列（42 = 6 周 × 7 天） ===== */
@@ -1070,6 +1163,46 @@ var bookBtnEl;
     if (bgMonthEl) bgMonthEl.textContent = S.month;
   }
 
+  /* ===== v2.1.0 跨天（跨月 / 跨年）自动跟随 =====
+   * 三重保险，覆盖「系统休眠」「窗口隐藏被浏览器节流」两种定时器不可靠场景：
+   *   1) updateClock() 按日期键比较（不再赌"恰好 00:00:00 那一秒"会被执行到）
+   *   2) visibilitychange / focus 回来时补一次
+   *   3) 每秒 setInterval 兜底
+   * 幂等：checkDayRollover() 一天内重复调用只会真正执行一次。 */
+  function dayKeyOf(y, m, d) { return y + '-' + m + '-' + d; }
+
+  var _t0 = todayParts();
+  var lastDayKey = dayKeyOf(_t0.y, _t0.m, _t0.d);
+  var prevToday = { y: _t0.y, m: _t0.m, d: _t0.d };
+
+  function onDayRollover() {
+    var prev = prevToday || todayParts();
+    refreshNow();
+    var t = todayParts();
+    prevToday = t;
+    // 用户正在看"旧今天所在的月" → 跟随滚到新月/新年（否则不打扰用户翻的月份）
+    if (S.year === prev.y && S.month === prev.m) { S.year = t.y; S.month = t.m; }
+    // 选中的就是旧今天 → 选中日跟随（不然跨月后选中态落在上个月）
+    if (S.selY === prev.y && S.selM === prev.m && S.selD === prev.d) {
+      S.selY = t.y; S.selM = t.m; S.selD = t.d;
+    }
+    renderAll();
+    updateInfo();
+    // 强制刷新托盘 tooltip（原来靠 lastTipKey 变化才推，跨天时这里直接清空重推）
+    lastTipKey = '';
+    pushTooltip();
+    if (rangeSel.length === 2) showDayCount();   // 天数浮层跟着重排
+    return true;
+  }
+
+  function checkDayRollover() {
+    var t = todayParts();
+    var dk = dayKeyOf(t.y, t.m, t.d);
+    if (dk === lastDayKey) return false;
+    lastDayKey = dk;
+    return onDayRollover();
+  }
+
   function escapeAttr(s) {
     return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
@@ -1093,8 +1226,9 @@ function gotoMonth(delta) {
   if (rangeSel.length === 2) showDayCount();
 }
   function gotoToday() {
-    S.year = now.getFullYear(); S.month = now.getMonth() + 1;
-    S.selY = now.getFullYear(); S.selM = now.getMonth() + 1; S.selD = now.getDate();
+    var t = todayParts();     // 实时：不能用冻结的 now
+    S.year = t.y; S.month = t.m;
+    S.selY = t.y; S.selM = t.m; S.selD = t.d;
     renderAll();
   }
   // v1.5：跳到指定年/月/日（托盘「下一节日」点击跳转用）
@@ -1425,6 +1559,13 @@ function confirmRemindInput() {
       hideRemindInput();
     });
 
+    /* v2.1.0 跨天保险 2/3：从休眠恢复 / 窗口重新可见 / 重新获得焦点时补一次判定。
+     * 后台标签页的 setInterval 会被节流到分钟级甚至停摆，只靠 tick 不够。 */
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) checkDayRollover();
+    });
+    window.addEventListener('focus', function () { checkDayRollover(); });
+
     // v1.7.2 需求 9：Esc 键 → 清除日期范围选择 + 关闭关注输入栏
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
@@ -1569,7 +1710,8 @@ function confirmRemindInput() {
     var jq = lunar.getJieQi() || '';
     var lF = lunar.getFestivals() || [];
     var sF = solar.getFestivals() || [];
-    var hol = HOLIDAYS_2026.find(m, d);
+    var tbl = holidayTable(y);
+    var hol = tbl ? tbl.find(m, d) : null;
     if (hol && hol.idx === 1) return monthCn + ' · ' + hol.name;        // 节首日
     if (jq) return monthCn + dayCn + ' · ' + jq;                        // 节气
     if (!(hol && hol.idx === 1)) {
@@ -1591,15 +1733,19 @@ function confirmRemindInput() {
     var t = new Date();
     var clk = $('clkTime');
     if (clk) clk.textContent = pad2(t.getHours()) + ':' + pad2(t.getMinutes()) + ':' + pad2(t.getSeconds());
-    if (t.getHours() === 0 && t.getMinutes() === 0 && t.getSeconds() === 0) updateInfo();
     // R3. 跨午夜 / 日期变化时才重新推送 tooltip（避免每秒无效 IPC）
-    var dk = t.getFullYear() + '-' + (t.getMonth() + 1) + '-' + t.getDate();
+    var dk = dayKeyOf(t.getFullYear(), t.getMonth() + 1, t.getDate());
     if (dk !== lastTipKey) { lastTipKey = dk; pushTooltip(); }
+    /* v2.1.0：原来是 `if (时===0 && 分===0 && 秒===0) updateInfo()` —— 系统休眠或
+     * 定时器被节流时会整个跳过那一秒，日历就永远停在昨天。改成日期键比较后，
+     * 只要这 1 秒的 tick 有任意一次落在"新的一天"就会自愈。 */
+    if (dk !== lastDayKey) { lastDayKey = dk; onDayRollover(); }
   }
 
   /* ===== 年份/月份下拉填充 ===== */
   function fillSelectors() {
-    var yi = now.getFullYear(), ya = yi - 50, yb = yi + 50;
+    var t = todayParts();     // 实时：不能用冻结的 now
+    var yi = t.y, ya = yi - 50, yb = yi + 50;
     var yh = '';
     for (var y = ya; y <= yb; y++) yh += '<option value="' + y + '"' + (y === yi ? ' selected' : '') + '>' + y + '</option>';
     yearSel.innerHTML = yh;
@@ -1607,7 +1753,7 @@ function confirmRemindInput() {
     for (var mm = 1; mm <= 12; mm++) mh += '<option value="' + mm + '">' + pad2(mm) + '</option>';
     monthSel.innerHTML = mh;
     yearSel.value = yi;
-    monthSel.value = now.getMonth() + 1;
+    monthSel.value = t.m;
   }
 
   /* ===== v1.6：托盘右键菜单驱动（订阅主进程下发的事件） ===== */
@@ -1726,8 +1872,32 @@ function confirmRemindInput() {
         renderGrid();
       });
     }
+    // v2.1.0：Electron 下拉取运行时节假日数据（内置表只是首帧/预览兜底）
+    if (window.api && window.api.getHolidayData) {
+      window.api.getHolidayData().then(function (res) {
+        if (res && res.data) applyHolidayData(res.data);
+      }).catch(function () {});
+    }
+    if (window.api && window.api.onHolidayDataChanged) {
+      window.api.onHolidayDataChanged(function (payload) {
+        if (payload && payload.data) applyHolidayData(payload.data);
+      });
+    }
+
     setInterval(updateClock, 1000);
   }
+  /* v2.1.0 自测钩子（无害）：暴露内部状态与跨天/节假日函数，
+   * 便于 QA 在 DevTools 里直接触发 __CAL__.onDayRollover() 验证跨天，
+   * 或 __CAL__.applyHolidayData({years:{...}}) 验证数据热替换。 */
+  window.__CAL__ = {
+    S: S,
+    isToday: isToday,
+    onDayRollover: onDayRollover,
+    checkDayRollover: checkDayRollover,
+    applyHolidayData: applyHolidayData,
+    todayParts: todayParts,
+    HOLIDAY_YEARS: HOLIDAY_YEARS
+  };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
 </script>

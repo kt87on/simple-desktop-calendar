@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="3OHDqkaJMhacGn4UEaCRML">
+<head data-page-node-id="U0x4w0Xe6lnGLaSdCdzsW3">
+<meta charset="UTF-8" data-page-node-id="s82keLbziV9Iz13Zai1c7F">
+<title>节假日数据更新</title>
+<style>
+  /* ==========================================================================
+   * 节假日更新弹窗 · 设计系统 v2.0
+   * --------------------------------------------------------------------------
+   * 视觉完全复刻 exit.html（同一套 L1 基础层 / L2 语义层 / #card/#head/#body/#actions
+   * 结构 + html[data-theme="dark"] 黑夜模式），保证两个弹窗放在一起是同一种语言。
+   * 差异只在语义色：成功=绿、失败=朱砂/红、进行中=雅蓝（沿用 accent）。
+   * 四态状态机：confirm → updating → success / failed
+   * ========================================================================== */
+
+  /* ============================ L1 基础层 ============================ */
+  :root {
+    --ink-900: #14181f;
+    --ink-800: #1f2430;
+    --ink-700: #333a48;
+    --ink-600: #4b5563;
+    --ink-500: #6b7280;
+    --ink-400: #9aa1ad;
+    --ink-300: #c2c8d2;
+    --ink-200: #e2e6ec;
+    --ink-100: #f0f2f5;
+    --ink-50:  #f7f8fa;
+    --ink-25:  #fcfbf9;
+
+    --blue-50:  #eff4fc;
+    --blue-100: #dae6fa;
+    --blue-200: #b9cff5;
+    --blue-300: #8fb0ec;
+    --blue-400: #6389df;
+    --blue-500: #3b6fd4;
+    --blue-600: #1976d2;
+    --blue-700: #155ba6;
+
+    --fs-3xs: 8px;
+    --fs-2xs: 9px;
+    --fs-xs:  10px;
+    --fs-sm:  11px;
+    --fs-md:  13px;
+    --fs-lg:  14px;
+    --fs-xl:  15px;
+    --fs-2xl: 19px;
+
+    --fw-regular: 400;
+    --fw-medium:  500;
+    --fw-semibold: 600;
+    --fw-bold:    700;
+
+    --font-sans: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI",
+                 "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+                 "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
+    --font-num-feat: "tnum" 1, "lnum" 1, "ss01" 1;
+
+    --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px;
+
+    --r-xs: 4px;
+    --r-sm: 6px;
+    --r-md: 10px;
+    --r-lg: 14px;
+    --r-xl: 16px;
+    --r-pill: 999px;
+
+    --dur-instant: 80ms;
+    --dur-fast:    140ms;
+    --dur-normal:  220ms;
+    --ease-out:    cubic-bezier(.22, .61, .36, 1);
+    --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+
+    /* ========== L2 语义层 · 白日 ========== */
+    --paper: #ffffff;
+    --paper-edge: rgba(31, 35, 48, 0.10);
+    --paper-hi: rgba(255, 255, 255, 0.85);
+    --ink: var(--ink-800);
+    --ink-soft: var(--ink-500);
+    --ink-faint: var(--ink-400);
+
+    --accent: var(--blue-500);
+    --accent-hover: var(--blue-600);
+    --accent-glow: rgba(59, 111, 212, 0.30);
+    --accent-ink: var(--blue-700);
+
+    --ok: #2e7d5b;
+    --ok-soft: rgba(46, 125, 91, 0.12);
+    --err: #c0392b;
+    --err-soft: rgba(192, 57, 43, 0.12);
+
+    --head-bg: linear-gradient(180deg, rgba(59, 111, 212, 0.10), rgba(59, 111, 212, 0));
+    --head-line: rgba(31, 35, 48, 0.07);
+    --foot-bg: rgba(252, 251, 249, 0.65);
+    --btn-ghost-bg: var(--ink-100);
+    --btn-ghost-ink: var(--ink-600);
+    --btn-ghost-hover: var(--ink-200);
+
+    --e-3: 0 20px 52px rgba(31, 35, 48, 0.26), 0 4px 14px rgba(31, 35, 48, 0.10),
+           inset 0 1px 0 var(--paper-hi);
+  }
+
+  /* ========== L2 语义层 · 黑夜 ========== */
+  html[data-theme="dark"] {
+    --paper: #1e222e;
+    --paper-edge: rgba(255, 255, 255, 0.09);
+    --paper-hi: rgba(255, 255, 255, 0.055);
+    --ink: #e8eaf0;
+    --ink-soft: #9aa3b3;
+    --ink-faint: #6a7283;
+
+    --accent: #4a86ef;
+    --accent-hover: #5f97f5;
+    --accent-glow: rgba(74, 134, 239, 0.32);
+    --accent-ink: #8fb2f7;
+
+    --ok: #57c897;
+    --ok-soft: rgba(87, 200, 151, 0.14);
+    --err: #f0736a;
+    --err-soft: rgba(240, 115, 106, 0.14);
+
+    --head-bg: linear-gradient(180deg, rgba(74, 134, 239, 0.14), rgba(74, 134, 239, 0));
+    --head-line: rgba(255, 255, 255, 0.07);
+    --foot-bg: rgba(255, 255, 255, 0.028);
+    --btn-ghost-bg: rgba(255, 255, 255, 0.08);
+    --btn-ghost-ink: #b6bdcc;
+    --btn-ghost-hover: rgba(255, 255, 255, 0.14);
+
+    --e-3: 0 24px 60px rgba(0, 0, 0, 0.66), 0 6px 16px rgba(0, 0, 0, 0.42),
+           inset 0 1px 0 var(--paper-hi);
+  }
+
+  /* ============================ L3 组件层 ============================ */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    font-family: var(--font-sans);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* 外层 = 真正承载阴影的不透明容器（窗口 backgroundColor 透明，容器不透明避免渲黑块） */
+  #card {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    background: var(--paper);
+    border-radius: var(--r-xl);
+    border: 1px solid var(--paper-edge);
+    box-shadow: var(--e-3);
+    overflow: hidden;
+  }
+
+  /* 头部：雅蓝 —— 与 exit.html 同一套品牌归属表达 */
+  #head {
+    flex: 0 0 52px;
+    display: flex; align-items: center;
+    padding: 0 var(--s-4);
+    background: var(--head-bg);
+    border-bottom: 1px solid var(--head-line);
+  }
+  #head .title { display: flex; align-items: center; gap: var(--s-2); color: var(--accent-ink); font-size: var(--fs-xl); font-weight: var(--fw-bold); letter-spacing: 0.3px; }
+  #head .icon { width: 18px; height: 18px; flex: 0 0 auto; color: var(--accent); }
+
+  #body {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: var(--s-2);
+    padding: var(--s-4) var(--s-5);
+    overflow: hidden;
+  }
+  #msg {
+    font-size: var(--fs-lg); line-height: 1.55; font-weight: var(--fw-semibold);
+    color: var(--ink); text-align: center;
+  }
+  #detail {
+    font-size: var(--fs-sm); line-height: 1.6; font-weight: var(--fw-regular);
+    color: var(--ink-soft); text-align: center;
+    max-height: 76px; overflow: hidden;
+    word-break: break-all;
+    /* v2.1.0 P2-1：极端年份（假期段多）时最多 3 行后省略，不再把弹窗撑破 */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+  #detail:empty { display: none; }
+
+  /* 状态徽标：转圈 / ✓ / ✗ */
+  #badge {
+    width: 34px; height: 34px; flex: 0 0 auto;
+    display: none; align-items: center; justify-content: center;
+    border-radius: 50%;
+    font-size: var(--fs-2xl); font-weight: var(--fw-bold); line-height: 1;
+  }
+  #badge.show { display: flex; }
+  #badge.ok  { background: var(--ok-soft);  color: var(--ok); }
+  #badge.err { background: var(--err-soft); color: var(--err); }
+  #badge.busy { background: transparent; color: var(--accent); }
+
+  /* 转圈：CSS 动画，prefers-reduced-motion 下退化为静态圆环 */
+  #spinner {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    border: 2.5px solid var(--accent-glow);
+    border-top-color: var(--accent);
+    animation: spin 900ms linear infinite;
+  }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  #actions {
+    flex: 0 0 auto;
+    display: flex; gap: var(--s-2); justify-content: flex-end;
+    padding: var(--s-3) var(--s-4) var(--s-4);
+    background: var(--foot-bg);
+    border-top: 1px solid var(--head-line);
+  }
+  button {
+    border: none; border-radius: var(--r-md); padding: 9px 20px;
+    font-family: inherit; font-size: var(--fs-md); font-weight: var(--fw-semibold);
+    cursor: pointer; outline: none;
+    transition: background-color var(--dur-fast) var(--ease-out),
+                transform var(--dur-instant) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out);
+  }
+  button:active { transform: scale(0.965); }
+  button:focus-visible { box-shadow: 0 0 0 3px var(--accent-glow); }
+  button.ghost { background: var(--btn-ghost-bg); color: var(--btn-ghost-ink); }
+  button.ghost:hover { background: var(--btn-ghost-hover); }
+  button.primary { background: var(--accent); color: #fff; box-shadow: 0 3px 10px var(--accent-glow); }
+  button.primary:hover { background: var(--accent-hover); }
+  button:disabled { opacity: 0.55; cursor: default; transform: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; }
+    #spinner { animation: none; border-top-color: var(--accent); }
+  }
+</style>
+</head>
+<body data-page-node-id="8g5ZXR9kKPvOnb4OU8l7QL">
+  <div id="card" data-page-node-id="8zkcLAe92O7JCTpplcCibl">
+    <div id="head" data-page-node-id="H1P8AsJ643rDi05yWMMiJm">
+      <span class="title" data-page-node-id="vB3VD8fisFIxiWmU76nNOg">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" data-page-node-id="9JptzYGliYJzJXP59FGfAe">
+          <path d="M12 3v11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" data-page-node-id="BHG4nkRmNVK6CFHqYoFiU5"/>
+          <path d="M7.5 10.5 12 15l4.5-4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="T4kFX05wa1McMx82lXhqZO"/>
+          <path d="M5 19h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" data-page-node-id="qzGaDWX6WMtkLEqzkvRrEb"/>
+        </svg>
+        节假日数据更新
+      </span>
+    </div>
+    <div id="body" data-page-node-id="KG2s3DbrVmpQZZbli5XzXY">
+      <div id="badge" data-page-node-id="yCD2c5AGUve8hLkhCgEwgA"><span id="badgeGlyph" data-page-node-id="h2Ea5yM7EsWGjw6L8lEqoc"></span></div>
+      <div id="msg" data-page-node-id="6hOqGPMRYCmhWhgcyxVncP">正在准备…</div>
+      <div id="detail" data-page-node-id="Y7MvQlQX7gSOihXwpiAExU"></div>
+    </div>
+    <div id="actions" data-page-node-id="EIMEDZpfQXsC3KnqSgnTFN"></div>
+  </div>
+  <script>
+  (function () {
+    'use strict';
+
+    // v2.0 视觉：跟随主窗主题（query 传 theme，与 exit.html 完全一致）
+    var params = new URLSearchParams(location.search);
+    if (params.get('theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+
+    var badgeEl = document.getElementById('badge');
+    var glyphEl = document.getElementById('badgeGlyph');
+    var msgEl = document.getElementById('msg');
+    var detailEl = document.getElementById('detail');
+    var actionsEl = document.getElementById('actions');
+
+    // 当前状态：confirm / updating / success / failed / uptodate
+    var state = 'confirm';
+    var year = 0;
+    var missing = false;    // 兼容旧字段：true ≈ reason==='missing'
+    var reason = '';        // confirm 态原因：missing / partial / builtin
+    var detail = '';
+
+    function api() { return window.api || {}; }
+
+    function setBadge(kind, glyphHtml) {
+      badgeEl.className = '';
+      if (!kind) { badgeEl.classList.remove('show'); glyphEl.innerHTML = ''; return; }
+      badgeEl.classList.add('show');
+      badgeEl.classList.add(kind);
+      glyphEl.innerHTML = glyphHtml || '';
+    }
+
+    function button(label, cls, onClick) {
+      var b = document.createElement('button');
+      b.className = cls || 'ghost';
+      b.textContent = label;
+      b.addEventListener('click', onClick);
+      actionsEl.appendChild(b);
+      return b;
+    }
+
+    /** confirm 态正文：按 needsUpdate 的原因给不同话术（缺数据 / 不完整 / 内置待核对） */
+    function confirmText() {
+      if (reason === 'missing') return '当前缺少 ' + year + ' 年放假安排，是否现在联网更新？';
+      if (reason === 'partial') return year + ' 年放假安排不完整（仅含部分节日），是否现在联网补全？';
+      if (reason === 'builtin') return year + ' 年放假安排目前是软件内置数据，建议联网核对一次，是否现在更新？';
+      // 旧版只传 missing 布尔：兼容回退
+      if (missing) return '当前缺少 ' + year + ' 年放假安排，是否现在联网更新？';
+      return '检测到 ' + year + ' 年放假安排已发布，是否现在更新？';
+    }
+
+    function render() {
+      actionsEl.innerHTML = '';
+      if (state === 'confirm') {
+        setBadge(null);
+        msgEl.textContent = confirmText();
+        detailEl.textContent = '';
+        button('以后再说', 'ghost', function () { api().holidayPostpone(year); });
+        var ok = button('立即更新', 'primary', function () { api().holidayDoUpdate(year); });
+        setTimeout(function () { try { ok.focus(); } catch (e) {} }, 30);
+      } else if (state === 'updating') {
+        setBadge('busy', '<span id="spinner"></span>');
+        msgEl.textContent = '正在获取 ' + year + ' 年放假安排…';
+        detailEl.textContent = '';
+        var busy = button('正在更新…', 'ghost', function () {});
+        busy.disabled = true;
+      } else if (state === 'success') {
+        setBadge('ok', '\u2713');
+        msgEl.textContent = '更新成功';
+        button('完成', 'primary', function () { api().holidayCloseDialog(); });
+      } else if (state === 'uptodate') {
+        // P2-2：手动检查时的正向反馈，避免用户以为菜单失灵
+        setBadge('ok', '\u2713');
+        msgEl.textContent = year + ' 年放假安排已是最新';
+        var done2 = button('完成', 'primary', function () { api().holidayCloseDialog(); });
+        setTimeout(function () { try { done2.focus(); } catch (e) {} }, 30);
+      } else {
+        setBadge('err', '\u2717');
+        msgEl.textContent = '更新失败';
+        button('重试', 'primary', function () { api().holidayDoUpdate(year); });
+        button('从文件导入', 'ghost', function () { api().holidayImportFile(); });
+        button('关闭', 'ghost', function () { api().holidayCloseDialog(); });
+      }
+    }
+
+    /** 主进程推送状态：{ state, year, detail, reason, missing } */
+    function apply(payload) {
+      if (!payload || typeof payload !== 'object') return;
+      if (payload.state) state = payload.state;
+      if (payload.year) year = Number(payload.year);
+      if (typeof payload.missing === 'boolean') missing = payload.missing;
+      if (typeof payload.reason === 'string') reason = payload.reason;
+      detail = payload.detail || '';
+      // 明细只在「成功 / 失败 / 已是最新」三态展示，其余态保持干净
+      detailEl.textContent = (state === 'success' || state === 'failed' || state === 'uptodate') ? detail : '';
+      render();
+    }
+
+    // 订阅主进程状态推送（did-finish-load 之后才会到，所以必须靠订阅而不是读一次）
+    if (api().onHolidayDialog) {
+      api().onHolidayDialog(function (payload) { apply(payload); });
+    }
+
+    // Esc = 关闭（等同"以后再说 / 关闭"）；更新中不允许中断，避免半写状态
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      if (state === 'updating') return;
+      if (state === 'confirm') api().holidayPostpone(year);
+      else api().holidayCloseDialog();
+    });
+
+    render();
+  })();
+  </script>
+</body>
+</html>
