@@ -306,8 +306,10 @@
     flex: 0 0 38px;
     display: flex; align-items: center; justify-content: space-between;
     padding: 0 var(--s-2) 0 var(--s-3);
-    background: var(--accent-softer);
-    border-bottom: 1px solid var(--paper-edge);
+    /* v2.3.1 白日模式工具栏太浅反馈：6% 蓝在纸白底上几乎透明，按钮白色 vs 卡片白色糊在一起。
+     * 改用 14% 蓝 + 1px 底边线（与 paper-edge 同色），按钮的 1px 边框也提到 18% 提升对比度。 */
+    background: rgba(59, 111, 212, 0.14);
+    border-bottom: 1px solid rgba(31, 35, 48, 0.14);
     cursor: move; user-select: none;
     -webkit-app-region: drag;
     transition: background var(--dur-slow) var(--ease-in-out);
@@ -470,9 +472,9 @@
   }
   .cell .sub.sub-festival { color: var(--workday); font-weight: var(--fw-semibold); }
 
-  .cell.other { opacity: 0.20; }
+  .cell.other { opacity: 0.40; }
   .cell.other .d, .cell.other .sub { color: var(--ink-faint); }
-  .cell.other.holiday { opacity: 0.55; }
+  .cell.other.holiday { opacity: 0.65; }
   /* 跨月区间选中的 other 格提高透明度，否则浅绿被 opacity 压得不可见 */
   .cell.other.range, .cell.other.range-between { opacity: 0.6; }
 

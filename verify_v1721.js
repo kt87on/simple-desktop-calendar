@@ -41,7 +41,7 @@ const whenReadyBody = main.slice(main.indexOf('app.whenReady'), main.indexOf("ap
 // =====================================================================
 // 版本号
 // =====================================================================
-check('版本号=2.3.0', pkg.version === '2.3.0', 'package.json version=' + pkg.version);
+check('版本号=2.3.1', pkg.version === '2.3.1', 'package.json version=' + pkg.version);
 
 // =====================================================================
 // v2.3.0 Phase 3：设置窗口拖动 / 解除特别关注数量限制 / 安装后说明弹出
