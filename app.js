@@ -230,11 +230,10 @@ var S = {
 var reminders = [];             // [{ id, y, m, d, text, createdAt, snoozeUntil }]
 var pendingRemind = null;      // { y, m, d } 当前右键打开的关注输入栏目标
 
-/* ===== v1.7.11 特别关注额度（需求 1 / 2） =====
- * 渲染层用 maxlength + 输入前校验拦截，主进程 add-reminder 里再兜底一次，
- * 双保险防止绕过（比如直接改 DOM）。 */
+/* ===== v1.7.11 特别关注字数限制（需求 1） =====
+ * v2.3.0：移除「最多 10 条」数量上限（用户要求不限制），仅保留单条 15 字限制。
+ * 渲染层用 maxlength + 截断拦截，主进程 add-reminder 里再兜底一次，双保险防止绕过。 */
 var MAX_REMINDER_TEXT = 15;    // 单条最多 15 字
-var MAX_REMINDERS = 10;        // 最多 10 条
 
 var $ = function (id) { return document.getElementById(id); };
 var gridEl, headerEl, yearSel, monthSel, wkSwitchEl, widgetEl, lastLit = -1, bgMonthEl, calendarEl, litGlowEl, themeBtnEl;
@@ -512,11 +511,6 @@ function findCellEl(y, m, d) {
   return null;
 }
 function openRemindInput(y, m, d) {
-  // v1.7.11 需求 2：已达 10 条上限时不再弹输入框，直接提示
-  if (reminders.length >= MAX_REMINDERS) {
-    showToast('特别关注最多 ' + MAX_REMINDERS + ' 条，请先取消一条');
-    return;
-  }
   pendingRemind = { y: y, m: m, d: d };
   if (remindDateLabelEl) remindDateLabelEl.textContent = y + '/' + pad2(m) + '/' + pad2(d);
   if (remindTextEl) remindTextEl.value = '';
@@ -585,14 +579,10 @@ function confirmRemindInput() {
   if (window.api && window.api.addReminder) {
     window.api.addReminder({
       y: pendingRemind.y, m: pendingRemind.m, d: pendingRemind.d, text: text
-    }).then(function (res) {
-      // v1.7.11 需求 2：主进程返回 { error:'limit' } 表示已达 10 条上限
-      if (res && res.error === 'limit') showToast('特别关注最多 ' + MAX_REMINDERS + ' 条');
-    }).catch(function () {});
+    }).then(function () {}).catch(function () {});
   } else {
-    // 浏览器预览：本地也拦一次上限
-    if (reminders.length >= MAX_REMINDERS) { showToast('特别关注最多 ' + MAX_REMINDERS + ' 条'); }
-    else localAddReminder(pendingRemind.y, pendingRemind.m, pendingRemind.d, text);
+    // 浏览器预览：本地内存模拟
+    localAddReminder(pendingRemind.y, pendingRemind.m, pendingRemind.d, text);
   }
   hideRemindInput();
 }

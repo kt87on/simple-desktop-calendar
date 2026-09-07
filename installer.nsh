@@ -8,3 +8,5 @@
 
 !define MUI_FINISHPAGE_SHOWREADME "$INSTDIR\使用说明.html"
 !define MUI_FINISHPAGE_SHOWREADME_TEXT "查看说明文档"
+; v2.3.0：默认勾选「查看说明文档」，安装完成点击「完成」即自动打开使用说明。
+!define MUI_FINISHPAGE_SHOWREADME_CHECKED

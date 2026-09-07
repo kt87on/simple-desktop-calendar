@@ -258,7 +258,7 @@
 <body>
   <div id="card">
     <div id="header">
-      <span class="title"><svg class="title-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5 Q4 4.5 5 4.5 Q9.5 4.5 12 6.8 Q14.5 4.5 19 4.5 Q20 4.5 20 5.5 L20 18.5 Q20 19.5 19 19.5 Q14.5 19.5 12 17.2 Q9.5 19.5 5 19.5 Q4 19.5 4 18.5 Z"/><path d="M12 6.8 L12 17.2"/></svg>关注列表 <span class="count" id="count">0/10</span></span>
+      <span class="title"><svg class="title-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5 Q4 4.5 5 4.5 Q9.5 4.5 12 6.8 Q14.5 4.5 19 4.5 Q20 4.5 20 5.5 L20 18.5 Q20 19.5 19 19.5 Q14.5 19.5 12 17.2 Q9.5 19.5 5 19.5 Q4 19.5 4 18.5 Z"/><path d="M12 6.8 L12 17.2"/></svg>关注列表 <span class="count" id="count">0</span></span>
       <button id="close" title="关闭">✕</button>
     </div>
     <div id="cols"><div>日期</div><div>关注内容</div><div></div></div>
@@ -267,7 +267,6 @@
 
 <script>
   (function () {
-    var MAX_REMINDERS = 10;
     var bodyEl = document.getElementById('body');
     var countEl = document.getElementById('count');
 
@@ -287,7 +286,7 @@
 
     function render(list) {
       list = list || [];
-      countEl.textContent = list.length + '/' + MAX_REMINDERS;
+      countEl.textContent = String(list.length);
 
       // 按日期升序
       list = list.slice().sort(function (a, b) {

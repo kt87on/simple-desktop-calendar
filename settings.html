@@ -110,13 +110,19 @@
     flex: 0 0 48px; display: flex; align-items: center; justify-content: space-between;
     padding: 0 var(--s-3) 0 var(--s-4);
     background: var(--head-bg); border-bottom: 1px solid var(--head-line);
+    /* v2.3.0 需求1：设置窗口可拖动（参考特别关注窗口，表头原生拖动） */
+    -webkit-app-region: drag;
+    user-select: none; -webkit-user-select: none;
+    cursor: move;
   }
+  #head:active { cursor: grabbing; }
   #head .title { display: flex; align-items: center; gap: var(--s-2); color: var(--accent-ink); font-size: var(--fs-xl); font-weight: var(--fw-bold); letter-spacing: 0.3px; }
   #head .icon { width: 18px; height: 18px; flex: 0 0 auto; color: var(--accent); }
   #btnClose {
     width: 26px; height: 26px; border: none; border-radius: var(--r-sm);
     background: transparent; color: var(--ink-faint); cursor: pointer;
     font-size: var(--fs-lg); line-height: 1; display: flex; align-items: center; justify-content: center;
+    -webkit-app-region: no-drag;   /* 关闭按钮必须排除，否则点不动 */
     transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   }
   #btnClose:hover { background: var(--accent-soft); color: var(--ink); }

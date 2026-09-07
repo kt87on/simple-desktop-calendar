@@ -4,6 +4,21 @@
 
 ---
 
+## [2.3.0] - 2026-09-07
+
+### 新增
+- **设置窗口可拖动**：`settings.html` 表头加 `-webkit-app-region: drag`，关闭按钮 `no-drag`，与特别关注窗口（remindlist）一致的原生拖动，可拖到屏幕任意位置。
+- **解除特别关注数量限制**：移除「最多 10 条」上限（主进程 `add-reminder` 与渲染层 `openRemindInput`/`confirmRemindInput`/`localAddReminder` 三处拦截全部删除，关注列表不再显示 `x/10`），仅保留单条 15 字限制。
+
+### 修复
+- **安装完成后说明未弹出**：根因是 `使用说明.html` 只打进 asar，`$INSTDIR\使用说明.html` 不存在，`MUI_FINISHPAGE_SHOWREADME` 静默失败。现通过 `extraFiles` 把使用说明作为独立文件放进安装目录，并默认勾选「查看说明文档」。
+
+### 变更
+- **重做使用说明**：非技术向的「软件介绍 + 功能说明 + 软件大小 + 版本更新信息」，替换原陈旧文档。
+- **Win11 兼容复查**：确认 `detectWin11`（build≥22000）、任务栏高度动态获取、透明窗口、高 DPI `Math.round` 补偿等既有机制覆盖到位，无新增问题。
+
+---
+
 ## [2.2.0] - 2026-09-07
 
 ### 新增

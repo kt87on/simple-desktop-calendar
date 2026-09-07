@@ -41,7 +41,30 @@ const whenReadyBody = main.slice(main.indexOf('app.whenReady'), main.indexOf("ap
 // =====================================================================
 // 版本号
 // =====================================================================
-check('版本号=2.2.0', pkg.version === '2.2.0', 'package.json version=' + pkg.version);
+check('版本号=2.3.0', pkg.version === '2.3.0', 'package.json version=' + pkg.version);
+
+// =====================================================================
+// v2.3.0 Phase 3：设置窗口拖动 / 解除特别关注数量限制 / 安装后说明弹出
+// =====================================================================
+const settingsHtml = read('settings.html');
+const settingsCode = codeOnly(settingsHtml);
+const remindlistHtml = read('remindlist.html');
+const installerNsh = read('installer.nsh');
+
+check('[v2.3.0] 设置窗口表头可拖动（#head -webkit-app-region: drag）',
+  /#head\s*\{[\s\S]{0,300}-webkit-app-region:\s*drag/.test(settingsCode));
+check('[v2.3.0] 设置窗口关闭按钮排除拖动（#btnClose no-drag）',
+  /#btnClose\s*\{[\s\S]{0,300}-webkit-app-region:\s*no-drag/.test(settingsCode));
+check('[v2.3.0] 主进程解除特别关注数量上限（无 MAX_REMINDERS / limit）',
+  !/MAX_REMINDERS/.test(mainCode) && !/error:\s*'limit'/.test(mainCode));
+check('[v2.3.0] 渲染层无数量上限拦截（无 MAX_REMINDERS）',
+  !/MAX_REMINDERS/.test(codeOnly(appjs)));
+check('[v2.3.0] 关注列表不再显示 /10 上限',
+  !/MAX_REMINDERS/.test(remindlistHtml) && !/0\/10/.test(remindlistHtml));
+check('[v2.3.0] 使用说明作为独立文件打进安装目录（extraFiles）',
+  /"extraFiles"/.test(read('package.json')) && /"to":\s*"使用说明\.html"/.test(read('package.json')));
+check('[v2.3.0] 安装完成默认勾选「查看说明文档」',
+  /MUI_FINISHPAGE_SHOWREADME_CHECKED/.test(installerNsh));
 
 // =====================================================================
 // 需求1：修复点击热区（Hit Test）

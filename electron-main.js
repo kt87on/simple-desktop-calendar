@@ -264,9 +264,8 @@ const DOCK_RECREATE_MAX = 3;
 let dockCrashed = false;
 let dockStableTimer = null;
 
-/* ===== v1.7.11 特别关注额度 ===== */
-const MAX_REMINDER_TEXT = 15;  // 单条内容最多 15 字
-const MAX_REMINDERS = 10;      // 最多 10 条
+/* ===== v1.7.11 特别关注字数限制 ===== */
+const MAX_REMINDER_TEXT = 15;  // 单条内容最多 15 字（v2.3.0：移除「最多 10 条」数量上限）
 
 // 托盘点击后短暂抑制 blur（否则左键唤起时窗口刚 show 又立即 blur 触发 hide）
 let suppressBlur = false;
@@ -2065,9 +2064,7 @@ function broadcastReminders() {
 ipcMain.handle('list-reminders', function () { return reminders.slice(); });
 ipcMain.handle('add-reminder', function (evt, item) {
   if (!item || typeof item.y !== 'number') return null;
-  // v1.7.11 需求 2：最多 10 条。渲染层也会拦一次，这里兜底防止绕过。
-  if (reminders.length >= MAX_REMINDERS) return { error: 'limit', max: MAX_REMINDERS };
-  // v1.7.11 需求 1：单条内容最多 15 字（同样在渲染层 maxlength 拦一次，这里兜底）
+  // v2.3.0：解除「最多 10 条」数量限制（用户要求不限制），仅保留单条 15 字兜底截断。
   const txt = String(item.text || '').trim().slice(0, MAX_REMINDER_TEXT);
   if (!txt) return null;
   const r = {
