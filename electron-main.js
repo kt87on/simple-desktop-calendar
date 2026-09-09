@@ -192,10 +192,23 @@ function surfaceTheme(surface) {
   return dark ? 'dark' : 'light';
 }
 
+/* image 类型但尚未导入图片时的兜底纯色（绝不透明）。
+ * text=light/dark 直接取对应底色；auto 跟随该表面当前生效明暗（image 缺失时 surfaceTheme 已回退浅色）。 */
+function solidFallbackFor(c, surface) {
+  var theme;
+  if (c.text === 'light') theme = 'light';
+  else if (c.text === 'dark') theme = 'dark';
+  else theme = surfaceTheme(surface);
+  return (theme === 'dark') ? '#1C202C' : '#FCFBF9';
+}
+
 function surfaceBg(surface) {
   var c = resolveSurfaceConfig(surface);
   if (c.type === 'color') return { kind: 'color', color: c.color };
-  if (c.type === 'image') return { kind: 'image', image: c.image };
+  if (c.type === 'image') {
+    if (c.image && c.image.file) return { kind: 'image', image: c.image };
+    return { kind: 'color', color: solidFallbackFor(c, surface) };
+  }
   return { kind: 'native' };
 }
 
@@ -241,6 +254,19 @@ function sanitizeBasename(name) {
   if (typeof name !== 'string') return '';
   var b = name.replace(/\\/g, '/').split('/').pop() || '';
   return b.replace(/[^A-Za-z0-9._-]/g, '_');
+}
+/* skin:// URL → userData/skins 下的安全 basename。
+ * standard 协议会把 skin://file 归一化为 skin://file/（尾斜杠），且可能带 query/fragment，
+ * 必须先剥尾斜杠再取末段，否则 sanitizeBasename('file/') 会得到空串 → 404 → 图片不显示。 */
+function skinUrlToName(url) {
+  try {
+    var rest = (url || '').replace(/^skin:\/\//i, '');
+    rest = rest.split('?')[0].split('#')[0];
+    rest = rest.replace(/\\/g, '/').replace(/\/+$/, '');
+    var name = rest.split('/').pop() || '';
+    name = decodeURIComponent(name);
+    return sanitizeBasename(name);
+  } catch (e) { return ''; }
 }
 function clamp01(v) {
   var n = Number(v);
@@ -396,7 +422,8 @@ function skinsDir() {
 }
 
 /* v2.4.0 第二轮：图片皮肤导入。
- * 校验（扩展名/≤20MB/最长边≤4096）→ 原子复制到 userData/skins/ → 采样亮度 → GIF 首帧快照。
+ * 校验（扩展名白名单：png/jpg/jpeg/gif/webp，不设大小/像素上限，交由用户自行取景裁剪）→
+ * 原子复制到 userData/skins/ → 采样亮度（跳过透明像素，采样失败兜底浅色）→ GIF 首帧快照。
  * 返回 { ok, image, error }。 */
 function importSkinImage(surface, srcPath) {
   try {
@@ -407,14 +434,9 @@ function importSkinImage(surface, srcPath) {
     var okExts = { '.png': 1, '.jpg': 1, '.jpeg': 1, '.gif': 1, '.webp': 1 };
     if (!okExts[ext]) return { ok: false, error: '仅支持 png/jpg/jpeg/gif/webp' };
 
-    var st = fs.statSync(srcPath);
-    if (st.size > 20 * 1024 * 1024) return { ok: false, error: '图片超过 20MB' };
-
     var img = nativeImage.createFromPath(srcPath);
     if (!img || img.isEmpty()) return { ok: false, error: '图片解码失败' };
     var size = img.getSize();
-    var maxEdge = Math.max(size.width || 0, size.height || 0);
-    if (!maxEdge || maxEdge > 4096) return { ok: false, error: '图片最长边超过 4096px' };
 
     var ts = Date.now();
     var base = surface + '_' + ts;
@@ -429,9 +451,13 @@ function importSkinImage(surface, srcPath) {
     try {
       var thumb = img.resize({ width: 64 });
       var bmp = thumb.toBitmap();   // BGRA
-      var n = bmp.length / 4, sr = 0, sg = 0, sb = 0;
+      var n = 0, sr = 0, sg = 0, sb = 0;
       for (var i = 0; i < bmp.length; i += 4) {
+        // 透明像素（alpha=0）不计入亮度：PNG 透明区在 BGRA 里是 (0,0,0,0)，
+        // 若纳入会把看不见的黑色也算进均值，把浅色图误判成深色 → auto 误切黑夜。
+        if (bmp[i + 3] === 0) continue;
         sb += bmp[i]; sg += bmp[i + 1]; sr += bmp[i + 2];
+        n++;
       }
       if (n > 0) {
         var rr = (sr / n) / 255, gg = (sg / n) / 255, bb = (sb / n) / 255;
@@ -439,6 +465,7 @@ function importSkinImage(surface, srcPath) {
         var lum = 0.2126 * ch(rr) + 0.7152 * ch(gg) + 0.0722 * ch(bb);
         dark = lum < 0.5;
       }
+      // n===0（全透明/解码异常）→ dark 保持 false（浅色兜底，绝不硬切黑夜）
     } catch (e) {}
 
     var snapshot = null;
@@ -3184,11 +3211,8 @@ app.whenReady().then(function () {
     protocol.handle('skin', function (request) {
       return new Promise(function (resolve) {
         try {
-          var url = request.url || '';
-          var name = url.replace(/^skin:\/\//, '').split('?')[0];
-          name = decodeURIComponent(name);
-          name = sanitizeBasename(name);
-          var file = path.join(skinsDir(), name);
+          var name = skinUrlToName(request && request.url);
+          var file = name ? path.join(skinsDir(), name) : '';
           if (name && fs.existsSync(file)) {
             net.fetch(pathToFileURL(file).toString()).then(resolve, function () {
               resolve(new Response('', { status: 404 }));

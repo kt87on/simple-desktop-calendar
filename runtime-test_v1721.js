@@ -611,7 +611,7 @@ function makeSkinHub(skinState, nativeThemeMock) {
   const src = [
     'sanitizeBasename', 'clamp01', 'clampZoom', 'validHex', 'isDarkColor', 'clampOpacity',
     'normalizeImageSpec', 'normalizeSkin', 'migrateSkin', 'resolveSurfaceConfig',
-    'surfaceTheme', 'surfaceBg', 'baseTheme', 'resolvedSurfaceState'
+    'surfaceTheme', 'solidFallbackFor', 'surfaceBg', 'baseTheme', 'resolvedSurfaceState'
   ].map(function (n) { return extractFn(mainSrc, n); }).join('\n');
   return new Function('skin', 'nativeTheme', src +
     '; return { resolveSurfaceConfig: resolveSurfaceConfig, surfaceTheme: surfaceTheme, surfaceBg: surfaceBg, baseTheme: baseTheme, resolvedSurfaceState: resolvedSurfaceState, migrateSkin: migrateSkin, normalizeSkin: normalizeSkin };'
@@ -685,6 +685,35 @@ function makeSkinHub(skinState, nativeThemeMock) {
   ok('resolvedSurfaceState calendar → type/theme/bg/color 齐全', st.type === 'color' && st.theme === 'dark' && st.bg === 'color' && st.color === '#1f2430', JSON.stringify(st));
   const dk = api.resolvedSurfaceState('dock');
   ok('resolvedSurfaceState dock image → image 透传 + theme=dark', dk.bg === 'image' && dk.image && dk.image.file === 'd.gif' && dk.theme === 'dark', JSON.stringify(dk));
+})();
+
+/* ============ v2.4.1 C/E：image 类型但尚未导入图片 → 回退纯色 + 不硬切黑夜 ============ */
+(function () {
+  const skin = { __v: 2, surfaces: {
+    calendar: { type: 'image', image: null, color: null, text: 'auto' },
+    expanded: { follow: 'calendar', type: 'image', image: null, color: null, text: 'auto' },
+    desktop: { follow: null, type: 'image', image: null, color: null, text: 'auto' },
+    dock: { type: 'image', image: null, color: null, text: 'dark' }
+  }, opacity: {} };
+  const api = makeSkinHub(skin, { shouldUseDarkColors: false });
+  const b1 = api.surfaceBg('calendar');
+  ok('v2.4.1 surfaceBg image 但无图 → 回退纯色兜底（不透明）', b1.kind === 'color' && b1.color === '#FCFBF9', JSON.stringify(b1));
+  ok('v2.4.1 surfaceTheme image 但无图 + auto → light（不硬切黑夜）', api.surfaceTheme('calendar') === 'light');
+  const st = api.resolvedSurfaceState('calendar');
+  ok('v2.4.1 resolvedSurfaceState image 无图 → bg=color 而非 image', st.bg === 'color' && st.color === '#FCFBF9' && st.image === null, JSON.stringify(st));
+  const dk = api.surfaceBg('dock');
+  ok('v2.4.1 surfaceBg image 无图 + text=dark → 深色兜底', dk.kind === 'color' && dk.color === '#1C202C', JSON.stringify(dk));
+})();
+
+/* ============ v2.4.1 D：skin:// URL → 文件名（standard 协议尾斜杠兼容） ============ */
+console.log('\n【v2.4.1】skinUrlToName —— skin:// URL 安全解析为 basename');
+(function () {
+  const api = new Function(extractFn(mainSrc, 'sanitizeBasename') + '\n' + extractFn(mainSrc, 'skinUrlToName') + '; return { skinUrlToName: skinUrlToName };')();
+  ok('skin://x.png/ → x.png（剥 standard 协议尾斜杠）', api.skinUrlToName('skin://x.png/') === 'x.png');
+  ok('skin://x.png → x.png（无尾斜杠兼容）', api.skinUrlToName('skin://x.png') === 'x.png');
+  ok('skin://../../evil.png → evil.png（防路径穿越）', api.skinUrlToName('skin://../../evil.png') === 'evil.png');
+  ok('skin://x.png?v=1 → x.png（去 query）', api.skinUrlToName('skin://x.png?v=1') === 'x.png');
+  ok('skin://a/b/c.png/ → c.png（多级取末段）', api.skinUrlToName('skin://a/b/c.png/') === 'c.png');
 })();
 
 (function () {

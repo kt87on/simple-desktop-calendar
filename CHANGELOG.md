@@ -21,6 +21,11 @@
 - **插件日期/星期挤成一团（A6）**：`#dockDate` 拆为 `#dockWeek` + `#dockDateNum` 两个独立 span，`gap: 6px` 排版。
 - **桌面插件 blur 不清算天数区间（A-bug1）**：`createDesktopWidget` 补 `desktopWin.on('blur')` → 下发 `win-hidden` → 渲染层 `clearRange()`。
 - **主窗 blur 误判漏隐藏（A-bug2）**：删除 `BrowserWindow.getFocusedWindow()` 宽松判定（点空白桌面/任务栏会误判焦点仍在本应用），改为显式逐个 `isFocused()` 判断已知兄弟窗口（dock/desktop/settings/skin/remindlist/reminder），全部不在焦点才隐藏；保留 `guardBlur` 给菜单/唤起。
+- **浮动插件自选背景出现方框边（v2.4.1）**：纯色/图片皮肤下关掉 `#card` 的硬描边 + 描边环 + 顶部高光，只保留柔光投影，边缘干净圆润。
+- **取消图片大小/像素上限（v2.4.1）**：`importSkinImage` 删除 ≤20MB 与最长边 ≤4096 限制，仅保留 png/jpg/jpeg/gif/webp 格式白名单。
+- **点「自选图片」窗口全透明（v2.4.1）**：`surfaceBg` 对 `type=image` 但尚未导入图片时回退纯色兜底（`solidFallbackFor`，text=light/dark 取对应底色、auto 取当前生效明暗），不再下发透明。
+- **导入图片不显示（v2.4.1）**：新增 `skinUrlToName` 剥掉 `skin://` standard 协议的尾斜杠/query 后再取 basename，修复 `sanitizeBasename('file/')` 得空串导致 404 的问题。
+- **图片导入后误切黑夜（v2.4.1）**：亮度采样跳过 alpha=0 的透明像素（PNG 透明区 BGRA 为黑会拉低均值），采样失败兜底浅色，不再误判深色。
 
 ---
 

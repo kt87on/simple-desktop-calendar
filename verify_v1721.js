@@ -522,16 +522,29 @@ check('[v2.4.0 R2] registerSchemesAsPrivileged 注册 skin://（app ready 前）
 check('[v2.4.0 R2] protocol.handle("skin") 映射 userData/skins（net.fetch + pathToFileURL）',
   /protocol\.handle\('skin'/.test(mainCode) && /path\.join\(skinsDir\(\), name\)/.test(mainCode) &&
   /net\.fetch\(pathToFileURL\(file\)\.toString\(\)\)/.test(mainCode));
-check('[v2.4.0 R2] importSkinImage 校验（surface 白名单/扩展名/≤20MB/最长边≤4096）',
+check('[v2.4.0 R2][v2.4.1] importSkinImage 校验：surface 白名单 + 扩展名白名单，取消大小/像素上限',
   /function importSkinImage\(surface, srcPath\)/.test(mainCode) &&
-  /validSurfaces\[surface\]/.test(mainCode) &&
-  /20 \* 1024 \* 1024/.test(mainCode) && /4096/.test(mainCode));
+  /validSurfaces\[surface\]/.test(mainCode) && /okExts\[ext\]/.test(mainCode) &&
+  !/图片超过 20MB/.test(mainCode) && !/最长边超过 4096/.test(mainCode) && !/maxEdge/.test(mainCode));
 check('[v2.4.0 R2] 图片亮度采样 64px resize.toBitmap',
   /resize\(\{ width: 64 \}\)/.test(mainCode) && /toBitmap\(\)/.test(mainCode));
 check('[v2.4.0 R2] GIF 首帧冻结帧 snapshot（toPNG + _frame.png）',
   /ext === '\.gif'/.test(mainCode) && /toPNG\(\)/.test(mainCode) && /_frame\.png/.test(mainCode));
 check('[v2.4.0 R2] 原子复制（copyFileSync → renameSync）',
   /copyFileSync\(srcPath, tmp\)/.test(mainCode) && /renameSync\(tmp, dest\)/.test(mainCode));
+
+/* ---- v2.4.1 图片皮肤回归：防透明 / 防 auto 误判黑夜 / 修复图片 404 / 去方框边 ---- */
+check('[v2.4.1 C] surfaceBg image 但无图 → 回退纯色兜底（不再透明）',
+  /function solidFallbackFor\(c, surface\)/.test(mainCode) &&
+  /c\.image && c\.image\.file/.test(mainCode) && /kind: 'color', color: solidFallbackFor/.test(mainCode));
+check('[v2.4.1 E] 亮度采样跳过透明像素（alpha=0 不计入均值）',
+  /bmp\[i \+ 3\] === 0/.test(mainCode) && /continue/.test(mainCode));
+check('[v2.4.1 D] skinUrlToName 提取 skin:// 文件名（含尾斜杠兼容）',
+  /function skinUrlToName\(url\)/.test(mainCode));
+check('[v2.4.1 D] protocol.handle("skin") 改用 skinUrlToName 取文件名',
+  /skinUrlToName\(request && request\.url\)/.test(mainCode));
+check('[v2.4.1 A] dock.html 纯色/图片皮肤关硬描边（border-color: transparent）',
+  /\[data-skin="color"\] #card,/.test(dock) && /border-color: transparent/.test(dock));
 
 /* ---- 皮肤写操作 + IPC + 独立皮肤窗口 ---- */
 check('[v2.4.0 R2] applySkinSet 统一写入口 + copy-on-write 物化（取消跟随深拷贝日历配置）',

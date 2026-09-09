@@ -131,6 +131,19 @@
   [data-skin="color"] #card { background: var(--skin-bg-solid); }
   [data-skin="image"] #card { background: transparent; }
 
+  /* v2.4.1 修复「自选背景出现显眼方框边」：原生半透明卡靠 --edge 描边 + 描边环自然过渡，
+   * 但纯色/图片皮肤下这两层描边会变成生硬矩形框。这里关掉硬描边 + 描边环 + 顶部高光，
+   * 只保留柔光投影（圆角随 #card 不变），让自选背景的边缘干净圆润。 */
+  [data-skin="color"] #card,
+  [data-skin="image"] #card {
+    border-color: transparent;
+    box-shadow: 0 0 7px rgba(31, 35, 48, 0.11);
+  }
+  [data-theme="dark"][data-skin="color"] #card,
+  [data-theme="dark"][data-skin="image"] #card {
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.30);
+  }
+
   /* ============================ L3 组件层 ============================ */
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; overflow: hidden; }
