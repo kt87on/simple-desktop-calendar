@@ -95,6 +95,9 @@
     --ink-soft: var(--ink-600);
     /* v2.4.0 第二轮 皮肤层（浮动插件独立 per-surface，不跟随日历） */
     --skin-bg-solid: transparent;
+    /* v2.4.3 自选纯色/图片皮肤：文字真描边 + 柔和阴影（由 dockApplySkin 按文字明暗写入） */
+    --stroke-color: transparent;
+    --shadow-extra: none;
     --accent: var(--blue-500);
     --accent-soft: rgba(59, 111, 212, 0.10);
     --hover: rgba(31, 35, 48, 0.055);
@@ -130,6 +133,18 @@
    * 皮肤只改背景层，文字明暗由 data-theme 全量驱动；状态色/强调色仍取生效主题 token。 */
   [data-skin="color"] #card { background: var(--skin-bg-solid); }
   [data-skin="image"] #card { background: transparent; }
+
+  /* v2.4.3 自选纯色/图片皮肤：文字真描边（居中、无重影）+ 主时钟柔和阴影。
+   * 描边/阴影色由 dockApplySkin 按文字明暗写入 --stroke-color/--shadow-extra；
+   * 原生皮肤无 [data-skin]，不描边。 */
+  [data-skin="color"] #dockTime, [data-skin="image"] #dockTime,
+  [data-skin="color"] #dockWeek, [data-skin="image"] #dockWeek,
+  [data-skin="color"] #dockDateNum, [data-skin="image"] #dockDateNum {
+    -webkit-text-stroke: 0.5px var(--stroke-color);
+  }
+  [data-skin="color"] #dockTime, [data-skin="image"] #dockTime {
+    text-shadow: var(--shadow-extra);
+  }
 
   /* v2.4.2 修复「纯色/图片模式点击闪黑 + 方方正正 + 两层堆叠」：
    * 根因 1) 主进程把 dock 窗口 setBackgroundColor(不透明色) → 透明窗口退化成方形色块，
@@ -425,9 +440,11 @@
       function dockApplyImage(image) {
         var el = document.getElementById('skinImg');
         if (!el) return;
-        if (!image || !image.file) { el.style.backgroundImage = ''; return; }
+        if (!image || !image.file) { el.style.backgroundImage = ''; el.style.opacity = ''; return; }
         var file = (dockHidden && image.snapshot) ? image.snapshot : image.file;
         el.style.backgroundImage = 'url("skin://' + encodeURIComponent(file) + '")';
+        // v2.4.3 图片不透明度：直接写元素 style.opacity（走 CSS 变量继承在 Electron 下可能不生效）。
+        el.style.opacity = (typeof image.opacity === 'number' && isFinite(image.opacity)) ? String(image.opacity) : '1';
         var vp = { w: 116, h: 50 };
         var crop = image.crop || { x: 0, y: 0, w: 1, h: 1 };
         var zoom = (typeof image.zoom === 'number' && isFinite(image.zoom) && image.zoom > 0) ? image.zoom : 1;
@@ -446,22 +463,40 @@
       function dockApplySkin(state) {
         if (!state) return;
         var root = document.documentElement;
-        root.dataset.theme = (state.theme === 'dark') ? 'dark' : 'light';
+        var theme = (state.theme === 'dark') ? 'dark' : 'light';
+        root.dataset.theme = theme;
         if (state.bg === 'color') {
           root.dataset.skin = 'color';
           root.style.setProperty('--skin-bg-solid', state.color || '#fafafc');
+          dockSetStroke(root, theme);
           var c0 = document.getElementById('skinImg');
-          if (c0) c0.style.backgroundImage = '';
+          if (c0) { c0.style.backgroundImage = ''; c0.style.opacity = ''; }
         } else if (state.bg === 'image') {
           root.dataset.skin = 'image';
           root.style.removeProperty('--skin-bg-solid');
+          dockSetStroke(root, theme);
           dockApplyImage(state.image);
         } else {
           delete root.dataset.skin;
           root.style.removeProperty('--skin-bg-solid');
+          dockClearStroke(root);
           var i1 = document.getElementById('skinImg');
-          if (i1) i1.style.backgroundImage = '';
+          if (i1) { i1.style.backgroundImage = ''; i1.style.opacity = ''; }
         }
+      }
+      /* v2.4.3 自选皮肤：文字描边/阴影随文字明暗切换（dark→深描边 / light→浅描边）。 */
+      function dockSetStroke(root, theme) {
+        if (theme === 'dark') {
+          root.style.setProperty('--stroke-color', 'rgba(0,0,0,0.55)');
+          root.style.setProperty('--shadow-extra', '0 1px 2px rgba(0,0,0,0.4)');
+        } else {
+          root.style.setProperty('--stroke-color', 'rgba(255,255,255,0.7)');
+          root.style.setProperty('--shadow-extra', '0 1px 2px rgba(0,0,0,0.08)');
+        }
+      }
+      function dockClearStroke(root) {
+        root.style.removeProperty('--stroke-color');
+        root.style.removeProperty('--shadow-extra');
       }
       function dockSetFrozen(frozen) {
         frozen = !!frozen;

@@ -609,7 +609,7 @@ console.log('\n【v2.4.0 第二轮】resolveSurfaceConfig / surfaceTheme / surfa
 
 function makeSkinHub(skinState, nativeThemeMock) {
   const src = [
-    'sanitizeBasename', 'clamp01', 'clampZoom', 'validHex', 'isDarkColor', 'clampOpacity',
+    'sanitizeBasename', 'clamp01', 'clampZoom', 'clampImageOpacity', 'validHex', 'isDarkColor', 'clampOpacity',
     'normalizeImageSpec', 'normalizeSkin', 'migrateSkin', 'resolveSurfaceConfig',
     'surfaceTheme', 'solidFallbackFor', 'surfaceBg', 'baseTheme', 'resolvedSurfaceState'
   ].map(function (n) { return extractFn(mainSrc, n); }).join('\n');
@@ -895,6 +895,31 @@ console.log('\n【v2.4.2】readGifSize —— GIF 尺寸从文件头读取');
   fs.writeFileSync(bad, Buffer.from('not-a-gif'));
   ok('readGifSize 非 GIF → null', api.readGifSize(bad) === null);
   try { fs.unlinkSync(tmp); fs.unlinkSync(bad); } catch (e) {}
+})();
+
+/* ============ v2.4.3：clampImageOpacity / normalizeImageSpec 图片不透明度 ============ */
+console.log('\n【v2.4.3】clampImageOpacity / normalizeImageSpec —— 图片不透明度 0.2~1.0');
+(function () {
+  const api = new Function(
+    extractFn(mainSrc, 'sanitizeBasename') + '\n' + extractFn(mainSrc, 'clamp01') + '\n' +
+    extractFn(mainSrc, 'clampZoom') + '\n' + extractFn(mainSrc, 'clampImageOpacity') + '\n' +
+    extractFn(mainSrc, 'normalizeImageSpec') + '; return { clampImageOpacity: clampImageOpacity, normalizeImageSpec: normalizeImageSpec };'
+  )();
+  ok('clampImageOpacity 默认（undefined）→ 1', api.clampImageOpacity(undefined) === 1);
+  ok('clampImageOpacity null → 1', api.clampImageOpacity(null) === 1);
+  ok('clampImageOpacity 1 → 1', api.clampImageOpacity(1) === 1);
+  ok('clampImageOpacity 0.5 → 0.5', api.clampImageOpacity(0.5) === 0.5);
+  ok('clampImageOpacity 0.2（下限）→ 0.2', api.clampImageOpacity(0.2) === 0.2);
+  ok('clampImageOpacity 0.05（低于下限）→ 夹到 0.2', api.clampImageOpacity(0.05) === 0.2);
+  ok('clampImageOpacity 1.5（超上限）→ 夹到 1', api.clampImageOpacity(1.5) === 1);
+  ok('clampImageOpacity "abc"（非法）→ 1', api.clampImageOpacity('abc') === 1);
+
+  const n1 = api.normalizeImageSpec({ file: 'x.png', opacity: 0.4 });
+  ok('normalizeImageSpec 透传 opacity 0.4', n1.opacity === 0.4, JSON.stringify(n1));
+  const n2 = api.normalizeImageSpec({ file: 'x.png' });
+  ok('normalizeImageSpec 缺省 opacity → 1', n2.opacity === 1, JSON.stringify(n2));
+  const n3 = api.normalizeImageSpec({ file: 'x.png', opacity: 9 });
+  ok('normalizeImageSpec 越界 opacity → 夹到 1', n3.opacity === 1, JSON.stringify(n3));
 })();
 
 console.log('\n==================================');

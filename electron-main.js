@@ -278,6 +278,14 @@ function clampZoom(v) {
   if (!isFinite(n)) return 1;
   return Math.max(1, Math.min(5, n));
 }
+/* v2.4.3：图片不透明度夹在 [0.2, 1.0]，非法/缺省回落到 1.0（完全不透明）。
+ * null 也按缺省处理（Number(null)===0 会误夹到 0.2，与"默认 1.0"语义不符）。 */
+function clampImageOpacity(v) {
+  if (v === undefined || v === null) return 1;
+  var n = Number(v);
+  if (!isFinite(n)) return 1;
+  return Math.max(0.2, Math.min(1, n));
+}
 function normalizeImageSpec(img) {
   if (!img || typeof img !== 'object') return null;
   var file = sanitizeBasename(img.file);
@@ -296,6 +304,7 @@ function normalizeImageSpec(img) {
     h: (typeof img.h === 'number' && img.h > 0) ? Math.round(img.h) : 0,
     crop: crop,
     zoom: clampZoom(img.zoom),
+    opacity: clampImageOpacity(img.opacity),
     dark: !!img.dark
   };
 }
@@ -512,6 +521,7 @@ function importSkinImage(surface, srcPath) {
       h: size.height,
       crop: { x: 0, y: 0, w: 1, h: 1 },
       zoom: 1,
+      opacity: 1,
       dark: dark
     };
     return { ok: true, image: image, error: null };
@@ -574,6 +584,7 @@ function applySkinSet(payload) {
         h: (value.h !== undefined) ? value.h : prev.h,
         crop: value.crop || prev.crop,
         zoom: (value.zoom !== undefined) ? value.zoom : prev.zoom,
+        opacity: (value.opacity !== undefined) ? value.opacity : prev.opacity,
         dark: (value.dark !== undefined) ? value.dark : prev.dark
       });
       c.type = 'image';

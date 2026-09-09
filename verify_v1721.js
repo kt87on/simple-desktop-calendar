@@ -685,6 +685,68 @@ check('[v2.4.0 R2] settings.html 保留四分区',
 check('[v2.4.0 R2] package.json build.files 含 skin.html',
   /"skin\.html"/.test(JSON.stringify((pkg.build && pkg.build.files) || [])));
 
+/* =====================================================================
+ * v2.4.3：图片皮肤文字描边 + 图片不透明度 + 功能栏按钮调淡
+ * ===================================================================== */
+
+/* ---- 主进程：图片不透明度数据模型 ---- */
+check('[v2.4.3] clampImageOpacity 存在并夹取到 [0.2, 1.0]',
+  /function clampImageOpacity\(v\)/.test(mainCode) &&
+  /Math\.max\(0\.2, Math\.min\(1, n\)\)/.test(mainCode));
+check('[v2.4.3] normalizeImageSpec 输出 opacity 字段（默认 1）',
+  /function normalizeImageSpec\(img\)[\s\S]{0,1500}opacity: clampImageOpacity\(img\.opacity\)/.test(mainCode));
+check('[v2.4.3] importSkinImage 返回 image 含 opacity: 1',
+  /var image = \{[\s\S]{0,320}opacity: 1,/.test(mainCode));
+check('[v2.4.3] applySkinSet image 分支 merge 保留 opacity',
+  /opacity: \(value\.opacity !== undefined\) \? value\.opacity : prev\.opacity/.test(mainCode));
+
+/* ---- template.html：文字真描边 + 柔和阴影 + 按钮玻璃 ---- */
+check('[v2.4.3] template.html 声明 --stroke-color / --shadow-extra 默认值',
+  /--stroke-color:\s*transparent/.test(tmpl) && /--shadow-extra:\s*none/.test(tmpl));
+check('[v2.4.3] template.html 文字真描边（-webkit-text-stroke 0.5px var(--stroke-color)）',
+  /-webkit-text-stroke:\s*0\.5px var\(--stroke-color\)/.test(tmpl));
+check('[v2.4.3] template.html 描边选择器仅 data-skin 限定（原生皮肤不描边）',
+  (function () {
+    var i = tmpl.indexOf('-webkit-text-stroke');
+    return i >= 0 && /\[data-skin=/.test(tmpl.slice(Math.max(0, i - 600), i));
+  })());
+check('[v2.4.3] template.html 柔和阴影 text-shadow: var(--shadow-extra)',
+  /text-shadow:\s*var\(--shadow-extra\)/.test(tmpl));
+check('[v2.4.3] template.html 功能栏按钮玻璃 0.10/0.16（对齐 v4 .fn-btn）',
+  /\[data-skin="color"\] #dragBar \.sel,[\s\S]{0,400}background-color: rgba\(255, 255, 255, 0\.10\);[\s\S]{0,160}border-color: rgba\(255, 255, 255, 0\.16\);/.test(tmpl));
+
+/* ---- app.js：同步写描边/阴影 + 图片不透明度 ---- */
+check('[v2.4.3] app.js applySkinState 同步写 --stroke-color/--shadow-extra',
+  /applyTextStroke\(root, S\.theme\)/.test(codeOnly(appjs)) &&
+  /setProperty\('--stroke-color'/.test(codeOnly(appjs)) &&
+  /setProperty\('--shadow-extra'/.test(codeOnly(appjs)));
+check('[v2.4.3] app.js 原生皮肤清除描边变量（clearTextStroke）',
+  /clearTextStroke\(root\)/.test(codeOnly(appjs)) &&
+  /removeProperty\('--stroke-color'\)/.test(codeOnly(appjs)));
+check('[v2.4.3] app.js applySkinImage 直接写元素 style.opacity',
+  /el\.style\.opacity = \(typeof image\.opacity === 'number' && isFinite\(image\.opacity\)\) \? String\(image\.opacity\) : '1'/.test(codeOnly(appjs)));
+
+/* ---- dock.html：文字描边 + 图片不透明度 ---- */
+check('[v2.4.3] dock.html 声明 --stroke-color / --shadow-extra',
+  /--stroke-color:\s*transparent/.test(dock) && /--shadow-extra:\s*none/.test(dock));
+check('[v2.4.3] dock.html 文字真描边（data-skin 限定）',
+  /\[data-skin="color"\] #dockTime, \[data-skin="image"\] #dockTime/.test(dock) &&
+  /-webkit-text-stroke:\s*0\.5px var\(--stroke-color\)/.test(dock));
+check('[v2.4.3] dock.html dockApplySkin 写/清描边变量',
+  /dockSetStroke\(root, theme\)/.test(dockCode) && /dockClearStroke\(root\)/.test(dockCode) &&
+  /setProperty\('--stroke-color'/.test(dockCode) && /removeProperty\('--stroke-color'\)/.test(dockCode));
+check('[v2.4.3] dock.html dockApplyImage 直接写元素 style.opacity',
+  /el\.style\.opacity = \(typeof image\.opacity === 'number' && isFinite\(image\.opacity\)\) \? String\(image\.opacity\) : '1'/.test(dockCode));
+
+/* ---- skin.html：图片不透明度滑块 ---- */
+check('[v2.4.3] skin.html 图片不透明度滑块（20%~100%）',
+  /id="imageOpacityRange"/.test(skinHtml) && /min="0\.2"/.test(skinHtml) && /max="1"/.test(skinHtml) &&
+  /id="imageOpacityVal"/.test(skinHtml));
+check('[v2.4.3] skin.html 图片不透明度即时回写 file+opacity',
+  /setField\(S\.surface, 'image', \{ file: img\.file, opacity: v \}\)/.test(skinHtml));
+check('[v2.4.3] skin.html renderCrop 回显 opacity 值',
+  /imageOpacityRange'\)\.value = op/.test(skinHtml) && /imageOpacityVal'\)\.textContent = pct\(op\)/.test(skinHtml));
+
 
 let pass = 0, fail = 0;
 for (const c of checks) {

@@ -11,6 +11,7 @@
 - **独立皮肤设置窗口（skin.html）**：设置页只留「皮肤设置」入口；皮肤窗 4 界面分段（日历/放大/桌面/浮动）+ 5 类型（浅/深/跟随系统/纯色/图片）+ 色盘 + 文字明暗 + 透明度 + 跟随开关。
 - **图片皮肤（完整实现）**：拖入/点选导入 png/jpg/jpeg/gif/webp；原子复制到 `userData/skins/` 仅存文件名；`skin://` 特权协议（`registerSchemesAsPrivileged` + `protocol.handle`）加载；亮度采样（`nativeImage.resize(64).toBitmap()` 平均亮度）自动明暗文字；GIF 动画播放（Chromium 原生，渲染层 `background-image` 保持动图）。
 - **取景数学（crop + zoom）**：归一化 `crop{x,y,w,h}` + `zoom`(1~5) ↔ CSS background-size/position（全图 cover 基准），权威参数「取景中心 + zoom」，`crop.w/h` 为派生冗余；重启后任意分辨率复现一致。
+- **图片皮肤文字可读性 + 图片不透明度（v2.4.3）**：自选纯色/图片皮肤下给文字加 `-webkit-text-stroke` 居中真描边（替代 text-shadow 4 方向重影克隆）+ 单一柔和阴影，描边/阴影色随文字明暗切换（dark→深描边、light→浅描边），原生皮肤不描边；新增「图片不透明度」滑块（20%~100%，默认 100%），持久化 `skin.surfaces[].image.opacity`，渲染层直接写元素 `style.opacity`。
 - **多屏插件位置记忆（A3）**：`dockBoundsByDisplay`（显示器 ID → 落点）+ `dockDisplayId`，`pickDockRestore()` 按「原屏原位 → 存活屏回退 → 旧式单一 dockBounds → 默认落点」恢复。
 
 ### 修复
@@ -29,6 +30,7 @@
 - **浮动插件纯色/图片模式点击闪黑 + 方框边 + 两层堆叠（v2.4.2）**：根因是主进程把 dock 窗口 `setBackgroundColor` 成不透明色使透明窗口退化成方形色块，且 `body.hit #card:hover` 优先级高于 `[data-skin]` 把自选背景换成 `--card-hover`。改为窗口背景始终透明 + 纯色/图片复用原生 `--edge` 描边 + `--shadow` 阴影，hover 仅锁住自选背景。
 - **GIF 动图无法识别（v2.4.2）**：`nativeImage` 对 GIF 支持有限，导入时跳过 nativeImage 解码/亮度采样/首帧快照，尺寸改从 GIF 文件头直接读取，`dark` 兜底 `false`，直接复制文件由渲染层 `background-image:url(skin://...)` 保持动画。
 - **使用说明同步到 v2.4.0（v2.4.2）**：`使用说明.md` / `使用说明.html` 补充皮肤系统、图片皮肤与本轮修复点，版本号更新为 v2.4.0。
+- **自选皮肤功能栏按钮更低调（v2.4.3）**：功能栏按钮（年/月下拉、翻月箭头、主题/放大）玻璃化，底色 0.16→0.10、描边 0.22→0.16（对齐 v4 预览 `.fn-btn`），hover 提亮；「今」按钮保持主色实底突出主操作。
 
 ---
 

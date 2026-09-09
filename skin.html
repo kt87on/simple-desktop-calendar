@@ -332,6 +332,10 @@
         </div>
         <div class="crop-empty" id="cropEmpty" style="display:none">尚无图片，请先拖入或点选导入</div>
         <div class="crop-tip" id="cropTip" style="display:none">拖动平移 · 滚轮缩放（1×~5×）</div>
+        <div class="slider">
+          <div class="slider-head"><span class="label">图片不透明度</span><span class="val" id="imageOpacityVal">100%</span></div>
+          <input type="range" id="imageOpacityRange" min="0.2" max="1" step="0.05" value="1">
+        </div>
       </div>
 
       <div id="textSection" style="display:none">
@@ -545,6 +549,10 @@
         $('cropWrap').style.display = hasImg ? 'flex' : 'none';
         $('cropEmpty').style.display = hasImg ? 'none' : 'block';
         $('cropTip').style.display = hasImg ? 'block' : 'none';
+        // 图片不透明度回显（仅自选图片分支显示该滑块）
+        var op = (img && typeof img.opacity === 'number' && isFinite(img.opacity)) ? img.opacity : 1;
+        $('imageOpacityRange').value = op;
+        $('imageOpacityVal').textContent = pct(op);
         initCrop();
       }
 
@@ -610,6 +618,15 @@
         var v = parseFloat($('opacityRange').value);
         $('opacityVal').textContent = pct(v);
         setOpacity(v);
+      });
+
+      // 图片不透明度（仅自选图片；回写 file+opacity，主进程 merge 保留 crop/zoom/w/h/dark）
+      $('imageOpacityRange').addEventListener('input', function () {
+        var v = parseFloat($('imageOpacityRange').value);
+        $('imageOpacityVal').textContent = pct(v);
+        var img = currentImage();
+        if (!img || !img.file) return;
+        setField(S.surface, 'image', { file: img.file, opacity: v });
       });
 
       // 图片导入：点选（主进程对话框） / 拖拽（invoke）

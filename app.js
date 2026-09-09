@@ -679,9 +679,11 @@ function confirmRemindInput() {
   function applySkinImage(image) {
     var el = document.getElementById('skinImg');
     if (!el) return;
-    if (!image || !image.file) { el.style.backgroundImage = ''; return; }
+    if (!image || !image.file) { el.style.backgroundImage = ''; el.style.opacity = ''; return; }
     var file = (skinHidden && image.snapshot) ? image.snapshot : image.file;
     el.style.backgroundImage = 'url("skin://' + encodeURIComponent(file) + '")';
+    // v2.4.3 图片不透明度：直接写元素 style.opacity（走 CSS 变量继承在 Electron 下可能不生效）。
+    el.style.opacity = (typeof image.opacity === 'number' && isFinite(image.opacity)) ? String(image.opacity) : '1';
     var vp = skinViewport();
     var crop = image.crop || { x: 0, y: 0, w: 1, h: 1 };
     var zoom = (typeof image.zoom === 'number' && isFinite(image.zoom) && image.zoom > 0) ? image.zoom : 1;
@@ -704,6 +706,23 @@ function confirmRemindInput() {
     var img = activeSkinImage();
     if (img) applySkinImage(img);
   }
+  /* v2.4.3 自选纯色/图片皮肤：文字真描边 + 柔和阴影随文字明暗切换。
+   * dark（浅字深底）→ 深色描边；light（深字浅底）→ 浅色描边。原生皮肤不调用（无描边）。 */
+  function applyTextStroke(root, theme) {
+    if (!root) return;
+    if (theme === 'dark') {
+      root.style.setProperty('--stroke-color', 'rgba(0,0,0,0.55)');
+      root.style.setProperty('--shadow-extra', '0 1px 2px rgba(0,0,0,0.4)');
+    } else {
+      root.style.setProperty('--stroke-color', 'rgba(255,255,255,0.7)');
+      root.style.setProperty('--shadow-extra', '0 1px 2px rgba(0,0,0,0.08)');
+    }
+  }
+  function clearTextStroke(root) {
+    if (!root) return;
+    root.style.removeProperty('--stroke-color');
+    root.style.removeProperty('--shadow-extra');
+  }
   function applySkinState(state) {
     if (!state) return;
     S.theme = (state.theme === 'dark') ? 'dark' : 'light';
@@ -712,17 +731,20 @@ function confirmRemindInput() {
     if (state.bg === 'color') {
       root.dataset.skin = 'color';
       root.style.setProperty('--skin-bg-solid', state.color || '#fcfbf9');
+      applyTextStroke(root, S.theme);
       var c0 = document.getElementById('skinImg');
-      if (c0) c0.style.backgroundImage = '';
+      if (c0) { c0.style.backgroundImage = ''; c0.style.opacity = ''; }
     } else if (state.bg === 'image') {
       root.dataset.skin = 'image';
       root.style.removeProperty('--skin-bg-solid');
+      applyTextStroke(root, S.theme);
       applySkinImage(state.image);
     } else {
       delete root.dataset.skin;
       root.style.removeProperty('--skin-bg-solid');
+      clearTextStroke(root);
       var i1 = document.getElementById('skinImg');
-      if (i1) i1.style.backgroundImage = '';
+      if (i1) { i1.style.backgroundImage = ''; i1.style.opacity = ''; }
     }
   }
 

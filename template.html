@@ -141,6 +141,10 @@
      * 主进程是唯一真相：背景类型 / 生效明暗 / 图片取景都在主进程算好，渲染层只应用。
      * --skin-bg-solid 仅由 JS 写入，[data-skin="color"] 才生效；文字明暗由 data-theme 全量驱动。 */
     --skin-bg-solid: transparent;
+    /* v2.4.3 自选纯色/图片皮肤：文字真描边 + 柔和阴影。由 app.js applySkinState 按文字明暗
+     * 同步写入（dark→深描边 / light→浅描边）；原生皮肤不写、保持 transparent/none 无描边。 */
+    --stroke-color: transparent;
+    --shadow-extra: none;
 
     --accent: var(--blue-500);
     --accent-strong: var(--blue-600);            /* 今日 */
@@ -257,6 +261,31 @@
   [data-skin="color"] body, [data-skin="image"] body { background: transparent; }
   [data-skin="color"] #widget { background: var(--skin-bg-solid); }
   [data-skin="image"] #widget { background: transparent; }
+
+  /* ========== v2.4.3 自选纯色/图片皮肤：文字真描边 + 柔和阴影（无重影） ==========
+   * 用户反馈：自选图片背景局部明暗不均，白字在亮部被冲掉、黑字在暗部看不清。
+   * 用 -webkit-text-stroke（居中真描边，替代 v3 的 4 方向 text-shadow 重影克隆）+ 单一柔和阴影。
+   * 描边/阴影色由 app.js applySkinState 同步写入 --stroke-color/--shadow-extra；
+   * 原生白天/黑夜/跟随系统皮肤无 [data-skin]，不触发描边。 */
+  [data-skin="color"] #clkTime, [data-skin="image"] #clkTime,
+  [data-skin="color"] #infoDate, [data-skin="image"] #infoDate,
+  [data-skin="color"] #infoLunar, [data-skin="image"] #infoLunar,
+  [data-skin="color"] .sel, [data-skin="image"] .sel,
+  [data-skin="color"] .nav-btn, [data-skin="image"] .nav-btn,
+  [data-skin="color"] .today-btn, [data-skin="image"] .today-btn,
+  [data-skin="color"] .wk-label, [data-skin="image"] .wk-label,
+  [data-skin="color"] .wk-opt, [data-skin="image"] .wk-opt,
+  [data-skin="color"] .zoom-btn, [data-skin="image"] .zoom-btn,
+  [data-skin="color"] #weekHeader .wcell, [data-skin="image"] #weekHeader .wcell,
+  [data-skin="color"] .cell .d, [data-skin="image"] .cell .d,
+  [data-skin="color"] .cell .sub, [data-skin="image"] .cell .sub {
+    -webkit-text-stroke: 0.5px var(--stroke-color);
+  }
+  [data-skin="color"] #clkTime, [data-skin="image"] #clkTime,
+  [data-skin="color"] #infoDate, [data-skin="image"] #infoDate,
+  [data-skin="color"] .cell .d, [data-skin="image"] .cell .d {
+    text-shadow: var(--shadow-extra);
+  }
 
   /* ============================ L3 组件层 ============================ */
 
@@ -445,6 +474,23 @@
   .zoom-sign-minus { display: none; }
   #widget.max .zoom-sign-minus { display: block; }
   #widget.max .zoom-sign-plus { display: none; }
+
+  /* ========== v2.4.3 自选纯色/图片皮肤：功能栏按钮玻璃化调淡 ==========
+   * 对齐 v4 预览 .fn-btn：玻璃底 rgba(255,255,255,0.10)（原 0.16）、
+   * 描边 rgba(255,255,255,0.16)（原 0.22），hover 提亮。仅自选皮肤生效；
+   * 原生皮肤仍用设计系统 --ctl-* token。「今」today-btn 保持主色实底，突出主操作。 */
+  [data-skin="color"] #dragBar .sel, [data-skin="image"] #dragBar .sel,
+  [data-skin="color"] #dragBar .nav-btn, [data-skin="image"] #dragBar .nav-btn,
+  [data-skin="color"] #dragBar .zoom-btn, [data-skin="image"] #dragBar .zoom-btn {
+    background-color: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+  [data-skin="color"] #dragBar .sel:hover, [data-skin="image"] #dragBar .sel:hover,
+  [data-skin="color"] #dragBar .nav-btn:hover, [data-skin="image"] #dragBar .nav-btn:hover,
+  [data-skin="color"] #dragBar .zoom-btn:hover, [data-skin="image"] #dragBar .zoom-btn:hover {
+    background-color: rgba(255, 255, 255, 0.22);
+    border-color: rgba(255, 255, 255, 0.35);
+  }
 
   /* ===== 日历主体 ===== */
   #body { flex: 1; display: flex; padding: var(--s-2) var(--s-2) var(--s-2) var(--s-2); min-height: 0; overflow: hidden; }
