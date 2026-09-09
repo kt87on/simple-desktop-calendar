@@ -16,6 +16,8 @@ const USERDATA = path.join(process.cwd(), '_mock_userdata');
 
 let stats = null;
 const ipcHandlers = {};
+let createdWindows = [];      // 按创建顺序记录所有 mock BrowserWindow（识别主窗/插件）
+let focusedWindowValue = null; // 控制 BrowserWindow.getFocusedWindow() 的返回值
 
 function freshStats() {
   return {
@@ -23,7 +25,7 @@ function freshStats() {
     loadedFiles: [], ipcChannels: [],
     menuBuilt: 0, menuItemCount: 0, menuLabels: [],
     ignoreMouseCalls: [], alwaysOnTopCalls: [],
-    shown: 0, hidden: 0
+    shown: 0, hidden: 0, getFocusedWindowCalls: 0
   };
 }
 
@@ -31,17 +33,23 @@ function noop() {}
 function makeWin(winOpts) {
   const w = {
     __opts: winOpts || {},
+    _handlers: {},   // 记录 on(evt, cb)，供测试手动触发 blur/close 等事件
     loadFile: function (f) { stats.loadedFiles.push(f); return Promise.resolve(); },
     loadURL: function () { return Promise.resolve(); },
     // ready-to-show 必须真的回调，否则插件的 show/hide 逻辑跑不到（真实环境会触发）
     once: function (evt, cb) {
       if (evt === 'ready-to-show') setTimeout(function () { try { cb(); } catch (e) {} }, 0);
     },
-    on: noop, off: noop, removeAllListeners: noop,
+    on: function (evt, cb) {
+      if (!w._handlers[evt]) w._handlers[evt] = [];
+      w._handlers[evt].push(cb);
+    },
+    off: noop, removeAllListeners: noop,
     show: function () { stats.shown++; }, hide: function () { stats.hidden++; },
     focus: noop, blur: noop, close: noop, destroy: noop,
     isDestroyed: function () { return false; },
     isVisible: function () { return true; },
+    isFocused: function () { return false; },
     isResizable: function () { return false; },
     isAlwaysOnTop: function () { return false; },
     setResizable: noop, setAspectRatio: noop,
@@ -61,6 +69,7 @@ function makeWin(winOpts) {
     webContents: { send: noop, on: noop, once: noop, executeJavaScript: function () { return Promise.resolve(); } },
     setWindowButtonVisibility: noop
   };
+  createdWindows.push(w);
   return w;
 }
 
@@ -133,6 +142,11 @@ const electronMock = {
   net: { request: function () { return { on: noop, end: noop }; } }
 };
 electronMock.BrowserWindow.getAllWindows = function () { return []; };
+// v2.4.0 A1：主窗 blur 判定焦点是否仍在本应用。返回 null=焦点已离开；返回某 mock win=焦点仍在本应用。
+electronMock.BrowserWindow.getFocusedWindow = function () {
+  stats.getFocusedWindowCalls++;
+  return focusedWindowValue;
+};
 
 const origLoad = Module._load;
 Module._load = function (request) {
@@ -143,6 +157,8 @@ Module._load = function (request) {
 /* ---------- 执行一轮 ---------- */
 function runOnce(mode) {
   stats = freshStats();
+  createdWindows = [];
+  focusedWindowValue = null;
   Object.keys(ipcHandlers).forEach(function (k) { delete ipcHandlers[k]; });
 
   // 预置用户设置（决定启动形态）
@@ -171,6 +187,32 @@ function assert(cond, msg) { if (cond) ok.push(msg); else bad.push(msg); }
 let s = runOnce('dock');
 
 setTimeout(function () {
+  // ============ v2.4.0 A1 blur 冒烟：getFocusedWindow 判定焦点是否仍在本应用 ============
+  // 必须在 dock-show-menu 触发前跑（否则 guardBlur(800) 会设置 blurGraceUntil 导致 blur 早退）。
+  (function () {
+    // 主窗是 whenReady 里第一个创建的窗口（顺序：createWindow → createDock）
+    const mainWin = createdWindows[0];
+    const blurH = mainWin && mainWin._handlers.blur && mainWin._handlers.blur[0];
+    assert(!!blurH, 'v2.4.0 A1 主窗 blur 处理器已注册');
+    if (blurH) {
+      // 分支 1：焦点不在本应用（getFocusedWindow → null）→ 应隐藏主窗
+      const hiddenBefore = s.hidden;
+      const callsBefore = s.getFocusedWindowCalls;
+      focusedWindowValue = null;
+      blurH();
+      assert(s.getFocusedWindowCalls === callsBefore + 1, 'A1 分支1 blur 调用了 getFocusedWindow() 判定');
+      assert(s.hidden === hiddenBefore + 1, 'A1 分支1 焦点不在本应用 → 隐藏主窗');
+
+      // 分支 2：焦点仍在本应用（返回未销毁的 mock win）→ 不应隐藏
+      const hiddenBefore2 = s.hidden;
+      const callsBefore2 = s.getFocusedWindowCalls;
+      focusedWindowValue = mainWin;   // isDestroyed()===false
+      blurH();
+      assert(s.getFocusedWindowCalls === callsBefore2 + 1, 'A1 分支2 再次调用 getFocusedWindow() 判定');
+      assert(s.hidden === hiddenBefore2, 'A1 分支2 焦点仍在本应用 → 不隐藏');
+    }
+  })();
+
   try {
     if (ipcHandlers['dock-show-menu']) ipcHandlers['dock-show-menu']();
   } catch (e) { bad.push('菜单触发崩溃: ' + (e && e.message)); }

@@ -2950,6 +2950,7 @@ app.whenReady().then(function () {
       recomputeTheme();
       if (themeMode !== prev) {
         pushThemeToAll();
+        pushSkinToAll();   // v2.4.0：同步刷新 skin-state 的 effectiveTheme，避免系统切换后短暂陈旧
         saveSettings();
       }
     });
