@@ -131,18 +131,15 @@
   [data-skin="color"] #card { background: var(--skin-bg-solid); }
   [data-skin="image"] #card { background: transparent; }
 
-  /* v2.4.1 修复「自选背景出现显眼方框边」：原生半透明卡靠 --edge 描边 + 描边环自然过渡，
-   * 但纯色/图片皮肤下这两层描边会变成生硬矩形框。这里关掉硬描边 + 描边环 + 顶部高光，
-   * 只保留柔光投影（圆角随 #card 不变），让自选背景的边缘干净圆润。 */
-  [data-skin="color"] #card,
-  [data-skin="image"] #card {
-    border-color: transparent;
-    box-shadow: 0 0 7px rgba(31, 35, 48, 0.11);
-  }
-  [data-theme="dark"][data-skin="color"] #card,
-  [data-theme="dark"][data-skin="image"] #card {
-    box-shadow: 0 0 8px rgba(0, 0, 0, 0.30);
-  }
+  /* v2.4.2 修复「纯色/图片模式点击闪黑 + 方方正正 + 两层堆叠」：
+   * 根因 1) 主进程把 dock 窗口 setBackgroundColor(不透明色) → 透明窗口退化成方形色块，
+   *        圆角透明区/阴影失效，形成"底子+色块"两层；已在 electron-main.js bgColorFor 改为始终透明。
+   * 根因 2) body.hit #card:hover 优先级高于 [data-skin]，hover 把自选背景换成 --card-hover
+   *        （黑夜底子）→ 点击闪黑。
+   * 因此不再单独剥离描边/阴影：纯色/图片复用原生模式的 --edge 描边 + --shadow 阴影 + 顶部高光
+   * （圆角随 #card 不变），仅在 hover 时锁住自选背景，其余点按反馈与原生一致。 */
+  body.hit[data-skin="color"] #card:hover { background: var(--skin-bg-solid); }
+  body.hit[data-skin="image"] #card:hover { background: transparent; }
 
   /* ============================ L3 组件层 ============================ */
   * { box-sizing: border-box; margin: 0; padding: 0; }

@@ -9,7 +9,7 @@
 ### 新增
 - **皮肤系统形态重构（per-surface 皮肤树）**：主进程是唯一真相，持久化 `skin.surfaces{calendar,expanded,desktop,dock}`（每界面独立 type∈light/dark/system/color/image + color/image + text∈auto/light/dark），`expanded/desktop` 支持 `follow='calendar'`（取消跟随 = copy-on-write 快照）、`dock` 独立；透明度收敛为 `skin.opacity{calendar,desktop,dock}`。旧字段（theme/skinMode/nativeSkin/skinColor/跟随/透明度）经 `skin.__v===2` 一次性迁移（`migrateSkin`），迁移后 `saveSettings` 只写 `skin`。
 - **独立皮肤设置窗口（skin.html）**：设置页只留「皮肤设置」入口；皮肤窗 4 界面分段（日历/放大/桌面/浮动）+ 5 类型（浅/深/跟随系统/纯色/图片）+ 色盘 + 文字明暗 + 透明度 + 跟随开关。
-- **图片皮肤（完整实现）**：拖入/点选导入 png/jpg/jpeg/gif/webp（≤20MB、最长边≤4096 否则拒绝）；原子复制到 `userData/skins/` 仅存文件名；`skin://` 特权协议（`registerSchemesAsPrivileged` + `protocol.handle`）加载；亮度采样（`nativeImage.resize(64).toBitmap()` 平均亮度）自动明暗文字；GIF 动画 + 隐藏冻结（首帧 snapshot + `visibilitychange`）。
+- **图片皮肤（完整实现）**：拖入/点选导入 png/jpg/jpeg/gif/webp；原子复制到 `userData/skins/` 仅存文件名；`skin://` 特权协议（`registerSchemesAsPrivileged` + `protocol.handle`）加载；亮度采样（`nativeImage.resize(64).toBitmap()` 平均亮度）自动明暗文字；GIF 动画播放（Chromium 原生，渲染层 `background-image` 保持动图）。
 - **取景数学（crop + zoom）**：归一化 `crop{x,y,w,h}` + `zoom`(1~5) ↔ CSS background-size/position（全图 cover 基准），权威参数「取景中心 + zoom」，`crop.w/h` 为派生冗余；重启后任意分辨率复现一致。
 - **多屏插件位置记忆（A3）**：`dockBoundsByDisplay`（显示器 ID → 落点）+ `dockDisplayId`，`pickDockRestore()` 按「原屏原位 → 存活屏回退 → 旧式单一 dockBounds → 默认落点」恢复。
 
@@ -26,6 +26,9 @@
 - **点「自选图片」窗口全透明（v2.4.1）**：`surfaceBg` 对 `type=image` 但尚未导入图片时回退纯色兜底（`solidFallbackFor`，text=light/dark 取对应底色、auto 取当前生效明暗），不再下发透明。
 - **导入图片不显示（v2.4.1）**：新增 `skinUrlToName` 剥掉 `skin://` standard 协议的尾斜杠/query 后再取 basename，修复 `sanitizeBasename('file/')` 得空串导致 404 的问题。
 - **图片导入后误切黑夜（v2.4.1）**：亮度采样跳过 alpha=0 的透明像素（PNG 透明区 BGRA 为黑会拉低均值），采样失败兜底浅色，不再误判深色。
+- **浮动插件纯色/图片模式点击闪黑 + 方框边 + 两层堆叠（v2.4.2）**：根因是主进程把 dock 窗口 `setBackgroundColor` 成不透明色使透明窗口退化成方形色块，且 `body.hit #card:hover` 优先级高于 `[data-skin]` 把自选背景换成 `--card-hover`。改为窗口背景始终透明 + 纯色/图片复用原生 `--edge` 描边 + `--shadow` 阴影，hover 仅锁住自选背景。
+- **GIF 动图无法识别（v2.4.2）**：`nativeImage` 对 GIF 支持有限，导入时跳过 nativeImage 解码/亮度采样/首帧快照，尺寸改从 GIF 文件头直接读取，`dark` 兜底 `false`，直接复制文件由渲染层 `background-image:url(skin://...)` 保持动画。
+- **使用说明同步到 v2.4.0（v2.4.2）**：`使用说明.md` / `使用说明.html` 补充皮肤系统、图片皮肤与本轮修复点，版本号更新为 v2.4.0。
 
 ---
 

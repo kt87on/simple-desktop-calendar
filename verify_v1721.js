@@ -528,8 +528,11 @@ check('[v2.4.0 R2][v2.4.1] importSkinImage 校验：surface 白名单 + 扩展�
   !/图片超过 20MB/.test(mainCode) && !/最长边超过 4096/.test(mainCode) && !/maxEdge/.test(mainCode));
 check('[v2.4.0 R2] 图片亮度采样 64px resize.toBitmap',
   /resize\(\{ width: 64 \}\)/.test(mainCode) && /toBitmap\(\)/.test(mainCode));
-check('[v2.4.0 R2] GIF 首帧冻结帧 snapshot（toPNG + _frame.png）',
-  /ext === '\.gif'/.test(mainCode) && /toPNG\(\)/.test(mainCode) && /_frame\.png/.test(mainCode));
+check('[v2.4.2] GIF 导入跳过 nativeImage 解码（readGifSize + isGif 分支）',
+  /function readGifSize\(filePath\)/.test(mainCode) && /var isGif = \(ext === '\.gif'\)/.test(mainCode) &&
+  /size = readGifSize\(srcPath\) \|\| \{ width: 0, height: 0 \}/.test(mainCode));
+check('[v2.4.2] GIF 亮度采样 + 首帧快照均已移除（不再 toPNG/_frame.png）',
+  !/toPNG\(\)/.test(mainCode) && !/_frame\.png/.test(mainCode) && /var snapshot = null/.test(mainCode));
 check('[v2.4.0 R2] 原子复制（copyFileSync → renameSync）',
   /copyFileSync\(srcPath, tmp\)/.test(mainCode) && /renameSync\(tmp, dest\)/.test(mainCode));
 
@@ -543,8 +546,15 @@ check('[v2.4.1 D] skinUrlToName 提取 skin:// 文件名（含尾斜杠兼容）
   /function skinUrlToName\(url\)/.test(mainCode));
 check('[v2.4.1 D] protocol.handle("skin") 改用 skinUrlToName 取文件名',
   /skinUrlToName\(request && request\.url\)/.test(mainCode));
-check('[v2.4.1 A] dock.html 纯色/图片皮肤关硬描边（border-color: transparent）',
-  /\[data-skin="color"\] #card,/.test(dock) && /border-color: transparent/.test(dock));
+check('[v2.4.2] dock.html 纯色/图片复用原生描边+阴影（不再单独 border-color: transparent）',
+  !/\[data-skin="color"\] #card,/.test(dockCode) && !/border-color: transparent/.test(dockCode) &&
+  /\[data-skin="color"\] #card \{ background: var\(--skin-bg-solid\); \}/.test(dockCode) &&
+  /\[data-skin="image"\] #card \{ background: transparent; \}/.test(dockCode));
+check('[v2.4.2] dock.html hover 锁住自选背景（body.hit + data-skin，不闪黑）',
+  /body\.hit\[data-skin="color"\] #card:hover/.test(dockCode) &&
+  /body\.hit\[data-skin="image"\] #card:hover/.test(dockCode));
+check('[v2.4.2] bgColorFor 始终返回透明（窗口不再做方形色块底子）',
+  /function bgColorFor\(surface\)\s*\{\s*return '#00000000';/.test(mainCode));
 
 /* ---- 皮肤写操作 + IPC + 独立皮肤窗口 ---- */
 check('[v2.4.0 R2] applySkinSet 统一写入口 + copy-on-write 物化（取消跟随深拷贝日历配置）',

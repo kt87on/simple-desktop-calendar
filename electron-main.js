@@ -360,10 +360,12 @@ function migrateSkin(o) {
   return normalizeSkin(raw);
 }
 
-/* 皮肤状态下发 + 窗口背景兜底（纯色 → setBackgroundColor(color)；图片/原生 → 透明，背景层由渲染层绘制） */
+/* 皮肤状态下发 + 窗口背景。v2.4.2：窗口背景**始终透明**（#00000000）。
+ * 自选纯色/图片的圆角 + 阴影由渲染层 #widget/#card 绘制 —— 若把窗口 setBackgroundColor 成
+ * 不透明色，透明窗口会退化成"方形色块"：圆角透明区被填满、投影被盖住，出现
+ * "底子 + 色块"两层堆叠与"方方正正"感，且 hover 换底色会造成"闪黑"。 */
 function bgColorFor(surface) {
-  var bg = surfaceBg(surface);
-  return (bg.kind === 'color' && bg.color) ? bg.color : '#00000000';
+  return '#00000000';
 }
 function pushSkinToRenderer() {
   if (win && win.webContents && !win.webContents.isDestroyed()) {
@@ -421,10 +423,31 @@ function skinsDir() {
   return d;
 }
 
+/* v2.4.2：从 GIF 文件头直接读取尺寸（字节 6-7 宽、8-9 高，little-endian uint16）。
+ * nativeImage 对 GIF 支持有限（可能解出空图 / 仅首帧），因此 GIF 导入跳过 nativeImage 解码，
+ * 尺寸改用本函数读取；读取失败返回 null，渲染层按视口尺寸兜底。 */
+function readGifSize(filePath) {
+  try {
+    var fd = fs.openSync(filePath, 'r');
+    var buf = Buffer.alloc(10);
+    try {
+      var n = fs.readSync(fd, buf, 0, 10, 0);
+      if (n < 10) return null;
+      var magic = buf.toString('ascii', 0, 6);
+      if (magic !== 'GIF87a' && magic !== 'GIF89a') return null;
+      return { width: buf.readUInt16LE(6), height: buf.readUInt16LE(8) };
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (e) { return null; }
+}
+
 /* v2.4.0 第二轮：图片皮肤导入。
  * 校验（扩展名白名单：png/jpg/jpeg/gif/webp，不设大小/像素上限，交由用户自行取景裁剪）→
- * 原子复制到 userData/skins/ → 采样亮度（跳过透明像素，采样失败兜底浅色）→ GIF 首帧快照。
- * 返回 { ok, image, error }。 */
+ * 原子复制到 userData/skins/ → 采样亮度（跳过透明像素，采样失败兜底浅色）。
+ * v2.4.2：GIF 跳过 nativeImage 解码/亮度采样/首帧快照（nativeImage 对 GIF 支持有限），
+ *        尺寸从文件头 readGifSize 读取，dark 兜底 false，直接复制文件交给渲染层
+ *        background-image:url(skin://...) 保持动画播放。返回 { ok, image, error }。 */
 function importSkinImage(surface, srcPath) {
   try {
     var validSurfaces = { calendar: 1, expanded: 1, desktop: 1, dock: 1 };
@@ -434,9 +457,17 @@ function importSkinImage(surface, srcPath) {
     var okExts = { '.png': 1, '.jpg': 1, '.jpeg': 1, '.gif': 1, '.webp': 1 };
     if (!okExts[ext]) return { ok: false, error: '仅支持 png/jpg/jpeg/gif/webp' };
 
-    var img = nativeImage.createFromPath(srcPath);
-    if (!img || img.isEmpty()) return { ok: false, error: '图片解码失败' };
-    var size = img.getSize();
+    var isGif = (ext === '.gif');
+    var img = null;
+    var size = null;
+    if (isGif) {
+      // v2.4.2：GIF 跳过 nativeImage 解码（支持有限，可能解出空图/仅首帧），直接读文件头拿尺寸。
+      size = readGifSize(srcPath) || { width: 0, height: 0 };
+    } else {
+      img = nativeImage.createFromPath(srcPath);
+      if (!img || img.isEmpty()) return { ok: false, error: '图片解码失败' };
+      size = img.getSize();
+    }
 
     var ts = Date.now();
     var base = surface + '_' + ts;
@@ -448,36 +479,31 @@ function importSkinImage(surface, srcPath) {
     fs.renameSync(tmp, dest);
 
     var dark = false;
-    try {
-      var thumb = img.resize({ width: 64 });
-      var bmp = thumb.toBitmap();   // BGRA
-      var n = 0, sr = 0, sg = 0, sb = 0;
-      for (var i = 0; i < bmp.length; i += 4) {
-        // 透明像素（alpha=0）不计入亮度：PNG 透明区在 BGRA 里是 (0,0,0,0)，
-        // 若纳入会把看不见的黑色也算进均值，把浅色图误判成深色 → auto 误切黑夜。
-        if (bmp[i + 3] === 0) continue;
-        sb += bmp[i]; sg += bmp[i + 1]; sr += bmp[i + 2];
-        n++;
-      }
-      if (n > 0) {
-        var rr = (sr / n) / 255, gg = (sg / n) / 255, bb = (sb / n) / 255;
-        function ch(x) { x = (x <= 0.03928) ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); return x; }
-        var lum = 0.2126 * ch(rr) + 0.7152 * ch(gg) + 0.0722 * ch(bb);
-        dark = lum < 0.5;
-      }
-      // n===0（全透明/解码异常）→ dark 保持 false（浅色兜底，绝不硬切黑夜）
-    } catch (e) {}
-
-    var snapshot = null;
-    if (ext === '.gif') {
+    if (!isGif && img) {
       try {
-        var png = img.toPNG();
-        if (png && png.length) {
-          snapshot = base + '_frame.png';
-          fs.writeFileSync(path.join(destDir, snapshot), png);
+        var thumb = img.resize({ width: 64 });
+        var bmp = thumb.toBitmap();   // BGRA
+        var n = 0, sr = 0, sg = 0, sb = 0;
+        for (var i = 0; i < bmp.length; i += 4) {
+          // 透明像素（alpha=0）不计入亮度：PNG 透明区在 BGRA 里是 (0,0,0,0)，
+          // 若纳入会把看不见的黑色也算进均值，把浅色图误判成深色 → auto 误切黑夜。
+          if (bmp[i + 3] === 0) continue;
+          sb += bmp[i]; sg += bmp[i + 1]; sr += bmp[i + 2];
+          n++;
         }
+        if (n > 0) {
+          var rr = (sr / n) / 255, gg = (sg / n) / 255, bb = (sb / n) / 255;
+          function ch(x) { x = (x <= 0.03928) ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); return x; }
+          var lum = 0.2126 * ch(rr) + 0.7152 * ch(gg) + 0.0722 * ch(bb);
+          dark = lum < 0.5;
+        }
+        // n===0（全透明/解码异常）→ dark 保持 false（浅色兜底，绝不硬切黑夜）
       } catch (e) {}
     }
+
+    // v2.4.2：GIF 不再生成首帧冻结帧（nativeImage 对 GIF 支持有限，toPNG 首帧不可靠），
+    // 直接由渲染层 background-image:url(skin://...gif) 保持动画播放。
+    var snapshot = null;
 
     var image = {
       file: destName,

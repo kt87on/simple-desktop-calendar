@@ -869,6 +869,34 @@ const MAP = { a: { x: 10, y: 20 }, b: { x: 100, y: 200 } };
   ok('换机后旧 displayId 无记录 → 回退首个存活屏记录', r.x === 33 && r.y === 44, JSON.stringify(r));
 })();
 
+/* ============ v2.4.2：bgColorFor 窗口背景始终透明（浮动纯色视觉修复根因1） ============ */
+console.log('\n【v2.4.2】bgColorFor —— 窗口背景不再退化成方形色块');
+(function () {
+  const api = new Function(extractFn(mainSrc, 'bgColorFor') + '; return { bgColorFor: bgColorFor };')();
+  ok('bgColorFor calendar/dock/desktop 均返回透明',
+    api.bgColorFor('calendar') === '#00000000' && api.bgColorFor('dock') === '#00000000' &&
+    api.bgColorFor('desktop') === '#00000000');
+})();
+
+/* ============ v2.4.2：readGifSize 从文件头读 GIF 尺寸（GIF 导入跳过 nativeImage） ============ */
+console.log('\n【v2.4.2】readGifSize —— GIF 尺寸从文件头读取');
+(function () {
+  const os = require('os');
+  const api = new Function('fs', extractFn(mainSrc, 'readGifSize') + '; return { readGifSize: readGifSize };')(fs);
+  const tmp = os.tmpdir() + '/_gifsize_test_' + Date.now() + '.gif';
+  const buf = Buffer.alloc(10);
+  Buffer.from('GIF89a', 'ascii').copy(buf, 0);
+  buf.writeUInt16LE(320, 6);
+  buf.writeUInt16LE(240, 8);
+  fs.writeFileSync(tmp, buf);
+  const s = api.readGifSize(tmp);
+  ok('readGifSize GIF89a 320×240 读取正确', s && s.width === 320 && s.height === 240, JSON.stringify(s));
+  const bad = tmp.replace(/\.gif$/, '.png');
+  fs.writeFileSync(bad, Buffer.from('not-a-gif'));
+  ok('readGifSize 非 GIF → null', api.readGifSize(bad) === null);
+  try { fs.unlinkSync(tmp); fs.unlinkSync(bad); } catch (e) {}
+})();
+
 console.log('\n==================================');
 console.log('运行时单测： ' + pass + ' 通过 / ' + fail + ' 失败');
 console.log('==================================');
