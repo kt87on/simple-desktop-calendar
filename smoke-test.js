@@ -17,7 +17,6 @@ const USERDATA = path.join(process.cwd(), '_mock_userdata');
 let stats = null;
 const ipcHandlers = {};
 let createdWindows = [];      // 按创建顺序记录所有 mock BrowserWindow（识别主窗/插件）
-let focusedWindowValue = null; // 控制 BrowserWindow.getFocusedWindow() 的返回值
 
 function freshStats() {
   return {
@@ -25,7 +24,8 @@ function freshStats() {
     loadedFiles: [], ipcChannels: [],
     menuBuilt: 0, menuItemCount: 0, menuLabels: [],
     ignoreMouseCalls: [], alwaysOnTopCalls: [],
-    shown: 0, hidden: 0, getFocusedWindowCalls: 0
+    shown: 0, hidden: 0,
+    protocolRegistered: 0, protocolHandlers: {}
   };
 }
 
@@ -73,6 +73,16 @@ function makeWin(winOpts) {
   return w;
 }
 
+// v2.4.0 第二轮：nativeImage 走 importSkinImage 完整链路（getSize / resize().toBitmap() / toPNG()）
+function makeNativeImage() {
+  return {
+    isEmpty: function () { return false; },
+    getSize: function () { return { width: 100, height: 100 }; },
+    resize: function () { return { toBitmap: function () { return Buffer.alloc(64 * 64 * 4); } }; },
+    toPNG: function () { return Buffer.from('fake-png'); }
+  };
+}
+
 const electronMock = {
   app: {
     whenReady: function () { return Promise.resolve(); },
@@ -115,8 +125,8 @@ const electronMock = {
     on: noop
   },
   nativeImage: {
-    createFromBuffer: function () { return { isEmpty: function () { return false; }, resize: function () { return {}; } }; },
-    createFromPath: function () { return { isEmpty: function () { return false; } }; },
+    createFromBuffer: function () { return makeNativeImage(); },
+    createFromPath: function () { return makeNativeImage(); },
     createEmpty: function () { return { isEmpty: function () { return true; } }; }
   },
   nativeTheme: { shouldUseDarkColors: false, on: noop },
@@ -132,21 +142,30 @@ const electronMock = {
       return { popup: noop, template: tpl };
     }
   },
-  dialog: { showMessageBox: function () { return Promise.resolve({ response: 0 }); }, showErrorBox: noop },
+  dialog: {
+    showMessageBox: function () { return Promise.resolve({ response: 0 }); },
+    showErrorBox: noop,
+    showOpenDialog: function () { return Promise.resolve({ canceled: true, filePaths: [] }); }
+  },
   shell: { openExternal: function () { return Promise.resolve(); }, showItemInFolder: noop, openPath: noop },
   clipboard: { writeText: noop, readText: function () { return ''; } },
   globalShortcut: { register: noop, unregister: noop },
   powerMonitor: { on: noop },
   session: { defaultSession: { setPermissionRequestHandler: noop } },
   process: { getSystemVersion: function () { return '10.0.19045'; } },
-  net: { request: function () { return { on: noop, end: noop }; } }
+  // v2.4.0 第二轮：skin:// 特权协议（registerSchemesAsPrivileged 在模块顶层调用，handle 在 whenReady 注册）
+  protocol: {
+    registerSchemesAsPrivileged: function (list) { stats.protocolRegistered += (list ? list.length : 0); },
+    handle: function (scheme, cb) { stats.protocolHandlers[scheme] = cb; }
+  },
+  net: {
+    request: function () { return { on: noop, end: noop }; },
+    fetch: function () { return Promise.resolve({}); }
+  }
 };
 electronMock.BrowserWindow.getAllWindows = function () { return []; };
-// v2.4.0 A1：主窗 blur 判定焦点是否仍在本应用。返回 null=焦点已离开；返回某 mock win=焦点仍在本应用。
-electronMock.BrowserWindow.getFocusedWindow = function () {
-  stats.getFocusedWindowCalls++;
-  return focusedWindowValue;
-};
+// v2.4.0 第二轮 A-bug2：已删除 BrowserWindow.getFocusedWindow 宽松判定。此处故意不注册该 API ——
+// 若主进程仍调用它，blur 分支会抛 TypeError，冒烟测试即可当场暴露回归。
 
 const origLoad = Module._load;
 Module._load = function (request) {
@@ -158,7 +177,6 @@ Module._load = function (request) {
 function runOnce(mode) {
   stats = freshStats();
   createdWindows = [];
-  focusedWindowValue = null;
   Object.keys(ipcHandlers).forEach(function (k) { delete ipcHandlers[k]; });
 
   // 预置用户设置（决定启动形态）
@@ -187,31 +205,47 @@ function assert(cond, msg) { if (cond) ok.push(msg); else bad.push(msg); }
 let s = runOnce('dock');
 
 setTimeout(function () {
-  // ============ v2.4.0 A1 blur 冒烟：getFocusedWindow 判定焦点是否仍在本应用 ============
+  // ============ v2.4.0 第二轮 A-bug2 blur 冒烟：显式逐个 isFocused 判定兄弟窗口 ============
   // 必须在 dock-show-menu 触发前跑（否则 guardBlur(800) 会设置 blurGraceUntil 导致 blur 早退）。
   (function () {
     // 主窗是 whenReady 里第一个创建的窗口（顺序：createWindow → createDock）
     const mainWin = createdWindows[0];
+    const dockMock = createdWindows[1];
     const blurH = mainWin && mainWin._handlers.blur && mainWin._handlers.blur[0];
-    assert(!!blurH, 'v2.4.0 A1 主窗 blur 处理器已注册');
+    assert(!!blurH, 'A-bug2 主窗 blur 处理器已注册');
     if (blurH) {
-      // 分支 1：焦点不在本应用（getFocusedWindow → null）→ 应隐藏主窗
+      // 分支 1：所有兄弟窗口都不在焦点 → 应隐藏主窗
       const hiddenBefore = s.hidden;
-      const callsBefore = s.getFocusedWindowCalls;
-      focusedWindowValue = null;
       blurH();
-      assert(s.getFocusedWindowCalls === callsBefore + 1, 'A1 分支1 blur 调用了 getFocusedWindow() 判定');
-      assert(s.hidden === hiddenBefore + 1, 'A1 分支1 焦点不在本应用 → 隐藏主窗');
+      assert(s.hidden === hiddenBefore + 1, 'A-bug2 分支1 无兄弟窗口在焦点 → 隐藏主窗');
 
-      // 分支 2：焦点仍在本应用（返回未销毁的 mock win）→ 不应隐藏
+      // 分支 2：dock 插件窗口在焦点 → 不隐藏（显式 isFocused 命中）
+      if (dockMock) dockMock.isFocused = function () { return true; };
       const hiddenBefore2 = s.hidden;
-      const callsBefore2 = s.getFocusedWindowCalls;
-      focusedWindowValue = mainWin;   // isDestroyed()===false
       blurH();
-      assert(s.getFocusedWindowCalls === callsBefore2 + 1, 'A1 分支2 再次调用 getFocusedWindow() 判定');
-      assert(s.hidden === hiddenBefore2, 'A1 分支2 焦点仍在本应用 → 不隐藏');
+      assert(s.hidden === hiddenBefore2, 'A-bug2 分支2 dock 插件在焦点 → 不隐藏');
+      if (dockMock) dockMock.isFocused = function () { return false; };
     }
+    // getFocusedWindow 必须已删除：mock 未注册该 API，主进程若仍调用会在 blur 时抛 TypeError
+    assert(typeof electronMock.BrowserWindow.getFocusedWindow !== 'function',
+      'A-bug2 已删除 getFocusedWindow 宽松判定（不再调用）');
   })();
+
+  // ============ v2.4.0 第二轮：skin:// 特权协议注册 + handler 挂载 ============
+  assert(s.protocolRegistered === 1, 'skin:// 特权协议已注册(1 个 scheme)');
+  assert(typeof s.protocolHandlers.skin === 'function', 'skin:// protocol.handle 已挂载 handler');
+
+  // ============ v2.4.0 第二轮：启动即完成一次性皮肤迁移（settings.json 只写 skin、停写旧键） ============
+  try {
+    const saved = JSON.parse(fs.readFileSync(path.join(USERDATA, 'settings.json'), 'utf8'));
+    assert(saved && saved.skin && saved.skin.__v === 2 && saved.skin.surfaces,
+      '迁移后 settings.json 写入 skin.__v===2 结构');
+    assert(!('theme' in saved), 'saveSettings 已停写旧字段 theme');
+    assert(!('skinMode' in saved) && !('nativeSkin' in saved) && !('skinColor' in saved),
+      'saveSettings 已停写 skinMode/nativeSkin/skinColor');
+    assert(!('desktopFollowCalendar' in saved) && !('dockFollowCalendar' in saved),
+      'saveSettings 已停写 desktopFollowCalendar/dockFollowCalendar');
+  } catch (e) { bad.push('读取迁移后 settings.json 失败: ' + (e && e.message)); }
 
   try {
     if (ipcHandlers['dock-show-menu']) ipcHandlers['dock-show-menu']();

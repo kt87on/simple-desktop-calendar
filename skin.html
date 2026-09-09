@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>皮肤设置</title>
+<style>
+  /* ==========================================================================
+   * 皮肤设置窗口 · 设计系统 v2.4（第二轮）
+   * --------------------------------------------------------------------------
+   * 语义定位：独立的皮肤调校台。4 界面分段 + 5 皮肤类型 + 纯色色盘 + 图片取景 +
+   * 文字明暗 + 透明度 + 跟随开关。主进程是唯一真相，所有编辑走 skin-set 即时回写，
+   * 无保存按钮。视觉复用 settings.html 的 Token 体系（暖纸 + 雅蓝 + 圆角卡）。
+   * 自身不应用皮肤背景，只跟随基准主题 baseTheme() → data-theme。
+   * ========================================================================== */
+
+  /* ============================ L1 基础层 ============================ */
+  :root {
+    --ink-900: #14181f; --ink-800: #1f2430; --ink-700: #333a48; --ink-600: #4b5563;
+    --ink-500: #6b7280; --ink-400: #9aa1ad; --ink-300: #c2c8d2; --ink-200: #e2e6ec;
+    --ink-100: #f0f2f5; --ink-50: #f7f8fa; --ink-25: #fcfbf9;
+
+    --blue-50: #eff4fc; --blue-100: #dae6fa; --blue-200: #b9cff5; --blue-300: #8fb0ec;
+    --blue-400: #6389df; --blue-500: #3b6fd4; --blue-600: #1976d2; --blue-700: #155ba6;
+
+    --red-500: #d6453f; --red-600: #bf3330;
+
+    --fs-2xs: 9px; --fs-xs: 10px; --fs-sm: 11px; --fs-md: 13px; --fs-lg: 14px; --fs-xl: 15px;
+
+    --fw-regular: 400; --fw-medium: 500; --fw-semibold: 600; --fw-bold: 700;
+
+    --font-sans: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI",
+                 "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+                 "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
+
+    --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px;
+    --r-xs: 4px; --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 16px; --r-pill: 999px;
+
+    --dur-instant: 80ms; --dur-fast: 140ms; --dur-normal: 220ms;
+    --ease-out: cubic-bezier(.22, .61, .36, 1);
+    --ease-spring: cubic-bezier(.34, 1.46, .64, 1);
+
+    /* ========== L2 语义层 · 白日 ========== */
+    --paper: #ffffff;
+    --paper-edge: rgba(31, 35, 48, 0.10);
+    --paper-hi: rgba(255, 255, 255, 0.85);
+    --ink: var(--ink-800);
+    --ink-soft: var(--ink-500);
+    --ink-faint: var(--ink-400);
+
+    --accent: var(--blue-500);
+    --accent-hover: var(--blue-600);
+    --accent-glow: rgba(59, 111, 212, 0.30);
+    --accent-ink: var(--blue-700);
+    --accent-soft: rgba(59, 111, 212, 0.10);
+
+    --head-bg: linear-gradient(180deg, rgba(59, 111, 212, 0.10), rgba(59, 111, 212, 0));
+    --head-line: rgba(31, 35, 48, 0.07);
+    --row-line: rgba(31, 35, 48, 0.05);
+    --ctl-bg: #ffffff;
+    --ctl-edge: rgba(31, 35, 48, 0.12);
+    --track-off: rgba(31, 35, 48, 0.14);
+    --foot-bg: rgba(252, 251, 249, 0.65);
+
+    --e-3: 0 20px 52px rgba(31, 35, 48, 0.26), 0 4px 14px rgba(31, 35, 48, 0.10),
+           inset 0 1px 0 var(--paper-hi);
+  }
+
+  /* ========== L2 语义层 · 黑夜 ========== */
+  html[data-theme="dark"] {
+    --paper: #1e222e;
+    --paper-edge: rgba(255, 255, 255, 0.09);
+    --paper-hi: rgba(255, 255, 255, 0.055);
+    --ink: #e8eaf0;
+    --ink-soft: #9aa3b3;
+    --ink-faint: #6a7283;
+
+    --accent: #4a86ef;
+    --accent-hover: #5f97f5;
+    --accent-glow: rgba(74, 134, 239, 0.32);
+    --accent-ink: #8fb2f7;
+    --accent-soft: rgba(74, 134, 239, 0.16);
+
+    --head-bg: linear-gradient(180deg, rgba(74, 134, 239, 0.14), rgba(74, 134, 239, 0));
+    --head-line: rgba(255, 255, 255, 0.07);
+    --row-line: rgba(255, 255, 255, 0.05);
+    --ctl-bg: rgba(255, 255, 255, 0.07);
+    --ctl-edge: rgba(255, 255, 255, 0.12);
+    --track-off: rgba(255, 255, 255, 0.18);
+    --foot-bg: rgba(255, 255, 255, 0.028);
+
+    --e-3: 0 24px 60px rgba(0, 0, 0, 0.66), 0 6px 16px rgba(0, 0, 0, 0.42),
+           inset 0 1px 0 var(--paper-hi);
+  }
+
+  /* ============================ L3 组件层 ============================ */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: transparent; }
+  body {
+    font-family: var(--font-sans); color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  #card {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    background: var(--paper); border-radius: var(--r-xl);
+    border: 1px solid var(--paper-edge); box-shadow: var(--e-3); overflow: hidden;
+  }
+
+  #head {
+    flex: 0 0 48px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 var(--s-3) 0 var(--s-4);
+    background: var(--head-bg); border-bottom: 1px solid var(--head-line);
+    -webkit-app-region: drag; user-select: none; -webkit-user-select: none; cursor: move;
+  }
+  #head:active { cursor: grabbing; }
+  #head .title { display: flex; align-items: center; gap: var(--s-2); color: var(--accent-ink); font-size: var(--fs-xl); font-weight: var(--fw-bold); letter-spacing: 0.3px; }
+  #head .icon { width: 18px; height: 18px; flex: 0 0 auto; color: var(--accent); }
+  #btnClose {
+    width: 26px; height: 26px; border: none; border-radius: var(--r-sm);
+    background: transparent; color: var(--ink-faint); cursor: pointer;
+    font-size: var(--fs-lg); line-height: 1; display: flex; align-items: center; justify-content: center;
+    -webkit-app-region: no-drag;
+    transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  }
+  #btnClose:hover { background: var(--accent-soft); color: var(--ink); }
+
+  #body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--s-2) 0 var(--s-3); }
+
+  /* 4 界面分段 */
+  .surface-tabs {
+    display: flex; gap: var(--s-1); padding: var(--s-1) var(--s-4) var(--s-2);
+  }
+  .surface-tabs button {
+    flex: 1; border: 1px solid var(--ctl-edge); border-radius: var(--r-sm);
+    background: var(--ctl-bg); color: var(--ink-soft); font-family: inherit;
+    font-size: var(--fs-sm); font-weight: var(--fw-semibold); padding: 6px 0; cursor: pointer;
+    white-space: nowrap;
+    transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out);
+  }
+  .surface-tabs button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .cur-surface {
+    padding: 0 var(--s-4) var(--s-1);
+    font-size: var(--fs-2xs); font-weight: var(--fw-bold); color: var(--ink-faint);
+    letter-spacing: 1.2px;
+  }
+
+  .group-title {
+    padding: var(--s-3) var(--s-4) var(--s-1);
+    font-size: var(--fs-2xs); font-weight: var(--fw-bold); color: var(--ink-faint);
+    letter-spacing: 1.4px;
+  }
+
+  /* 类型 / 文字明暗 分段按钮网格 */
+  .type-grid {
+    display: flex; flex-wrap: wrap; gap: var(--s-1); padding: 0 var(--s-4);
+  }
+  .type-grid button {
+    flex: 1 0 auto; border: 1px solid var(--ctl-edge); border-radius: var(--r-sm);
+    background: var(--ctl-bg); color: var(--ink-soft); font-family: inherit;
+    font-size: var(--fs-sm); font-weight: var(--fw-semibold); padding: 6px 8px; cursor: pointer;
+    white-space: nowrap;
+    transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out);
+  }
+  .type-grid button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .type-grid button:disabled { opacity: 0.45; cursor: default; }
+  .type-grid.text { padding: 0 var(--s-4); }
+  .type-grid.text button { flex: 1; }
+
+  /* 普通行 / 跟随开关 */
+  .row {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
+    padding: 9px var(--s-4);
+  }
+  .row .txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .row .label { font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--ink); }
+  .row .hint { font-size: var(--fs-2xs); color: var(--ink-faint); }
+
+  .switch {
+    position: relative; width: 40px; height: 22px; flex: 0 0 auto;
+    border-radius: var(--r-pill); background: var(--track-off);
+    border: 1px solid var(--ctl-edge); cursor: pointer;
+    transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  }
+  .switch .knob {
+    position: absolute; top: 1px; left: 1px; width: 18px; height: 18px;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.22);
+    transition: transform var(--dur-normal) var(--ease-spring);
+  }
+  .switch.on { background: var(--accent); border-color: var(--accent); }
+  .switch.on .knob { transform: translateX(18px); }
+
+  /* 色盘 */
+  .palette-grid {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px;
+    padding: 0 var(--s-4);
+  }
+  .palette-swatch {
+    aspect-ratio: 1; border-radius: var(--r-xs); cursor: pointer; border: 1px solid var(--ctl-edge);
+    transition: transform var(--dur-instant) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  }
+  .palette-swatch:hover { border-color: var(--accent); transform: scale(1.08); }
+  .palette-custom {
+    display: flex; align-items: center; gap: var(--s-2); margin: 10px var(--s-4) 0;
+  }
+  .palette-custom input[type="color"] {
+    width: 40px; height: 26px; padding: 0; border: 1px solid var(--ctl-edge); border-radius: var(--r-sm);
+    background: var(--ctl-bg); cursor: pointer;
+  }
+  .palette-tip { font-size: var(--fs-2xs); color: var(--ink-faint); }
+
+  /* 图片导入 + 取景 */
+  .drop-zone {
+    margin: 0 var(--s-4); padding: 10px 0; text-align: center;
+    font-size: var(--fs-sm); color: var(--ink-faint);
+    border: 1px dashed var(--ctl-edge); border-radius: var(--r-sm);
+    cursor: pointer;
+    transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  }
+  .drop-zone:hover, .drop-zone.dragover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+  .crop-wrap {
+    margin: var(--s-2) var(--s-4) 0;
+    display: flex; justify-content: center; align-items: center;
+    background: var(--ctl-bg); border: 1px solid var(--ctl-edge); border-radius: var(--r-md);
+    overflow: hidden; min-height: 80px;
+  }
+  #cropBox {
+    position: relative; overflow: hidden; cursor: grab;
+    background-color: transparent;
+    /* 宽固定 240px，高由 JS 按当前表面取景框比例设定 */
+    width: 240px;
+  }
+  #cropBox.dragging { cursor: grabbing; }
+  #cropImg {
+    position: absolute; inset: 0;
+    background-repeat: no-repeat;
+    background-color: transparent;
+    pointer-events: none;
+  }
+  .crop-tip { padding: 6px var(--s-4) 0; text-align: center; font-size: var(--fs-2xs); color: var(--ink-faint); }
+  .crop-empty { padding: 20px 0; text-align: center; font-size: var(--fs-sm); color: var(--ink-faint); }
+
+  /* 透明度 */
+  .slider { padding: 9px var(--s-4) 11px; }
+  .slider .slider-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+  .slider .label { font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--ink); }
+  .slider .val { font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--accent-ink); font-variant-numeric: tabular-nums; }
+  .slider input[type="range"] { width: 100%; height: 4px; accent-color: var(--accent); cursor: pointer; }
+  .slider input[type="range"]:disabled { opacity: 0.4; cursor: default; }
+
+  /* 跟随时置灰（除透明度外） */
+  .dimmed { opacity: 0.5; pointer-events: none; }
+
+  /* 轻量提示条 */
+  #toast {
+    position: absolute; z-index: 70; left: 50%; bottom: var(--s-4);
+    transform: translateX(-50%) translateY(8px);
+    padding: 7px var(--s-3); border-radius: var(--r-sm);
+    background: var(--ink-900); color: var(--ink-25);
+    font-size: var(--fs-sm); font-weight: var(--fw-semibold); white-space: nowrap;
+    box-shadow: var(--e-3);
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-normal) var(--ease-out);
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  html[data-theme="dark"] #toast { background: var(--ink-25); color: var(--ink-900); }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.16); border-radius: var(--r-pill); }
+  html[data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.16); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; }
+  }
+</style>
+</head>
+<body>
+  <div id="card">
+    <div id="head">
+      <span class="title">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+          <circle cx="8.5" cy="8.5" r="1.4"></circle>
+          <path d="M21 15l-5-5L5 21"></path>
+        </svg>
+        皮肤设置
+      </span>
+      <button id="btnClose" title="关闭" aria-label="关闭">✕</button>
+    </div>
+
+    <div id="body">
+      <div class="surface-tabs" id="surfaceTabs">
+        <button data-surface="calendar">日历界面</button>
+        <button data-surface="dock">浮动插件界面</button>
+        <button data-surface="desktop">桌面插件界面</button>
+        <button data-surface="expanded">放大界面</button>
+      </div>
+      <div class="cur-surface" id="curSurface">当前界面：日历界面</div>
+
+      <div class="group-title">皮肤类型</div>
+      <div class="type-grid" id="typeGrid">
+        <button data-type="light">白天</button>
+        <button data-type="dark">黑夜</button>
+        <button data-type="system">跟随系统</button>
+        <button data-type="color">纯色</button>
+        <button data-type="image">自选图片</button>
+      </div>
+
+      <div class="row" id="followRow" style="display:none">
+        <div class="txt"><div class="label">跟随日历界面</div><div class="hint">取消后独立设置</div></div>
+        <div class="switch" id="followSwitch" role="switch" tabindex="0"><span class="knob"></span></div>
+      </div>
+
+      <div id="colorSection" style="display:none">
+        <div class="group-title">纯色</div>
+        <div class="palette-grid" id="paletteGrid"></div>
+        <div class="palette-custom">
+          <input type="color" id="colorInput" value="#3b6fd4">
+          <span class="palette-tip">自定义取色</span>
+        </div>
+      </div>
+
+      <div id="imageSection" style="display:none">
+        <div class="group-title">自选图片</div>
+        <div class="drop-zone" id="dropZone">拖拽图片到此处，或点击选择文件</div>
+        <div class="crop-wrap" id="cropWrap" style="display:none">
+          <div id="cropBox"><div id="cropImg"></div></div>
+        </div>
+        <div class="crop-empty" id="cropEmpty" style="display:none">尚无图片，请先拖入或点选导入</div>
+        <div class="crop-tip" id="cropTip" style="display:none">拖动平移 · 滚轮缩放（1×~5×）</div>
+      </div>
+
+      <div id="textSection" style="display:none">
+        <div class="group-title">文字明暗</div>
+        <div class="type-grid text" id="textGrid">
+          <button data-text="auto">自动</button>
+          <button data-text="light">深字</button>
+          <button data-text="dark">浅字</button>
+        </div>
+      </div>
+
+      <div class="group-title">透明度</div>
+      <div class="slider">
+        <div class="slider-head"><span class="label">界面透明度</span><span class="val" id="opacityVal">100%</span></div>
+        <input type="range" id="opacityRange" min="0.3" max="1" step="0.05" value="1">
+      </div>
+    </div>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+      var api = window.api;
+      var params = new URLSearchParams(location.search);
+      if (params.get('theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+
+      var SURFACE_LABEL = {
+        calendar: '日历界面',
+        dock: '浮动插件界面',
+        desktop: '桌面插件界面',
+        expanded: '放大界面'
+      };
+      var PRESETS = ['#fcfbf9', '#eef1f6', '#dbe7f5', '#cfe0f0', '#d6e4d6',
+                     '#f5efe0', '#f6e0dc', '#e6e0f0', '#1f2430', '#1c202c',
+                     '#3b6fd4', '#d6453f'];
+
+      var S = { surface: 'calendar', skin: null, resolved: null, viewport: null };
+      // 取景交互态（针对当前 surface 的图片）
+      var crop = { s0: 1, s: 1, center: { x: 0, y: 0 }, vw: 240, vh: 240, dragging: false, downX: 0, downY: 0, saveTimer: null };
+
+      function $(id) { return document.getElementById(id); }
+      function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+      function pct(v) { return Math.round(Number(v) * 100) + '%'; }
+
+      function getConfig(surface) {
+        return (S.skin && S.skin.surfaces && S.skin.surfaces[surface]) || { type: 'light', color: null, image: null, text: 'auto', follow: (surface === 'desktop' || surface === 'expanded') ? 'calendar' : null };
+      }
+      function isFollowing(surface) {
+        var c = getConfig(surface);
+        return (surface === 'desktop' || surface === 'expanded') && c.follow === 'calendar';
+      }
+      function opacityFor(surface) {
+        var key = (surface === 'expanded') ? 'calendar' : surface;
+        var v = (S.skin && S.skin.opacity && S.skin.opacity[key]);
+        return (typeof v === 'number' && isFinite(v)) ? v : 1;
+      }
+      function viewportFor(surface) {
+        return (S.viewport && S.viewport[surface]) || { w: 340, h: 430 };
+      }
+
+      /* ---- toast ---- */
+      var toastTimer = null;
+      function toast(msg) {
+        var el = $('toast');
+        if (!el) return;
+        el.textContent = msg;
+        el.classList.add('show');
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { el.classList.remove('show'); toastTimer = null; }, 2200);
+      }
+
+      /* ---- 皮肤写操作（唯一真相回写） ---- */
+      function setField(surface, field, value) {
+        if (api && api.skinSet) api.skinSet(surface, field, value);
+      }
+      function setType(type) {
+        setField(S.surface, 'type', type);
+      }
+      function setColor(hex) {
+        setField(S.surface, 'color', hex);
+      }
+      function setText(text) {
+        setField(S.surface, 'text', text);
+      }
+      function setOpacity(val) {
+        setField(S.surface, 'opacity', val);
+      }
+
+      /* ---- 取景数学（正向：crop+zoom → CSS background；反向：拖/缩 → crop+zoom） ---- */
+      function currentImage() {
+        var c = getConfig(S.surface);
+        return (c.type === 'image' && c.image) ? c.image : null;
+      }
+      function applyCropPreview() {
+        var img = currentImage();
+        var el = $('cropImg');
+        if (!img || !img.file || !el) return;
+        var IW = (img.w && img.w > 0) ? img.w : crop.vw;
+        var IH = (img.h && img.h > 0) ? img.h : crop.vh;
+        el.style.backgroundImage = 'url("skin://' + encodeURIComponent(img.file) + '")';
+        el.style.backgroundSize = (IW * crop.s) + 'px ' + (IH * crop.s) + 'px';
+        el.style.backgroundPosition = (crop.vw / 2 - crop.center.x * crop.s) + 'px ' + (crop.vh / 2 - crop.center.y * crop.s) + 'px';
+      }
+      function initCrop() {
+        var vp = viewportFor(S.surface);
+        var box = $('cropBox');
+        crop.vw = 240;
+        crop.vh = Math.max(40, Math.round(240 * vp.h / vp.w));
+        if (box) box.style.height = crop.vh + 'px';
+        var img = currentImage();
+        if (!img || !img.file) return;
+        var IW = (img.w && img.w > 0) ? img.w : crop.vw;
+        var IH = (img.h && img.h > 0) ? img.h : crop.vh;
+        crop.s0 = Math.max(crop.vw / IW, crop.vh / IH);
+        var zoom = (typeof img.zoom === 'number' && isFinite(img.zoom) && img.zoom > 0) ? img.zoom : 1;
+        var c = img.crop || { x: 0, y: 0, w: 1, h: 1 };
+        crop.s = crop.s0 * zoom;
+        crop.center = { x: (c.x + c.w / 2) * IW, y: (c.y + c.h / 2) * IH };
+        applyCropPreview();
+      }
+      function saveCrop() {
+        var img = currentImage();
+        if (!img || !img.file) return;
+        var IW = (img.w && img.w > 0) ? img.w : crop.vw;
+        var IH = (img.h && img.h > 0) ? img.h : crop.vh;
+        var vw = crop.vw / crop.s, vh = crop.vh / crop.s;
+        var cropRect = {
+          x: clamp((crop.center.x - vw / 2) / IW, 0, Math.max(0, 1 - vw / IW)),
+          y: clamp((crop.center.y - vh / 2) / IH, 0, Math.max(0, 1 - vh / IH)),
+          w: clamp(vw / IW, 0, 1),
+          h: clamp(vh / IH, 0, 1)
+        };
+        var zoom = clamp(crop.s / crop.s0, 1, 5);
+        // 回写 file/crop/zoom；主进程 merge 保留 w/h/dark/snapshot
+        setField(S.surface, 'image', { file: img.file, crop: cropRect, zoom: zoom });
+      }
+      function scheduleSaveCrop() {
+        if (crop.saveTimer) clearTimeout(crop.saveTimer);
+        crop.saveTimer = setTimeout(function () { crop.saveTimer = null; saveCrop(); }, 120);
+      }
+
+      /* ---- 渲染（回显主进程下发的唯一真相） ---- */
+      function setActive(containerId, attr, value) {
+        var container = $(containerId);
+        if (!container) return;
+        var btns = container.querySelectorAll('button');
+        for (var i = 0; i < btns.length; i++) {
+          btns[i].classList.toggle('active', btns[i].getAttribute(attr) === value);
+        }
+      }
+      function render() {
+        if (!S.skin) return;
+        var surface = S.surface;
+        var cfg = getConfig(surface);
+        var following = isFollowing(surface);
+
+        // 主题回显
+        document.documentElement.setAttribute('data-theme', (S.resolved && S.resolved.calendar && S.resolved.calendar.theme === 'dark') ? 'dark' : 'light');
+
+        // 顶部 tabs
+        var tabs = document.querySelectorAll('#surfaceTabs button');
+        for (var i = 0; i < tabs.length; i++) {
+          tabs[i].classList.toggle('active', tabs[i].getAttribute('data-surface') === surface);
+        }
+        $('curSurface').textContent = '当前界面：' + SURFACE_LABEL[surface];
+
+        // 跟随开关（仅桌面/放大显示）
+        var followRow = $('followRow');
+        var showFollow = (surface === 'desktop' || surface === 'expanded');
+        followRow.style.display = showFollow ? 'flex' : 'none';
+        $('followSwitch').classList.toggle('on', !!following);
+
+        // 类型（follow 时显示日历的实际类型，但控件置灰）
+        var effType = following ? getConfig('calendar').type : cfg.type;
+        setActive('typeGrid', 'data-type', effType);
+
+        // 文字明暗
+        setActive('textGrid', 'data-text', following ? getConfig('calendar').text : cfg.text);
+
+        // 透明度（follow 不影响透明度）
+        $('opacityRange').value = opacityFor(surface);
+        $('opacityVal').textContent = pct(opacityFor(surface));
+
+        // 显隐各区块
+        var isColor = (effType === 'color');
+        var isImage = (effType === 'image');
+        $('colorSection').style.display = isColor ? 'block' : 'none';
+        $('imageSection').style.display = isImage ? 'block' : 'none';
+        $('textSection').style.display = (isColor || isImage) ? 'block' : 'none';
+
+        // follow 时除透明度外置灰
+        $('typeGrid').classList.toggle('dimmed', following);
+        $('colorSection').classList.toggle('dimmed', following);
+        $('imageSection').classList.toggle('dimmed', following);
+        $('textSection').classList.toggle('dimmed', following);
+
+        // 色盘回显（纯色）
+        $('colorInput').value = isColor ? (cfg.color || '#fcfbf9') : '#3b6fd4';
+
+        // 图片取景
+        renderCrop();
+      }
+      function renderCrop() {
+        var cfg = getConfig(S.surface);
+        var following = isFollowing(S.surface);
+        var img = (cfg.type === 'image' && cfg.image) ? cfg.image : null;
+        var hasImg = !!img;
+        $('dropZone').style.display = 'block';
+        $('cropWrap').style.display = hasImg ? 'flex' : 'none';
+        $('cropEmpty').style.display = hasImg ? 'none' : 'block';
+        $('cropTip').style.display = hasImg ? 'block' : 'none';
+        initCrop();
+      }
+
+      /* ---- 事件绑定 ---- */
+      // 表面 tabs
+      var tabBtns = document.querySelectorAll('#surfaceTabs button');
+      for (var t = 0; t < tabBtns.length; t++) {
+        (function (b) {
+          b.addEventListener('click', function () {
+            S.surface = b.getAttribute('data-surface');
+            render();
+          });
+        })(tabBtns[t]);
+      }
+
+      // 类型
+      var typeBtns = document.querySelectorAll('#typeGrid button');
+      for (var j = 0; j < typeBtns.length; j++) {
+        (function (b) {
+          b.addEventListener('click', function () {
+            if (b.disabled) return;
+            setType(b.getAttribute('data-type'));
+          });
+        })(typeBtns[j]);
+      }
+
+      // 文字明暗
+      var textBtns = document.querySelectorAll('#textGrid button');
+      for (var k = 0; k < textBtns.length; k++) {
+        (function (b) {
+          b.addEventListener('click', function () {
+            if (b.disabled) return;
+            setText(b.getAttribute('data-text'));
+          });
+        })(textBtns[k]);
+      }
+
+      // 跟随开关
+      $('followSwitch').addEventListener('click', function () {
+        var following = isFollowing(S.surface);
+        setField(S.surface, 'follow', following ? null : 'calendar');
+      });
+
+      // 色盘
+      var paletteGrid = $('paletteGrid');
+      for (var p = 0; p < PRESETS.length; p++) {
+        (function (hex) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'palette-swatch';
+          b.style.background = hex;
+          b.title = hex;
+          b.addEventListener('click', function () { setColor(hex); });
+          paletteGrid.appendChild(b);
+        })(PRESETS[p]);
+      }
+      $('colorInput').addEventListener('input', function () {
+        setColor($('colorInput').value);
+      });
+
+      // 透明度
+      $('opacityRange').addEventListener('input', function () {
+        var v = parseFloat($('opacityRange').value);
+        $('opacityVal').textContent = pct(v);
+        setOpacity(v);
+      });
+
+      // 图片导入：点选（主进程对话框） / 拖拽（invoke）
+      $('dropZone').addEventListener('click', function () {
+        if (api && api.skinAction) api.skinAction('choose-file', { surface: S.surface });
+      });
+      $('dropZone').addEventListener('dragover', function (e) {
+        e.preventDefault();
+        $('dropZone').classList.add('dragover');
+      });
+      $('dropZone').addEventListener('dragleave', function () {
+        $('dropZone').classList.remove('dragover');
+      });
+      $('dropZone').addEventListener('drop', function (e) {
+        e.preventDefault();
+        $('dropZone').classList.remove('dragover');
+        var files = (e.dataTransfer && e.dataTransfer.files) || [];
+        var file = files[0];
+        var srcPath = (file && (file.path || file.webkitRelativePath)) || null;
+        if (!srcPath) { toast('无法读取文件路径'); return; }
+        if (api && api.skinImport) {
+          api.skinImport(S.surface, srcPath).then(function (res) {
+            if (res && res.ok) {
+              setField(S.surface, 'image', res.image);
+              toast('已导入，可拖动/缩放取景');
+            } else {
+              toast((res && res.error) || '导入失败');
+            }
+          }).catch(function (err) { toast('导入失败'); });
+        }
+      });
+
+      // 取景：拖动平移
+      var cropBox = $('cropBox');
+      cropBox.addEventListener('mousedown', function (e) {
+        if (e.button !== 0) return;
+        if (!currentImage()) return;
+        crop.dragging = true;
+        crop.downX = e.clientX; crop.downY = e.clientY;
+        cropBox.classList.add('dragging');
+        e.preventDefault();
+      });
+      window.addEventListener('mousemove', function (e) {
+        if (!crop.dragging) return;
+        var dx = e.clientX - crop.downX, dy = e.clientY - crop.downY;
+        crop.downX = e.clientX; crop.downY = e.clientY;
+        // 图像随鼠标同向平移：center -= d/s
+        crop.center.x -= dx / crop.s;
+        crop.center.y -= dy / crop.s;
+        applyCropPreview();
+        scheduleSaveCrop();
+      });
+      window.addEventListener('mouseup', function () {
+        if (!crop.dragging) return;
+        crop.dragging = false;
+        cropBox.classList.remove('dragging');
+        saveCrop();
+      });
+      // 滚轮缩放（以取景框中心为锚点）
+      cropBox.addEventListener('wheel', function (e) {
+        if (!currentImage()) return;
+        e.preventDefault();
+        var dir = e.deltaY < 0 ? 1 : -1;
+        var factor = dir > 0 ? 1.1 : (1 / 1.1);
+        var ns = clamp(crop.s * factor, crop.s0, crop.s0 * 5);
+        if (Math.abs(ns - crop.s) < 1e-6) return;
+        crop.s = ns;
+        applyCropPreview();
+        scheduleSaveCrop();
+      });
+
+      // 关闭
+      function closeWin() {
+        if (api && api.skinAction) api.skinAction('close');
+        setTimeout(function () { window.close(); }, 60);
+      }
+      $('btnClose').addEventListener('click', closeWin);
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeWin();
+      });
+
+      // 订阅主进程推送的皮肤配置（唯一真相）
+      if (api && api.onSkinConfigState) {
+        api.onSkinConfigState(function (state) {
+          if (!state) return;
+          S.skin = state.skin;
+          S.resolved = state.resolved;
+          S.viewport = state.viewport;
+          render();
+        });
+      }
+      // 文件对话框导入结果回传
+      if (api && api.onSkinImportResult) {
+        api.onSkinImportResult(function (r) {
+          if (r && r.ok) toast('已导入，可拖动/缩放取景');
+          else if (r && r.error) toast(r.error);
+        });
+      }
+
+      render();
+    })();
+  </script>
+</body>
+</html>

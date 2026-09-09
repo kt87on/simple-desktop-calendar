@@ -7,9 +7,10 @@
 ## [2.4.0] - 2026-09-07
 
 ### 新增
-- **皮肤系统（主题 + 皮肤统一为「皮肤」）**：主进程是唯一真相，持久化 `skinMode`（原生/自选纯色）、`nativeSkin`（浅/深/跟随系统，由旧 `theme` 字段兼容映射）、`skinColor`（日历/桌面插件/浮动插件三表面各自颜色）与 `desktopFollowCalendar` / `dockFollowCalendar`（桌面、浮动插件默认跟随日历皮肤）。
-- **自选纯色自动明暗文字**：`isDarkColor(hex)` 用 WCAG 相对亮度（< 0.5 判深色）自动配浅字/深字，深背景浅字、浅背景深字；状态色（今日蓝/节假日红/选中绿）保持不变。
-- **设置页改 4 分区 + 内联皮肤色板**：功能区 / 桌面插件区 / 浮动插件区 / 日历窗口区；皮肤入口用内联色板（12 预设 + `<input type="color">` 取色 + 图片占位 + 重置），不开新窗；主窗 `#themeBtn` 仍是原生皮肤 light↔dark 快捷键。
+- **皮肤系统形态重构（per-surface 皮肤树）**：主进程是唯一真相，持久化 `skin.surfaces{calendar,expanded,desktop,dock}`（每界面独立 type∈light/dark/system/color/image + color/image + text∈auto/light/dark），`expanded/desktop` 支持 `follow='calendar'`（取消跟随 = copy-on-write 快照）、`dock` 独立；透明度收敛为 `skin.opacity{calendar,desktop,dock}`。旧字段（theme/skinMode/nativeSkin/skinColor/跟随/透明度）经 `skin.__v===2` 一次性迁移（`migrateSkin`），迁移后 `saveSettings` 只写 `skin`。
+- **独立皮肤设置窗口（skin.html）**：设置页只留「皮肤设置」入口；皮肤窗 4 界面分段（日历/放大/桌面/浮动）+ 5 类型（浅/深/跟随系统/纯色/图片）+ 色盘 + 文字明暗 + 透明度 + 跟随开关。
+- **图片皮肤（完整实现）**：拖入/点选导入 png/jpg/jpeg/gif/webp（≤20MB、最长边≤4096 否则拒绝）；原子复制到 `userData/skins/` 仅存文件名；`skin://` 特权协议（`registerSchemesAsPrivileged` + `protocol.handle`）加载；亮度采样（`nativeImage.resize(64).toBitmap()` 平均亮度）自动明暗文字；GIF 动画 + 隐藏冻结（首帧 snapshot + `visibilitychange`）。
+- **取景数学（crop + zoom）**：归一化 `crop{x,y,w,h}` + `zoom`(1~5) ↔ CSS background-size/position（全图 cover 基准），权威参数「取景中心 + zoom」，`crop.w/h` 为派生冗余；重启后任意分辨率复现一致。
 - **多屏插件位置记忆（A3）**：`dockBoundsByDisplay`（显示器 ID → 落点）+ `dockDisplayId`，`pickDockRestore()` 按「原屏原位 → 存活屏回退 → 旧式单一 dockBounds → 默认落点」恢复。
 
 ### 修复
@@ -18,6 +19,8 @@
 - **插件鼠标移出/右键后穿透失效（A4）**：`dock.html` 抽出 `resetHit()`，`blur` / `mouseleave` / `contextmenu` 三处统一恢复鼠标穿透。
 - **功能栏不可拖动（A5）**：`#infoBar` 加 `-webkit-app-region: drag` + `user-select: none`，与其它窗口标题栏拖动一致。
 - **插件日期/星期挤成一团（A6）**：`#dockDate` 拆为 `#dockWeek` + `#dockDateNum` 两个独立 span，`gap: 6px` 排版。
+- **桌面插件 blur 不清算天数区间（A-bug1）**：`createDesktopWidget` 补 `desktopWin.on('blur')` → 下发 `win-hidden` → 渲染层 `clearRange()`。
+- **主窗 blur 误判漏隐藏（A-bug2）**：删除 `BrowserWindow.getFocusedWindow()` 宽松判定（点空白桌面/任务栏会误判焦点仍在本应用），改为显式逐个 `isFocused()` 判断已知兄弟窗口（dock/desktop/settings/skin/remindlist/reminder），全部不在焦点才隐藏；保留 `guardBlur` 给菜单/唤起。
 
 ---
 

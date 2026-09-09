@@ -69,6 +69,13 @@ contextBridge.exposeInMainWorld('api', {
   settingsAction: function (action) { ipcRenderer.send('settings-action', action); },
   onSettingsState: function (cb) { ipcRenderer.on('settings-state', function (e, state) { try { cb && cb(state); } catch (err) {} }); },
 
+  // ---- v2.4.0 第二轮：独立皮肤窗口 ----
+  skinSet: function (surface, field, value) { ipcRenderer.send('skin-set', surface, field, value); },
+  skinAction: function (action, payload) { ipcRenderer.send('skin-action', action, payload); },
+  skinImport: function (surface, filePath) { return ipcRenderer.invoke('skin-import', surface, filePath); },
+  onSkinConfigState: function (cb) { ipcRenderer.on('skin-config-state', function (e, s) { try { cb && cb(s); } catch (err) {} }); },
+  onSkinImportResult: function (cb) { ipcRenderer.on('skin-import-result', function (e, r) { try { cb && cb(r); } catch (err) {} }); },
+
   // ---- v1.6.2 关注 ----
   listReminders: function () { return ipcRenderer.invoke('list-reminders'); },
   addReminder: function (item) { return ipcRenderer.invoke('add-reminder', item); },

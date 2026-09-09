@@ -93,11 +93,8 @@
     --hi: rgba(255, 255, 255, 0.85);          /* 顶部高光 */
     --ink: var(--ink-800);
     --ink-soft: var(--ink-600);
-    /* v2.4.0 皮肤层（浮动插件默认跟随日历皮肤，可拆分独立设色） */
+    /* v2.4.0 第二轮 皮肤层（浮动插件独立 per-surface，不跟随日历） */
     --skin-bg-solid: transparent;
-    --skin-ink: #1f2430;
-    --skin-ink-soft: #6b7280;
-    --skin-ink-faint: #9aa1ad;
     --accent: var(--blue-500);
     --accent-soft: rgba(59, 111, 212, 0.10);
     --hover: rgba(31, 35, 48, 0.055);
@@ -129,12 +126,10 @@
                     inset 0 1px 0 var(--hi);
   }
 
-  /* v2.4.0 自选纯色皮肤：只覆盖卡片 #card（窗口外透明区保持穿透，不改 body） */
-  [data-skin="custom"] #card { background: var(--skin-bg-solid); }
-  [data-skin="custom"] {
-    --ink: var(--skin-ink);
-    --ink-soft: var(--skin-ink-soft);
-  }
+  /* v2.4.0 第二轮 自选纯色/图片皮肤：只覆盖卡片 #card（窗口外透明区保持穿透，不改 body）。
+   * 皮肤只改背景层，文字明暗由 data-theme 全量驱动；状态色/强调色仍取生效主题 token。 */
+  [data-skin="color"] #card { background: var(--skin-bg-solid); }
+  [data-skin="image"] #card { background: transparent; }
 
   /* ============================ L3 组件层 ============================ */
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -148,7 +143,7 @@
   }
 
   #card {
-    position: absolute;
+    position: absolute; z-index: 0;
     /* 初始占位，与 applyDockSize() 的 padL/T/R/B 保持一致（右下 0 让卡片贴死窗口边） */
     left: 2px; top: 2px; right: auto; bottom: auto;
     border-radius: var(--r-md);
@@ -164,6 +159,14 @@
                 box-shadow var(--dur-fast) var(--ease-out),
                 border-color var(--dur-fast) var(--ease-out),
                 transform var(--dur-instant) var(--ease-out);
+  }
+  /* v2.4.0 第二轮 图片皮肤背景层：铺满 #card、位于内容之下（负 z-index 落入 #card stacking context）。
+   * background-image/size/position 由 applySkinImage 按 crop+zoom 换算写入。 */
+  #skinImg {
+    position: absolute; inset: 0; z-index: -1;
+    background-repeat: no-repeat;
+    background-color: transparent;
+    pointer-events: none;
   }
   /* hover 高亮只在「实际可点」（body.hit）时出现，与点击热区保持一致 ——
      鼠标停在方框外的透明区域时不给"这里能点"的错误暗示（此时点击穿透给下面窗口）。 */
@@ -200,6 +203,7 @@
 </head>
 <body data-page-node-id="IppGOXXE1GZRBnFK9ZZBEd">
   <div id="card" data-page-node-id="4R1nm1s3QOxU7AyZct3c3P">
+    <div id="skinImg" aria-hidden="true"></div>
     <div id="dockTime" data-page-node-id="biML9qHPDIPoYeS24xkdXn">--:--:--</div>
     <div id="dockDate" data-page-node-id="vSIUXgsAB0RQf0l5ETxEOG">
       <span id="dockWeek">周-</span><span id="dockDateNum">--/--</span>
@@ -404,27 +408,67 @@
         resetHit();
         if (window.api && window.api.dockShowMenu) window.api.dockShowMenu();
       });
-      // v1.7.20：挂件条恒为浮动卡片，配色始终跟随软件主题（嵌入态让位系统主题的逻辑已删除）
-      if (window.api && window.api.onThemeChanged) {
-        window.api.onThemeChanged(function (mode) {
-          document.documentElement.dataset.theme = (mode === 'dark') ? 'dark' : 'light';
-        });
+      /* v2.4.0 第二轮：浮动插件皮肤（独立 per-surface，不跟随日历）。
+       * 主题由 skin-state.theme 驱动；背景层 color/image；GIF 隐藏时冻结切首帧快照。 */
+      var dockSkin = null;
+      var dockHidden = false;
+      function dockApplyImage(image) {
+        var el = document.getElementById('skinImg');
+        if (!el) return;
+        if (!image || !image.file) { el.style.backgroundImage = ''; return; }
+        var file = (dockHidden && image.snapshot) ? image.snapshot : image.file;
+        el.style.backgroundImage = 'url("skin://' + encodeURIComponent(file) + '")';
+        var vp = { w: 116, h: 50 };
+        var crop = image.crop || { x: 0, y: 0, w: 1, h: 1 };
+        var zoom = (typeof image.zoom === 'number' && isFinite(image.zoom) && image.zoom > 0) ? image.zoom : 1;
+        var IW = (typeof image.w === 'number' && image.w > 0) ? image.w : vp.w;
+        var IH = (typeof image.h === 'number' && image.h > 0) ? image.h : vp.h;
+        var cx = (crop.x || 0) * IW, cy = (crop.y || 0) * IH;
+        var cw = (crop.w || 0) * IW, ch = (crop.h || 0) * IH;
+        if (cw < 1) cw = 1; if (ch < 1) ch = 1;
+        // 全图 cover 基准（crop.w/h 是 zoom 的派生冗余，不进基准；否则与反向 zoom=s/s0 不互逆）
+        var s0 = Math.max(vp.w / IW, vp.h / IH);
+        var s = s0 * zoom;
+        var centerX = cx + cw / 2, centerY = cy + ch / 2;
+        el.style.backgroundSize = (IW * s) + 'px ' + (IH * s) + 'px';
+        el.style.backgroundPosition = (vp.w / 2 - centerX * s) + 'px ' + (vp.h / 2 - centerY * s) + 'px';
       }
-      // v2.4.0：皮肤状态（背景 + 自动明暗文字）订阅
+      function dockApplySkin(state) {
+        if (!state) return;
+        var root = document.documentElement;
+        root.dataset.theme = (state.theme === 'dark') ? 'dark' : 'light';
+        if (state.bg === 'color') {
+          root.dataset.skin = 'color';
+          root.style.setProperty('--skin-bg-solid', state.color || '#fafafc');
+          var c0 = document.getElementById('skinImg');
+          if (c0) c0.style.backgroundImage = '';
+        } else if (state.bg === 'image') {
+          root.dataset.skin = 'image';
+          root.style.removeProperty('--skin-bg-solid');
+          dockApplyImage(state.image);
+        } else {
+          delete root.dataset.skin;
+          root.style.removeProperty('--skin-bg-solid');
+          var i1 = document.getElementById('skinImg');
+          if (i1) i1.style.backgroundImage = '';
+        }
+      }
+      function dockSetFrozen(frozen) {
+        frozen = !!frozen;
+        if (dockHidden === frozen) return;
+        dockHidden = frozen;
+        if (dockSkin && dockSkin.bg === 'image' && dockSkin.image) dockApplyImage(dockSkin.image);
+      }
       if (window.api && window.api.onSkinState) {
         window.api.onSkinState(function (state) {
-          var root = document.documentElement;
-          if (state && state.mode === 'custom' && state.bg) {
-            root.dataset.skin = 'custom';
-            root.style.setProperty('--skin-bg-solid', state.bg);
-            root.style.setProperty('--skin-ink', state.ink);
-            root.style.setProperty('--skin-ink-soft', state.inkSoft);
-            if (state.inkFaint) root.style.setProperty('--skin-ink-faint', state.inkFaint);
-          } else {
-            delete root.dataset.skin;
-          }
+          if (!state) return;
+          dockSkin = state.dock || null;
+          dockApplySkin(dockSkin);
         });
       }
+      document.addEventListener('visibilitychange', function () {
+        dockSetFrozen(document.hidden);
+      });
 
       applyDockSize();      // v1.7.19：先用默认尺寸占位，IPC 到达后再校准为真实值
       tick();

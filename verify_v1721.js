@@ -469,126 +469,193 @@ check('[v2.0] 设计规范文档存在',
   fs.existsSync(path.join(__dirname, 'UI_DESIGN_SYSTEM.md')));
 
 // =====================================================================
-// v2.4.0 第一批：主题→皮肤 + 自选纯色 + 设置页4分区 + 稳定性修复
+// v2.4.0 第二轮：皮肤 per-surface 重构 + 图片皮肤 + A-bug1/A-bug2
 // =====================================================================
 
-/* ---- 皮肤数据模型（主进程唯一真相） ---- */
-check('[v2.4.0] 皮肤状态变量声明（skinMode/nativeSkin/skinColor/跟随开关）',
-  /let skinMode = 'native';/.test(mainCode) &&
-  /let nativeSkin = 'system';/.test(mainCode) &&
-  /let skinColor = \{ calendar: null, desktop: null, dock: null \};/.test(mainCode) &&
-  /let desktopFollowCalendar = true;/.test(mainCode) &&
-  /let dockFollowCalendar = true;/.test(mainCode));
-check('[v2.4.0] recomputeTheme 唯一入口存在', /function recomputeTheme\(\)/.test(mainCode));
-check('[v2.4.0] isDarkColor（WCAG 相对亮度<0.5）实现存在', /function isDarkColor\(hex\)/.test(mainCode) && /0\.2126/.test(mainCode));
-check('[v2.4.0] resolveBg(surface) 实现存在', /function resolveBg\(surface\)/.test(mainCode));
-check('[v2.4.0] resolveSkinState(surface) 实现存在', /function resolveSkinState\(surface\)/.test(mainCode));
-check('[v2.4.0] pushSkinToAll 实现存在', /function pushSkinToAll\(\)/.test(mainCode));
-check('[v2.4.0] 皮肤色值校验 validHex（非法回退 null）', /function validHex\(v\)/.test(mainCode));
-check('[v2.4.0] 旧 theme 字段保留为生效主题镜像写入', /theme: themeMode/.test(mainCode));
-check('[v2.4.0] loadSettings 支持 skinMode/nativeSkin/skinColor 回退不崩',
-  /o\.skinMode === 'custom'/.test(mainCode) &&
-  /o\.nativeSkin === 'light' \|\| o\.nativeSkin === 'dark' \|\| o\.nativeSkin === 'system'/.test(mainCode) &&
-  /o\.theme === 'dark' \? 'dark' : 'light'/.test(mainCode));
-check('[v2.4.0] settingsSnapshot 增加皮肤字段与各表面解析背景',
-  /skinMode: skinMode/.test(mainCode) && /nativeSkin: nativeSkin/.test(mainCode) &&
-  /skinResolved: \{/.test(mainCode) && /resolveBg\('calendar'\)/.test(mainCode));
-check('[v2.4.0] 皮肤窗口背景兜底 setBackgroundColor', /setBackgroundColor\(st\.mode === 'custom' \? st\.bg : '#00000000'\)/.test(mainCode));
+/* ---- 皮肤数据模型（主进程唯一真相，per-surface） ---- */
+check('[v2.4.0 R2] skin 新结构 __v:2 + surfaces{calendar,expanded,desktop,dock}',
+  /let skin = \{/.test(mainCode) && /__v:\s*2,/.test(mainCode) &&
+  /surfaces:\s*\{/.test(mainCode) && /calendar:\s*\{\s*type: 'light'/.test(mainCode));
+check('[v2.4.0 R2] opacity 收敛为 skin.opacity{calendar,desktop,dock}',
+  /opacity:\s*\{\s*calendar: 1, desktop: 1, dock: 1\s*\}/.test(mainCode));
+check('[v2.4.0 R2][关键] 旧皮肤散落变量已删除（skinMode/nativeSkin/skinColor/跟随/透明度全局）',
+  !/let skinMode = /.test(mainCode) && !/let nativeSkin = /.test(mainCode) &&
+  !/let skinColor = /.test(mainCode) && !/let desktopFollowCalendar = /.test(mainCode) &&
+  !/let dockFollowCalendar = /.test(mainCode) && !/let mainOpacity = /.test(mainCode) &&
+  !/let desktopOpacity = /.test(mainCode) && !/let dockOpacity = /.test(mainCode));
 
-/* ---- 跟随系统实时深浅色（B4） ---- */
-check('[v2.4.0 B4] nativeTheme.on(updated) 只注册一次且 nativeSkin==system 才重算',
+check('[v2.4.0 R2] normalizeSkin + migrateSkin 一次性迁移',
+  /function normalizeSkin\(raw\)/.test(mainCode) && /function migrateSkin\(o\)/.test(mainCode) &&
+  /o\.skin && o\.skin\.__v === 2 && o\.skin\.surfaces/.test(mainCode));
+// saveSettings 作用域精确自检：只在函数体内查。文件其它位置 `theme: themeMode` 是
+// 设置/关注列表/提醒窗口的 query/IPC 载荷（跟随 baseTheme，属合法残留），不应误判。
+const saveSettingsBody = main.slice(main.indexOf('function saveSettings'), main.indexOf('function clampOpacity'));
+check('[v2.4.0 R2][关键] 迁移后 saveSettings 只写 skin（不再写 theme 镜像/旧键）',
+  /skin:\s*skin,/.test(codeOnly(saveSettingsBody)) &&
+  !/theme:\s*themeMode/.test(codeOnly(saveSettingsBody)) &&
+  !/skinMode:\s*skinMode/.test(codeOnly(saveSettingsBody)) &&
+  !/nativeSkin:\s*nativeSkin/.test(codeOnly(saveSettingsBody)) &&
+  !/skinColor:\s*skinColor/.test(codeOnly(saveSettingsBody)) &&
+  !/desktopFollowCalendar:\s*desktopFollowCalendar/.test(codeOnly(saveSettingsBody)) &&
+  !/dockFollowCalendar:\s*dockFollowCalendar/.test(codeOnly(saveSettingsBody)));
+
+/* ---- per-surface 明暗中枢 ---- */
+check('[v2.4.0 R2] resolveSurfaceConfig（expanded/desktop follow→calendar）',
+  /function resolveSurfaceConfig\(surface\)/.test(mainCode) &&
+  /follow === 'calendar'/.test(mainCode) && /return skin\.surfaces\.calendar;/.test(mainCode));
+check('[v2.4.0 R2] surfaceTheme 五类 type 推导（text 字段决定 color/image 明暗）',
+  /function surfaceTheme\(surface\)/.test(mainCode) && /c\.text === 'light'/.test(mainCode) &&
+  /c\.text === 'dark'/.test(mainCode) && /nativeTheme\.shouldUseDarkColors/.test(mainCode));
+check('[v2.4.0 R2] surfaceBg（native/color/image 三态）',
+  /function surfaceBg\(surface\)/.test(mainCode) && /kind: 'color'/.test(mainCode) &&
+  /kind: 'image'/.test(mainCode) && /kind: 'native'/.test(mainCode));
+check('[v2.4.0 R2] baseTheme = surfaceTheme("calendar")（非表面窗口基准）',
+  /function baseTheme\(\)\s*\{\s*return surfaceTheme\('calendar'\);/.test(mainCode));
+check('[v2.4.0 R2] resolvedSurfaceState 下发 type/theme/bg/color/image',
+  /function resolvedSurfaceState\(surface\)/.test(mainCode) && /theme: surfaceTheme\(surface\)/.test(mainCode) &&
+  /bg: bg\.kind/.test(mainCode));
+
+/* ---- skin:// 特权协议 + 图片导入 ---- */
+check('[v2.4.0 R2] registerSchemesAsPrivileged 注册 skin://（app ready 前）',
+  /protocol\.registerSchemesAsPrivileged\(\[/.test(mainCode) && /scheme:\s*'skin'/.test(mainCode) &&
+  /standard: true, secure: true/.test(mainCode));
+check('[v2.4.0 R2] protocol.handle("skin") 映射 userData/skins（net.fetch + pathToFileURL）',
+  /protocol\.handle\('skin'/.test(mainCode) && /path\.join\(skinsDir\(\), name\)/.test(mainCode) &&
+  /net\.fetch\(pathToFileURL\(file\)\.toString\(\)\)/.test(mainCode));
+check('[v2.4.0 R2] importSkinImage 校验（扩展名/≤20MB/最长边≤4096）',
+  /function importSkinImage\(surface, srcPath\)/.test(mainCode) &&
+  /20 \* 1024 \* 1024/.test(mainCode) && /4096/.test(mainCode));
+check('[v2.4.0 R2] 图片亮度采样 64px resize.toBitmap',
+  /resize\(\{ width: 64 \}\)/.test(mainCode) && /toBitmap\(\)/.test(mainCode));
+check('[v2.4.0 R2] GIF 首帧冻结帧 snapshot（toPNG + _frame.png）',
+  /ext === '\.gif'/.test(mainCode) && /toPNG\(\)/.test(mainCode) && /_frame\.png/.test(mainCode));
+check('[v2.4.0 R2] 原子复制（copyFileSync → renameSync）',
+  /copyFileSync\(srcPath, tmp\)/.test(mainCode) && /renameSync\(tmp, dest\)/.test(mainCode));
+
+/* ---- 皮肤写操作 + IPC + 独立皮肤窗口 ---- */
+check('[v2.4.0 R2] applySkinSet 统一写入口 + copy-on-write 物化（取消跟随深拷贝日历配置）',
+  /function applySkinSet\(payload\)/.test(mainCode) && /c\.follow = 'calendar';/.test(mainCode) &&
+  /JSON\.parse\(JSON\.stringify\(cal\.image\)\)/.test(mainCode));
+check('[v2.4.0 R2] skin-set / skin-action / skin-import IPC 注册',
+  /ipcMain\.on\('skin-set'/.test(mainCode) && /ipcMain\.on\('skin-action'/.test(mainCode) &&
+  /ipcMain\.handle\('skin-import'/.test(mainCode));
+check('[v2.4.0 R2] settings-action 扩展 open-skin → openSkinWindow',
+  /action === 'open-skin'/.test(mainCode) && /openSkinWindow\(\)/.test(mainCode));
+check('[v2.4.0 R2] 独立皮肤窗口 openSkinWindow + skinWin + skin.html',
+  /let skinWin = null;/.test(mainCode) && /function openSkinWindow\(\)/.test(mainCode) &&
+  /skin\.html/.test(mainCode));
+
+/* ---- skin-state 载荷升级（per-surface） ---- */
+check('[v2.4.0 R2] 主窗 skin-state 下发 {calendar,expanded}',
+  /pushSkinToRenderer[\s\S]{0,400}\{ calendar: resolvedSurfaceState\('calendar'\), expanded: resolvedSurfaceState\('expanded'\) \}/.test(mainCode));
+check('[v2.4.0 R2] 桌面 skin-state 下发 {desktop}',
+  /pushSkinToDesktop[\s\S]{0,200}\{ desktop: resolvedSurfaceState\('desktop'\) \}/.test(mainCode));
+check('[v2.4.0 R2] 浮动 skin-state 下发 {dock}',
+  /pushSkinToDock[\s\S]{0,200}\{ dock: resolvedSurfaceState\('dock'\) \}/.test(mainCode));
+check('[v2.4.0 R2][关键] 已删除 pushThemeToRenderer/Dock/Desktop（主题改走 skin-state.theme）',
+  !/function pushThemeToRenderer/.test(mainCode) && !/function pushThemeToDock/.test(mainCode) &&
+  !/function pushThemeToDesktop/.test(mainCode));
+check('[v2.4.0 R2] pushThemeToAll 只广播托盘/关注列表/设置（不再推日历/桌面/浮动 theme-changed）',
+  /function pushThemeToAll\(\)[\s\S]{0,500}pushThemeToRemindlist/.test(mainCode) &&
+  /function pushThemeToAll\(\)[\s\S]{0,500}tray\.setImage/.test(mainCode));
+
+/* ---- 透明度统一读 skin.opacity ---- */
+check('[v2.4.0 R2] 透明度窗口级应用 applyOpacity 读 skin.opacity',
+  /function applyOpacity\(key\)/.test(mainCode) && /skin\.opacity\[key\]/.test(mainCode) &&
+  /win\.setOpacity\(v\)/.test(mainCode) && /desktopWin\.setOpacity\(v\)/.test(mainCode) &&
+  /dockWin\.setOpacity\(v\)/.test(mainCode));
+check('[v2.4.0 R2] 主窗/桌面/浮动建窗时读 skin.opacity.*',
+  /win\.setOpacity\(skin\.opacity\.calendar\)/.test(mainCode) &&
+  /desktopWin\.setOpacity\(skin\.opacity\.desktop\)/.test(mainCode) &&
+  /dockWin\.setOpacity\(skin\.opacity\.dock\)/.test(mainCode));
+
+/* ---- A-bug1 / A-bug2 ---- */
+check('[v2.4.0 R2 A-bug1] 桌面插件 blur → 下发 win-hidden 清 range',
+  /desktopWin\.on\('blur'/.test(mainCode) && /send\('win-hidden'\)/.test(mainCode));
+check('[v2.4.0 R2 A-bug2][关键] 已删除 getFocusedWindow() 宽松判定',
+  !/getFocusedWindow/.test(mainCode));
+check('[v2.4.0 R2 A-bug2] 显式 isFocused() 判断已知兄弟窗口',
+  /dockWin\.isFocused\(\)/.test(mainCode) && /desktopWin\.isFocused\(\)/.test(mainCode) &&
+  /settingsWin\.isFocused\(\)/.test(mainCode) && /skinWin\.isFocused\(\)/.test(mainCode) &&
+  /remindlistWin\.isFocused\(\)/.test(mainCode) && /reminderWin\.isFocused\(\)/.test(mainCode));
+check('[v2.4.0 R2] nativeTheme.on(updated) 只注册一次：基准主题变才 pushThemeToAll，恒 pushSkinToAll',
   (mainCode.match(/nativeTheme\.on\('updated'/g) || []).length === 1 &&
-  /nativeSkin !== 'system'\) return;/.test(mainCode));
-
-/* ---- IPC 通道（skin-state / win-hidden / settings-set 扩展） ---- */
-check('[v2.4.0] 主进程下发 skin-state', /'skin-state'/.test(mainCode));
-check('[v2.4.0] 主进程下发 win-hidden（窗口隐藏统一清 range）',
-  /win\.on\('hide'/.test(mainCode) && /'win-hidden'/.test(mainCode));
-check('[v2.4.0] settings-set 支持 skinMode/nativeSkin/skinColor/skinReset',
-  /case 'skinMode'/.test(mainCode) && /case 'nativeSkin'/.test(mainCode) &&
-  /case 'skinColor'/.test(mainCode) && /case 'skinReset'/.test(mainCode));
-check('[v2.4.0] settings-set 支持 desktopFollowCalendar/dockFollowCalendar',
-  /case 'desktopFollowCalendar'/.test(mainCode) && /case 'dockFollowCalendar'/.test(mainCode));
-check('[v2.4.0] set-theme 映射 nativeSkin（不改变 skinMode）',
-  /ipcMain\.on\('set-theme'/.test(mainCode) &&
-  /nativeSkin = \(themeMode === 'dark'\) \? 'light' : 'dark'/.test(mainCode) &&
-  /nativeSkin = \(mode === 'dark'\) \? 'dark' : 'light'/.test(mainCode));
+  /pushSkinToAll\(\);/.test(mainCode) && /pushThemeToAll\(\);/.test(mainCode));
 
 /* ---- preload 桥 ---- */
-check('[v2.4.0] preload 暴露 onSkinState', /onSkinState:/.test(preloadCode) && /'skin-state'/.test(preloadCode));
-check('[v2.4.0] preload 暴露 onWinHidden', /onWinHidden:/.test(preloadCode) && /'win-hidden'/.test(preloadCode));
+check('[v2.4.0 R2] preload 新增 skinSet/skinAction/skinImport/onSkinConfigState/onSkinImportResult',
+  /skinSet:\s*function/.test(preloadCode) && /skinAction:\s*function/.test(preloadCode) &&
+  /skinImport:\s*function/.test(preloadCode) && /onSkinConfigState:\s*function/.test(preloadCode) &&
+  /onSkinImportResult:\s*function/.test(preloadCode));
+check('[v2.4.0 R2] preload 保留 onSkinState / onWinHidden',
+  /onSkinState:/.test(preloadCode) && /onWinHidden:/.test(preloadCode) && /'skin-state'/.test(preloadCode));
 
 /* ---- 渲染层应用（app.js / template.html / dock.html） ---- */
-check('[v2.4.0] app.js 有 applySkin + 订阅 onSkinState + onWinHidden',
-  /function applySkin\(state\)/.test(codeOnly(appjs)) &&
-  /onSkinState\(function \(state\) \{ applySkin\(state\); \}\)/.test(codeOnly(appjs)) &&
-  /onWinHidden\(function \(\) \{ if \(rangeSel\.length\) clearRange\(\); \}\)/.test(codeOnly(appjs)));
-check('[v2.4.0] template.html 定义 --skin-* 四个变量',
-  /--skin-bg-solid:/.test(tmpl) && /--skin-ink:/.test(tmpl) &&
-  /--skin-ink-soft:/.test(tmpl) && /--skin-ink-faint:/.test(tmpl));
-check('[v2.4.0] template.html 有 [data-skin="custom"] 覆盖规则',
-  /\[data-skin="custom"\] body/.test(tmpl) && /\[data-skin="custom"\] #widget/.test(tmpl) &&
-  /\[data-skin="custom"\] \{[\s\S]{0,200}--ink: var\(--skin-ink\)/.test(tmpl));
-check('[v2.4.0] dock.html 有 [data-skin="custom"] #card 规则（不改 body 保持穿透）',
-  /\[data-skin="custom"\] #card/.test(dock) && /\[data-skin="custom"\] \{[\s\S]{0,200}--ink: var\(--skin-ink\)/.test(dock));
-check('[v2.4.0] dock.html 订阅 onSkinState', /onSkinState/.test(dock));
+check('[v2.4.0 R2] app.js applySkinState + applySkinImage + skinViewport + setSkinFrozen',
+  /function applySkinState\(state\)/.test(codeOnly(appjs)) && /function applySkinImage\(image\)/.test(codeOnly(appjs)) &&
+  /function skinViewport\(\)/.test(codeOnly(appjs)) && /function setSkinFrozen\(frozen\)/.test(codeOnly(appjs)));
+check('[v2.4.0 R2] app.js 持有 skinCalendar/skinExpanded 并按 .max 切换',
+  /var skinCalendar = null;/.test(codeOnly(appjs)) && /var skinExpanded = null;/.test(codeOnly(appjs)) &&
+  /applySkinState\(expanded \? skinExpanded : skinCalendar\)/.test(codeOnly(appjs)));
+check('[v2.4.0 R2] app.js 已移除 onThemeChanged 订阅（主题改由 skin-state.theme 驱动）',
+  !/onThemeChanged\(function \(mode\)/.test(codeOnly(appjs)));
+check('[v2.4.0 R2] template.html 新增 #skinImg 层 + [data-skin=color/image]',
+  /id="skinImg"/.test(tmpl) && /#skinImg\s*\{/.test(tmpl) &&
+  /\[data-skin="color"\] #widget/.test(tmpl) && /\[data-skin="image"\] #widget/.test(tmpl));
+check('[v2.4.0 R2] template.html 已删除旧 [data-skin="custom"] 与 --skin-ink',
+  !/\[data-skin="custom"\]/.test(tmpl) && !/--skin-ink:/.test(tmpl));
+check('[v2.4.0 R2] dock.html 新增 #skinImg + [data-skin=color/image] #card',
+  /id="skinImg"/.test(dock) && /\[data-skin="color"\] #card/.test(dock) &&
+  /\[data-skin="image"\] #card/.test(dock));
+check('[v2.4.0 R2] dock.html 升级 dockApplySkin/dockApplyImage + GIF 冻结 dockSetFrozen',
+  /function dockApplySkin\(state\)/.test(dockCode) && /function dockApplyImage\(image\)/.test(dockCode) &&
+  /dockSetFrozen/.test(dockCode));
 
-/* ---- A1 blur 重构 ---- */
-check('[v2.4.0 A1] blurGraceUntil 时间戳 + guardBlur(ms)（无 suppressBlur 布尔）',
+/* ---- A1/A3/A4/A5/A6（第二轮沿用，回归保护） ---- */
+check('[v2.4.0 R2 A1] blurGraceUntil 时间戳 + guardBlur(ms)（无 suppressBlur 布尔）',
   /let blurGraceUntil = 0;/.test(mainCode) && /function guardBlur\(ms\)/.test(mainCode) &&
   !/let suppressBlur = false;/.test(mainCode));
-check('[v2.4.0 A1] getFocusedWindow() 判定焦点是否仍在本应用',
-  /BrowserWindow\.getFocusedWindow\(\)/.test(mainCode));
-check('[v2.4.0 A1] hideMain() 统一收口 + win.on(show) 清 grace',
+check('[v2.4.0 R2 A1] hideMain() 统一收口 + win.on(show) 清 grace',
   /function hideMain\(\)/.test(mainCode) &&
   /win\.on\('show', function \(\) \{ blurGraceUntil = 0; \}\)/.test(mainCode));
-check('[v2.4.0 A1] 菜单/唤起用 guardBlur 保护（不再 setTimeout 复位 suppressBlur）',
-  /guardBlur\(800\)/.test(mainCode) && /guardBlur\(350\)/.test(mainCode));
-
-/* ---- A3 多屏位置记忆 ---- */
-check('[v2.4.0 A3] dockBoundsByDisplay + dockDisplayId 状态变量',
-  /let dockBoundsByDisplay = \{\};/.test(mainCode) && /let dockDisplayId = null;/.test(mainCode));
-check('[v2.4.0 A3] pickDockRestore 纯函数存在（displayId keying）',
+check('[v2.4.0 R2 A3] pickDockRestore 纯函数存在（displayId keying）',
   /function pickDockRestore\(displays, map, displayId, fallbackRect\)/.test(mainCode) &&
   /map\[String\(displayId\)\]/.test(mainCode));
-check('[v2.4.0 A3] dock-drag-end 按 getDisplayMatching 记忆当前屏',
-  /screen\.getDisplayMatching\(nb\)/.test(mainCode) &&
-  /dockBoundsByDisplay\[String\(disp\.id\)\] = /.test(mainCode));
-check('[v2.4.0 A3] display-added 还原 / display-removed 回落',
-  /screen\.on\('display-added'/.test(mainCode) && /screen\.on\('display-removed'/.test(mainCode));
-check('[v2.4.0 A3] 多屏位置持久化（存/读）',
-  /dockBoundsByDisplay: dockBoundsByDisplay/.test(mainCode) &&
-  /dockDisplayId: dockDisplayId/.test(mainCode) &&
-  /o\.dockBoundsByDisplay && typeof o\.dockBoundsByDisplay === 'object'/.test(mainCode));
-
-/* ---- A4 / A5 / A6 ---- */
-check('[v2.4.0 A4] dock.html resetHit + contextmenu/blur 复位',
+check('[v2.4.0 R2 A4] dock.html resetHit + contextmenu/blur 复位',
   /function resetHit\(\)/.test(dockCode) &&
   /contextmenu[\s\S]{0,200}resetHit\(\)/.test(dockCode) &&
   /addEventListener\('blur'[\s\S]{0,120}resetHit\(\)/.test(dockCode));
-check('[v2.4.0 A5] #infoBar 顶部时间栏可拖动',
+check('[v2.4.0 R2 A5] #infoBar 顶部时间栏可拖动',
   /#infoBar\s*\{[\s\S]{0,400}-webkit-app-region:\s*drag/.test(tmpl));
-check('[v2.4.0 A6] dock 日期拆「星期 + 日期」两 span + gap 放宽',
+check('[v2.4.0 R2 A6] dock 日期拆「星期 + 日期」两 span + gap 放宽',
   /id="dockWeek"/.test(dock) && /id="dockDateNum"/.test(dock) &&
   /#dockDate\s*\{[\s\S]{0,300}gap: 6px/.test(dock));
 
-/* ---- 设置页 4 分区 + 皮肤选择器 ---- */
-check('[v2.4.0] settings.html 四分区齐全（功能区/桌面插件区/浮动插件区/日历窗口区）',
+/* ---- 皮肤窗口 + 设置入口 ---- */
+const skinHtml = read('skin.html');
+check('[v2.4.0 R2] skin.html 存在', skinHtml.length > 0);
+check('[v2.4.0 R2] skin.html 4 界面分段 + 5 皮肤类型',
+  /data-surface="calendar"/.test(skinHtml) && /data-surface="dock"/.test(skinHtml) &&
+  /data-surface="desktop"/.test(skinHtml) && /data-surface="expanded"/.test(skinHtml) &&
+  /data-type="light"/.test(skinHtml) && /data-type="dark"/.test(skinHtml) &&
+  /data-type="system"/.test(skinHtml) && /data-type="color"/.test(skinHtml) &&
+  /data-type="image"/.test(skinHtml));
+check('[v2.4.0 R2] skin.html 色盘 + 取景 + 文字明暗 + 透明度 + 跟随开关',
+  /paletteGrid/.test(skinHtml) && /dropZone/.test(skinHtml) && /cropBox/.test(skinHtml) &&
+  /data-text="auto"/.test(skinHtml) && /opacityRange/.test(skinHtml) && /followSwitch/.test(skinHtml));
+check('[v2.4.0 R2] skin.html 走 skin-set 即时回写 + skin-import + choose-file',
+  /skinSet\(/.test(skinHtml) && /skinImport\(/.test(skinHtml) && /skinAction\('choose-file'/.test(skinHtml));
+
+check('[v2.4.0 R2] settings.html 仅留「皮肤设置」入口（无内联皮肤选择器）',
+  /btnSkin/.test(settingsCode) && /open-skin/.test(settingsCode) &&
+  !/data-seg="skinMode"/.test(settingsCode) && !/data-seg="nativeSkin"/.test(settingsCode) &&
+  !/data-surface=/.test(settingsCode) && !/skinReset/.test(settingsCode));
+check('[v2.4.0 R2] settings.html 保留四分区',
   /功能区/.test(settingsCode) && /桌面插件区/.test(settingsCode) &&
   /浮动插件区/.test(settingsCode) && /日历窗口区/.test(settingsCode));
-check('[v2.4.0] settings.html 皮肤类型 seg + 原生三选 seg',
-  /data-seg="skinMode"/.test(settingsCode) && /data-seg="nativeSkin"/.test(settingsCode) &&
-  /data-v="system"/.test(settingsCode));
-check('[v2.4.0] settings.html 三表面色卡 + 预设色板 + input type=color + 图片占位',
-  /data-surface="calendar"/.test(settingsCode) && /data-surface="desktop"/.test(settingsCode) &&
-  /data-surface="dock"/.test(settingsCode) &&
-  /type="color"/.test(settingsCode) && /即将推出/.test(settingsCode));
-check('[v2.4.0] settings.html 桌面/浮动跟随开关 + 重置',
-  /data-toggle="desktopFollowCalendar"/.test(settingsCode) &&
-  /data-toggle="dockFollowCalendar"/.test(settingsCode) && /data-surface/.test(settingsCode) &&
-  /skinReset/.test(settingsCode));
-check('[v2.4.0] settings.html 皮肤即时回写 settings-set（skinColor/skinReset）',
-  /settingsSet\('skinColor'/.test(settingsCode) && /settingsSet\('skinReset'/.test(settingsCode));
+
+check('[v2.4.0 R2] package.json build.files 含 skin.html',
+  /"skin\.html"/.test(JSON.stringify((pkg.build && pkg.build.files) || [])));
 
 
 let pass = 0, fail = 0;

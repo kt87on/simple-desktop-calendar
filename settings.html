@@ -284,21 +284,8 @@
       <!-- ============ 功能区 ============ -->
       <div class="section">功能区</div>
 
-      <div class="row">
-        <div class="txt"><div class="label">皮肤</div><div class="hint">原生 / 自选纯色（图片=第二批）</div></div>
-        <div class="seg" data-seg="skinMode">
-          <button data-v="native">原生皮肤</button>
-          <button data-v="custom">自选皮肤</button>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="txt"><div class="label">原生皮肤</div><div class="hint">决定状态色来源，跟随系统实时切换</div></div>
-        <div class="seg" data-seg="nativeSkin">
-          <button data-v="light">白日</button>
-          <button data-v="dark">黑夜</button>
-          <button data-v="system">跟随系统</button>
-        </div>
+      <div class="action-row">
+        <button id="btnSkin">🎨 皮肤设置</button>
       </div>
 
       <div class="row">
@@ -323,25 +310,6 @@
         <div class="switch" data-toggle="desktopLocked" role="switch" tabindex="0"><span class="knob"></span></div>
       </div>
 
-      <div class="row" data-dep="desktopOn">
-        <div class="txt"><div class="label">跟随日历皮肤</div></div>
-        <div class="switch" data-toggle="desktopFollowCalendar" role="switch" tabindex="0"><span class="knob"></span></div>
-      </div>
-
-      <div class="skin-item" data-surface="desktop">
-        <div class="skin-item-head">
-          <span class="skin-label">桌面插件配色</span>
-          <button class="swatch" data-surface="desktop" title="选择桌面插件颜色"></button>
-          <button class="reset-btn" data-surface="desktop">重置</button>
-        </div>
-        <div class="palette" data-surface="desktop" style="display:none"></div>
-      </div>
-
-      <div class="slider">
-        <div class="slider-head"><span class="label">桌面插件透明度</span><span class="val" data-val="desktopOpacity">100%</span></div>
-        <input type="range" data-slider="desktopOpacity" min="0.3" max="1" step="0.05" value="1">
-      </div>
-
       <!-- ============ 浮动插件区 ============ -->
       <div class="section">浮动插件区</div>
 
@@ -363,46 +331,12 @@
         <div class="switch" data-toggle="dockPinned" role="switch" tabindex="0"><span class="knob"></span></div>
       </div>
 
-      <div class="row" data-dep="dockOn">
-        <div class="txt"><div class="label">跟随日历皮肤</div></div>
-        <div class="switch" data-toggle="dockFollowCalendar" role="switch" tabindex="0"><span class="knob"></span></div>
-      </div>
-
-      <div class="skin-item" data-surface="dock">
-        <div class="skin-item-head">
-          <span class="skin-label">浮动插件配色</span>
-          <button class="swatch" data-surface="dock" title="选择浮动插件颜色"></button>
-          <button class="reset-btn" data-surface="dock">重置</button>
-        </div>
-        <div class="palette" data-surface="dock" style="display:none"></div>
-      </div>
-
-      <div class="slider">
-        <div class="slider-head"><span class="label">浮动插件透明度</span><span class="val" data-val="dockOpacity">100%</span></div>
-        <input type="range" data-slider="dockOpacity" min="0.3" max="1" step="0.05" value="1">
-      </div>
-
       <!-- ============ 日历窗口区 ============ -->
       <div class="section">日历窗口区</div>
 
       <div class="row">
         <div class="txt"><div class="label">日历窗口置顶</div></div>
         <div class="switch" data-toggle="pinned" role="switch" tabindex="0"><span class="knob"></span></div>
-      </div>
-
-      <div class="skin-item" data-surface="calendar">
-        <div class="skin-item-head">
-          <span class="skin-label">日历窗口配色</span>
-          <span class="skin-hint">迷你与放大共用</span>
-          <button class="swatch" data-surface="calendar" title="选择日历窗口颜色"></button>
-          <button class="reset-btn" data-surface="calendar">重置</button>
-        </div>
-        <div class="palette" data-surface="calendar" style="display:none"></div>
-      </div>
-
-      <div class="slider">
-        <div class="slider-head"><span class="label">日历透明度</span><span class="val" data-val="mainOpacity">100%</span></div>
-        <input type="range" data-slider="mainOpacity" min="0.3" max="1" step="0.05" value="1">
       </div>
     </div>
 
@@ -461,129 +395,18 @@
         }
       }
 
-      /* ===== v2.4.0 皮肤 ===== */
-      var PRESETS = ['#fcfbf9', '#eef1f6', '#dbe7f5', '#cfe0f0', '#d6e4d6',
-                     '#f5efe0', '#f6e0dc', '#e6e0f0', '#1f2430', '#1c202c',
-                     '#3b6fd4', '#d6453f'];
-      var activeSurface = 'calendar';
-
-      function updateSwatches(state) {
-        var surfaces = ['calendar', 'desktop', 'dock'];
-        var custom = (state.skinMode === 'custom');
-        if (!custom) closePalettes();
-        for (var i = 0; i < surfaces.length; i++) {
-          var s = surfaces[i];
-          var sw = document.querySelector('.swatch[data-surface="' + s + '"]');
-          if (!sw) continue;
-          var bg = (state.skinResolved && state.skinResolved[s]) ? state.skinResolved[s] : null;
-          sw.style.background = bg || 'transparent';
-          sw.classList.toggle('empty', !bg);
-          // 自选皮肤模式下才可点；桌面插件跟随日历或桌面插件关闭时置灰；浮动插件关闭时置灰
-          var disabled = !custom;
-          if (s === 'desktop') {
-            if (state.desktopFollowCalendar || !state.desktopOn) disabled = true;
-          } else if (s === 'dock') {
-            if (!state.dockOn) disabled = true;
-          }
-          sw.classList.toggle('disabled', disabled);
-          var rs = document.querySelector('.reset-btn[data-surface="' + s + '"]');
-          if (rs) rs.classList.toggle('disabled', disabled);
-        }
-      }
-      function closePalettes() {
-        var panels = document.querySelectorAll('.palette');
-        for (var i = 0; i < panels.length; i++) panels[i].style.display = 'none';
-      }
-      function buildPalettes() {
-        var panels = document.querySelectorAll('.palette');
-        for (var i = 0; i < panels.length; i++) {
-          (function (panel) {
-            var grid = document.createElement('div');
-            grid.className = 'palette-grid';
-            for (var j = 0; j < PRESETS.length; j++) {
-              (function (hex) {
-                var b = document.createElement('button');
-                b.type = 'button';
-                b.className = 'palette-swatch';
-                b.style.background = hex;
-                b.title = hex;
-                b.addEventListener('click', function () {
-                  if (api && api.settingsSet) api.settingsSet('skinColor', { surface: activeSurface, hex: hex });
-                });
-                grid.appendChild(b);
-              })(PRESETS[j]);
-            }
-            var custom = document.createElement('div');
-            custom.className = 'palette-custom';
-            var input = document.createElement('input');
-            input.type = 'color';
-            input.className = 'color-input';
-            input.value = '#3b6fd4';
-            input.addEventListener('input', function () {
-              if (api && api.settingsSet) api.settingsSet('skinColor', { surface: activeSurface, hex: input.value });
-            });
-            custom.appendChild(input);
-            var tip = document.createElement('span');
-            tip.className = 'palette-tip';
-            tip.textContent = '自定义取色';
-            custom.appendChild(tip);
-            panel.appendChild(grid);
-            panel.appendChild(custom);
-            var img = document.createElement('div');
-            img.className = 'img-placeholder';
-            img.textContent = '图片皮肤 · 即将推出（第二批）';
-            panel.appendChild(img);
-          })(panels[i]);
-        }
-      }
-      function bindSkinControls() {
-        buildPalettes();
-        var swatches = document.querySelectorAll('.swatch');
-        for (var i = 0; i < swatches.length; i++) {
-          (function (sw) {
-            sw.addEventListener('click', function () {
-              if (sw.classList.contains('disabled')) return;
-              var s = sw.getAttribute('data-surface');
-              activeSurface = s;
-              var panels = document.querySelectorAll('.palette');
-              for (var j = 0; j < panels.length; j++) {
-                var p = panels[j];
-                p.style.display = (p.getAttribute('data-surface') === s) ? 'block' : 'none';
-              }
-            });
-          })(swatches[i]);
-        }
-        var resets = document.querySelectorAll('.reset-btn');
-        for (var k = 0; k < resets.length; k++) {
-          (function (b) {
-            b.addEventListener('click', function () {
-              if (b.classList.contains('disabled')) return;
-              if (api && api.settingsSet) api.settingsSet('skinReset', b.getAttribute('data-surface'));
-            });
-          })(resets[k]);
-        }
-      }
-
       function applyState(state) {
         if (!state) return;
-        // 弹窗自身跟随主题（用户在本弹窗里切主题，或主窗切主题时弹窗同步）
+        // 弹窗自身跟随主题（基准主题 baseTheme() = 日历表面生效明暗）
         document.documentElement.setAttribute('data-theme', state.theme === 'dark' ? 'dark' : 'light');
-        setSeg('skinMode', state.skinMode);
-        setSeg('nativeSkin', state.nativeSkin);
         setSeg('dockMode', state.dockMode);
         setSwitch('desktopOn', state.desktopOn);
         setSwitch('desktopLocked', state.desktopLocked);
-        setSwitch('desktopFollowCalendar', state.desktopFollowCalendar);
-        setSwitch('dockFollowCalendar', state.dockFollowCalendar);
         setSwitch('pinned', state.pinned);
         setSwitch('autoLaunch', state.autoLaunch);
         setSwitch('dockOn', state.dockOn);
         setSwitch('dockPinned', state.dockPinned);
-        setSlider('dockOpacity', state.dockOpacity);
-        setSlider('mainOpacity', state.mainOpacity);
-        setSlider('desktopOpacity', state.desktopOpacity);
         applyDep(state);
-        updateSwatches(state);
       }
 
       // 开关点击
@@ -641,8 +464,11 @@
         if (api && api.settingsAction) api.settingsAction('check-holiday');
       });
 
-      // 皮肤色卡 / 色盘 / 重置
-      bindSkinControls();
+      // 皮肤设置入口（打开独立皮肤窗口）
+      var btnSkin = document.getElementById('btnSkin');
+      if (btnSkin) btnSkin.addEventListener('click', function () {
+        if (api && api.settingsAction) api.settingsAction('open-skin');
+      });
 
       // 关闭
       function closeWin() {

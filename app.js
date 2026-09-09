@@ -653,19 +653,76 @@ function confirmRemindInput() {
     if (!IS_DESKTOP) syncThemeIcon();   // v2.2.0：桌面模式下换肤键已改为锁键，图标由锁逻辑接管
   }
 
-  /* ===== v2.4.0 皮肤（独立背景层 + 自动明暗文字） =====
-   * applyTheme() 只管 data-theme（决定状态色 token）；applySkin() 管 data-skin + --skin-* 变量，
-   * 两者解耦。主进程已算好背景色与自动明暗文字色，这里只 setProperty 应用，不做亮度判定。 */
-  function applySkin(state) {
+  /* ===== v2.4.0 第二轮 皮肤（独立背景层 + 自动明暗文字） =====
+   * applyTheme() 只管 data-theme（决定状态色 token + 文字明暗）；applySkinState() 再按 s.bg
+   * 设 data-skin=color/image/none 与 --skin-bg-solid / #skinImg 的背景层。两者解耦。
+   * 主进程是唯一真相：背景类型 / 生效明暗 / 图片取景都已在 skin-state 里算好。 */
+  var skinCalendar = null;   // 主窗 mini 态 resolved 状态
+  var skinExpanded = null;   // 主窗 max 态 resolved 状态
+  var skinDesktop = null;    // 桌面插件 resolved 状态（IS_DESKTOP 专用）
+  var skinHidden = false;    // 窗口隐藏/失焦 → 冻结 GIF（切首帧快照）
+
+  function activeSkinState() {
+    if (IS_DESKTOP) return skinDesktop;
+    return (widgetEl && widgetEl.classList.contains('max')) ? skinExpanded : skinCalendar;
+  }
+  function activeSkinImage() {
+    var st = activeSkinState();
+    return (st && st.bg === 'image' && st.image) ? st.image : null;
+  }
+  /* 取景数学（正向：crop+zoom → CSS background）。viewport 用元素布局尺寸：
+   * 主窗 mini 340×430、max 760×961（等比）；桌面插件 340×370。 */
+  function skinViewport() {
+    if (IS_DESKTOP) return { w: 340, h: 370 };
+    return (widgetEl && widgetEl.classList.contains('max')) ? { w: 760, h: 961 } : { w: 340, h: 430 };
+  }
+  function applySkinImage(image) {
+    var el = document.getElementById('skinImg');
+    if (!el) return;
+    if (!image || !image.file) { el.style.backgroundImage = ''; return; }
+    var file = (skinHidden && image.snapshot) ? image.snapshot : image.file;
+    el.style.backgroundImage = 'url("skin://' + encodeURIComponent(file) + '")';
+    var vp = skinViewport();
+    var crop = image.crop || { x: 0, y: 0, w: 1, h: 1 };
+    var zoom = (typeof image.zoom === 'number' && isFinite(image.zoom) && image.zoom > 0) ? image.zoom : 1;
+    var IW = (typeof image.w === 'number' && image.w > 0) ? image.w : vp.w;
+    var IH = (typeof image.h === 'number' && image.h > 0) ? image.h : vp.h;
+    var cx = (crop.x || 0) * IW, cy = (crop.y || 0) * IH;
+    var cw = (crop.w || 0) * IW, ch = (crop.h || 0) * IH;
+    if (cw < 1) cw = 1; if (ch < 1) ch = 1;
+    // 全图 cover 基准（crop.w/h 是 zoom 的派生冗余，不进基准；否则与反向 zoom=s/s0 不互逆）
+    var s0 = Math.max(vp.w / IW, vp.h / IH);
+    var s = s0 * zoom;
+    var centerX = cx + cw / 2, centerY = cy + ch / 2;
+    el.style.backgroundSize = (IW * s) + 'px ' + (IH * s) + 'px';
+    el.style.backgroundPosition = (vp.w / 2 - centerX * s) + 'px ' + (vp.h / 2 - centerY * s) + 'px';
+  }
+  function setSkinFrozen(frozen) {
+    frozen = !!frozen;
+    if (skinHidden === frozen) return;
+    skinHidden = frozen;
+    var img = activeSkinImage();
+    if (img) applySkinImage(img);
+  }
+  function applySkinState(state) {
+    if (!state) return;
+    S.theme = (state.theme === 'dark') ? 'dark' : 'light';
+    applyTheme();   // 设 data-theme（决定状态色 token + 文字明暗）
     var root = document.documentElement;
-    if (state && state.mode === 'custom' && state.bg) {
-      root.dataset.skin = 'custom';
-      root.style.setProperty('--skin-bg-solid', state.bg);
-      root.style.setProperty('--skin-ink', state.ink);
-      root.style.setProperty('--skin-ink-soft', state.inkSoft);
-      root.style.setProperty('--skin-ink-faint', state.inkFaint);
+    if (state.bg === 'color') {
+      root.dataset.skin = 'color';
+      root.style.setProperty('--skin-bg-solid', state.color || '#fcfbf9');
+      var c0 = document.getElementById('skinImg');
+      if (c0) c0.style.backgroundImage = '';
+    } else if (state.bg === 'image') {
+      root.dataset.skin = 'image';
+      root.style.removeProperty('--skin-bg-solid');
+      applySkinImage(state.image);
     } else {
-      delete root.dataset.skin;   // 回原生皮肤外观
+      delete root.dataset.skin;
+      root.style.removeProperty('--skin-bg-solid');
+      var i1 = document.getElementById('skinImg');
+      if (i1) i1.style.backgroundImage = '';
     }
   }
 
@@ -720,8 +777,9 @@ function confirmRemindInput() {
      * 后台标签页的 setInterval 会被节流到分钟级甚至停摆，只靠 tick 不够。 */
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden) checkDayRollover();
+      setSkinFrozen(document.hidden);
     });
-    window.addEventListener('focus', function () { checkDayRollover(); });
+    window.addEventListener('focus', function () { checkDayRollover(); setSkinFrozen(false); });
 
     // v1.7.2 需求 9：Esc 键 → 清除日期范围选择 + 关闭关注输入栏
     document.addEventListener('keydown', function (e) {
@@ -922,19 +980,24 @@ function confirmRemindInput() {
   /* ===== v1.6：托盘右键菜单驱动（订阅主进程下发的事件） ===== */
   function bindTrayEvents() {
     if (!window.api) return;
-    if (window.api.onThemeChanged) {
-      window.api.onThemeChanged(function (mode) {
-        S.theme = (mode === 'dark') ? 'dark' : 'light';
-        applyTheme();
+    // v2.4.0 第二轮：主题改由 skin-state.theme 驱动（theme-changed 仅剩 remindlist 使用）。
+    // 皮肤状态（per-surface resolved）：主窗收 {calendar,expanded}，桌面插件收 {desktop}。
+    if (window.api.onSkinState) {
+      window.api.onSkinState(function (state) {
+        if (!state) return;
+        if (IS_DESKTOP) {
+          skinDesktop = state.desktop || null;
+          applySkinState(skinDesktop);
+        } else {
+          skinCalendar = state.calendar || null;
+          skinExpanded = state.expanded || null;
+          applySkinState((widgetEl && widgetEl.classList.contains('max')) ? skinExpanded : skinCalendar);
+        }
       });
     }
-    // v2.4.0：皮肤状态（背景 + 自动明暗文字）订阅
-    if (window.api.onSkinState) {
-      window.api.onSkinState(function (state) { applySkin(state); });
-    }
-    // v2.4.0 A2：窗口隐藏 → 清除算天数 range 状态（重开无绿格/无天数浮层）
+    // v2.4.0 A2：窗口隐藏/桌面插件失焦 → 清除算天数 range 状态 + 冻结 GIF
     if (window.api.onWinHidden) {
-      window.api.onWinHidden(function () { if (rangeSel.length) clearRange(); });
+      window.api.onWinHidden(function () { if (rangeSel.length) clearRange(); setSkinFrozen(true); });
     }
     if (window.api.onGotoYm) {
       window.api.onGotoYm(function (y, m, d) { gotoYm(y, m, d); });
@@ -966,6 +1029,8 @@ function confirmRemindInput() {
       window.api.onExpandChanged(function (expanded) {
         if (!widgetEl) return;
         widgetEl.classList.toggle('max', !!expanded);
+        // v2.4.0 第二轮：mini↔max 切换应用对应 surface 皮肤（日历/放大可独立背景与明暗）
+        if (!IS_DESKTOP) applySkinState(expanded ? skinExpanded : skinCalendar);
         // v2.3.2 需求3：放大镜图标按钮的 title / aria 随状态切换（加号=放大、减号=缩小）
         var mb = $('maxBtn');
         if (mb) {

@@ -50,6 +50,8 @@ node make-icon.js    # 生成 icon.ico（多尺寸）
 ├── reminder.html     # 提醒弹窗界面（知道了 / 稍后提醒，内联 JS）
 ├── remindlist.html   # **v1.7.12 新增**：关注列表独立窗口（三列，表头 -webkit-app-region: drag）
 ├── dock.html         # **v1.7.11 新增**：任务栏挂件条界面（上行 24h 时钟 / 下行年月日）
+├── settings.html     # **v2.4.0 新增**：设置弹窗（四分区 + 「皮肤设置」入口）
+├── skin.html         # **v2.4.0 第二轮新增**：独立皮肤设置窗口（per-surface 皮肤编辑 + 图片取景）
 （**v1.7.20 已删除 `dock-attach.ps1`**——v1.7.12~19 用于把挂件条 SetParent 进任务栏的 PowerShell 助手，随嵌入方案一并废弃，`package.json` 的 `extraResources` 也同步移除）
 ├── lunar.min.js      # 第三方农历库（window.Solar / window.Lunar），不修改
 ├── build.js          # 读 lunar + app，替换占位符，写 calendar.html
@@ -133,30 +135,53 @@ node make-icon.js    # 生成 icon.ico（多尺寸）
 
 ### 4.6 皮肤系统（v2.4.0）
 
-v2.4.0 起把「主题」与「皮肤」合并为统一的**皮肤**概念。主进程是皮肤状态的唯一真相，渲染层只被动消费下发的解析结果。
+v2.4.0 第二轮把「主题 + 皮肤」重构为 **per-surface 皮肤配置树**，并完整落地**图片皮肤**。主进程仍是皮肤状态的唯一真相，渲染层只被动消费下发的解析结果。
 
-**状态模型（`electron-main.js`，持久化到 `settings.json`）**
+**数据模型（`electron-main.js`，持久化到 `settings.json` 的 `skin` 字段）**
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `skinMode` | `'native' \| 'custom'` | 皮肤类型：原生主题 / 自选纯色 |
-| `nativeSkin` | `'light' \| 'dark' \| 'system'` | 原生皮肤三态（旧 `theme` 字段兼容映射） |
-| `skinColor` | `{calendar, desktop, dock}` | 三个表面各自的自选纯色（`#RRGGBB` 或 `null`） |
-| `desktopFollowCalendar` | `bool` | 桌面插件默认跟随日历皮肤（默认 `true`） |
-| `dockFollowCalendar` | `bool` | 浮动插件默认跟随日历皮肤（默认 `true`） |
+```js
+skin = {
+  __v: 2,                                    // 迁移版本门（旧字段一次性迁移后只写本结构）
+  surfaces: {
+    calendar: { type, color, image, text },  // type ∈ light|dark|system|color|image
+    expanded: { follow, type, color, image, text },  // follow='calendar'|null
+    desktop:  { follow, type, color, image, text },
+    dock:     { type, color, image, text }   // dock 独立，不跟随
+  },
+  opacity: { calendar: 1, desktop: 1, dock: 1 }  // 窗口级透明度；calendar 同时作用于 mini/max
+}
+```
+
+- `follow='calendar'`（仅 expanded/desktop）：跟随日历表面；取消跟随 = **copy-on-write** 快照（深拷贝日历当前配置，之后独立编辑）。
+- `text` ∈ `auto|light|dark`：决定 color/image 表面的生效文字明暗（`auto` 用 `isDarkColor` / 图片平均亮度自动判定）。
+- 迁移：`skin.__v===2 && skin.surfaces` 直接 `normalizeSkin`；否则 `migrateSkin` 从旧字段（theme/skinMode/nativeSkin/skinColor/desktopFollowCalendar/dockFollowCalendar/mainOpacity/desktopOpacity/dockOpacity）一次性迁移。迁移后 `saveSettings` **只写 `skin`**，停写旧键。
 
 **解析链路（主进程唯一入口）**
 
-1. `recomputeTheme()`：唯一入口，依据 `nativeSkin` 推导生效主题 `themeMode`——`dark` → `dark`、`light` → `light`、`system` → 读 `nativeTheme.shouldUseDarkColors`（异常回落 `light`）。
-2. `resolveBg(surface)`：`skinMode !== 'custom'` 直接 `null`；否则按 surface 返回自选色，桌面/浮动「跟随日历」时返回 `skinColor.calendar`。
-3. `resolveSkinState(surface)`：结合 `isDarkColor(bg)`（WCAG 相对亮度 < 0.5 判深色）产出 `{mode, bg, ink, inkSoft, inkFaint, effectiveTheme}`，深背景给浅字、浅背景给深字。
-4. 下发：`skin-state` 通道推送解析结果；自选皮肤激活时 `win.setBackgroundColor(bg)` 兜底，回原生则 `#00000000` 透明。生效主题仍复用既有 `theme-changed` 通道。
+1. `resolveSurfaceConfig(surface)`：expanded/desktop 若 `follow==='calendar'` 返回 calendar 配置，否则返回自身；dock 独立。
+2. `surfaceTheme(surface)`：推导每表面生效明暗——`light/dark` 直接、`system` 读 `nativeTheme.shouldUseDarkColors`、`color/image` 由 `text` 字段决定（`auto` 时用色值 / 图片亮度判定）。
+3. `surfaceBg(surface)`：背景层三态 `native | color | image`。
+4. `baseTheme()` = `surfaceTheme('calendar')`：托盘、关注列表、提醒、设置等非表面窗口跟随日历表面明暗。
+5. `resolvedSurfaceState(surface)`：下发 `{type,theme,bg,color,image}`。主窗发 `{calendar,expanded}`、桌面发 `{desktop}`、浮动发 `{dock}`；非表面窗口仍走 `theme-changed(baseTheme)`。
+
+**图片皮肤（完整实现）**
+
+- 导入：拖入/点选，主进程 `importSkinImage` 校验扩展名 png/jpg/jpeg/gif/webp、≤20MB、最长边≤4096，不合法拒绝；合法则 `copyFileSync→renameSync` **原子复制**到 `userData/skins/`（文件名 `{surface}_{ts}.{ext}`），只存文件名（`image.file`），删原文件不影响。
+- 加载：`skin://` 特权协议——模块顶层 `protocol.registerSchemesAsPrivileged`（standard+secure+supportFetchAPI+stream，须在 app ready 前），`whenReady` 里 `protocol.handle('skin', ...)` 把 `skin://{basename}` 映射到 `userData/skins/`（`sanitizeBasename` 防路径穿越 + `net.fetch(pathToFileURL(file))`）。
+- 亮度：`nativeImage.resize({width:64}).toBitmap()`（BGRA）采样平均亮度 → WCAG 相对亮度 < 0.5 判深色 → `image.dark`，自动配文字明暗。
+- GIF：`background-image` 走 Chromium 原生动画；隐藏/失焦时切 `image.snapshot`（导入时 `toPNG` 存的首帧 `_frame.png`）冻结，`visibilitychange`/`focus` 恢复，避免隐藏窗口持续解码 GIF 耗 CPU。
+
+**取景数学（crop + zoom ↔ CSS background）**
+
+- 存储 `image.crop{x,y,w,h}`（0~1）与 `image.zoom`（1~5）；权威参数为「取景中心 `crop.x+crop.w/2`」+ `zoom`，`crop.w/h` 是 zoom 的派生冗余。
+- 正向（渲染层 `applySkinImage`）：全图 cover 基准 `s0 = max(VW/IW, VH/IH)` → `s = s0*zoom`；`background-size=(IW*s)px (IH*s)px`；`background-position=(VW/2 - centerX*s)px (VH/2 - centerY*s)px`（`centerX=(crop.x+crop.w/2)*IW`）。
+- 反向（皮肤窗 `saveCrop`）：`vw=VW/s, vh=VH/s` → `crop.w=vw/IW, crop.h=vh/IH`，`crop.x=(center.x-vw/2)/IW`，`zoom=s/s0`。重启后任意分辨率复现一致。
 
 **渲染层落地**
 
-- `template.html` / `dock.html` 的 `:root` 增加 `--skin-bg-solid` / `--skin-ink` / `--skin-ink-soft` / `--skin-ink-faint`，`[data-skin="custom"]` 规则覆盖背景与文字色；`app.js` / `dock.html` 收到 `skin-state` 后 `applySkin(state)` 切换 `data-skin` 并写入 CSS 变量。
-- **状态色不变**：今日雅蓝 / 节假日朱砂红 / 选中深绿维持原 token，不随自选纯色改变。
-- 设置页皮肤入口用**内联色板**（不开新窗）：类型分段（原生/自选）+ 原生三态分段（浅/深/跟随系统）+ 三个表面的 12 预设色板 + `<input type="color">` 取色 + 图片占位 + 重置；桌面/浮动插件各有「跟随日历」开关。主窗 `#themeBtn` 仍是原生皮肤 light↔dark 的快捷键。
+- `template.html` / `dock.html` 增加 `#skinImg` 背景层（`position:absolute; inset:0; z-index:-1`）+ `[data-skin="color"]` / `[data-skin="image"]` 规则；`app.js` / `dock.html` 收到 `skin-state` 后 `applySkinState`（设 `data-theme` + `data-skin` + `--skin-bg-solid`）+ `applySkinImage`（crop/zoom → CSS）。
+- **状态色不变**：今日雅蓝 / 节假日朱砂红 / 选中深绿维持原 token，不随皮肤改变。
+- **独立皮肤窗 `skin.html`**：设置页只留「皮肤设置」入口（`settings-action('open-skin')`）；皮肤窗 4 界面分段（日历/放大/桌面/浮动）+ 5 类型（浅/深/跟随系统/纯色/图片）+ 色盘 + 图片取景预览（拖入/平移/滚轮 1×~5×）+ 文字明暗 + 透明度 + 跟随开关；经 `skin-set` / `skin-action` / `skin-import` IPC 即时回写。
 
 ---
 
@@ -173,7 +198,7 @@ v2.4.0 起把「主题」与「皮肤」合并为统一的**皮肤**概念。主
 | **双窗口模式** | mini `340×430`（贴右下，`setResizable(false)`、`setAspectRatio(0)`）↔ expanded `760×959`（居中，`setResizable(true)`、`setAspectRatio(ASPECT)` 锁比例）；放大按钮经 IPC `toggle-expand` 切换（`win.isResizable()` 判断当前态）。**v1.7.11 修复「放大无效」（反复出现的老 bug）**：`showMini()`/`showExpanded()`/`toggle-expand`/`did-finish-load` 末尾各调一次 `notifyExpandState()` → `win.webContents.send('expand-changed', !!win.isResizable())`；渲染层 `window.api.onExpandChanged(cb)` 收到后执行 `widgetEl.classList.toggle('max', !!expanded)`。<br>**真因**：旧代码只在**浏览器预览的 fallback 分支**里做 `widgetEl.classList.toggle('max')`，Electron 路径下 `.max` 类**从未被添加** → OS 窗口虽然撑到 760×959，但 `#widget` 仍是 340×430，内容缩在大透明窗中间 → 看起来就是"完全没放大"。**复刻时切勿把 DOM 状态同步只写在 fallback 分支里** |
 | **等比缩放** | expanded 下渲染层 resize 手柄 → IPC `resize-window`(w) → 主进程 `w = clamp(EXP_MIN_W=700 … 1400)`，`h = round(w/ASPECT)`，`setBounds` 保比例 |
 | **点击外部消失** | 见「blur」；隐藏后不自动复位 mode |
-| **皮肤/主题切换** | **v2.4.0**：主进程是唯一真相。`#themeBtn` 仍是原生皮肤 light↔dark 快捷键 → `set-theme` → 主进程改 `nativeSkin` → `recomputeTheme()` 推导生效主题 → `theme-changed` 推送渲染层（`#widget` 加 `data-theme="dark"`）；自选皮肤经 `skin-state` 下发（详见 4.6），挂件条随软件主题反色 |
+| **皮肤/主题切换** | **v2.4.0**：主进程是唯一真相（per-surface 皮肤树 `skin.surfaces`，详见 4.6）。`#themeBtn` 仍是日历表面 light↔dark 快捷键 → `set-theme` → 主进程改 `calendar.type`（清 color/image/text）→ `pushSkinToAll()` 下发各表面 `skin-state`（`{calendar,expanded}`/`{desktop}`/`{dock}`）+ 非表面窗口 `theme-changed(baseTheme)`；皮肤编辑统一走独立 `skin.html` → `skin-set` / `skin-action` / `skin-import`；图片皮肤经 `skin://` 加载 |
 | **区间选择** | 点一格 → `.range` 深绿；点第二格 → 两端深绿、中间 `.range-between` 浅绿 + 浮层「共计 N 天」；第三下点击 → 清空（`clearRange`）；`Esc` 或点空白 → 清空；支持跨月（端点按时间戳 `Math.min/max` + strict between 判定，跨月 other 格 `.range/.range-between` opacity 提升到 0.6）。**v1.7.12 提亮中间色**：白日 `.range-between` 背景 `rgba(34,197,94,0.08)`→`0.15`、圆角 3px，让两个端点之间连成更醒目的浅绿带；补黑夜模式覆盖（深底叠半透明绿会发暗）。**v1.7.13 修复「放大模式下中间格不变绿」**：真因是 CSS 特异性——`#widget.max .cell` 为 (1,2,0)，`#widget.max .cell { background: transparent }` 压过了 `.cell.range-between` 的 (0,2,0)，把状态底色整条吞掉；端点 `.range` 因带 `box-shadow` 描边仍可见，中间格没有描边就彻底隐形，现象恰是「端点绿、中间不绿」。解法：几何样式照给所有格子，只有 `background` 那条改用 `#widget.max .cell:not(.range):not(.range-between):not(.today):not(.selected):not(.reminder):not(:hover)`，让基础状态色重新生效；并补 `#widget.max .cell.range-between { border-radius: 12px }` 与周围大圆格保持一致 |
 | **特别关注（添加）** | 右键格子 → 弹出 `#remindInput`（第一排「特别关注 日期」+ 第二排「（到日期会弹窗提醒）」+ 输入框 `maxlength="15"`、placeholder「请输入：（15字以内）」+ 确定/取消）→ 确定走 `add-reminder` → 主进程生成 `{id,y,m,d,text,createdAt,snoozeUntil:0,ackedDate:''}` 存盘、广播 → 该格 `.reminder` 金黄 + 「关」角标。**v1.7.11 双重限额**：<br>① **单条 ≤ 15 字** —— 渲染层 `maxlength` 截输入、`confirmRemindInput` 再 `.slice(0,15)`，主进程 `add-reminder` 兜底 `String(text||'').trim().slice(0,15)`；<br>② **总数 ≤ 10 条** —— `openRemindInput` 入口先判 `reminders.length >= 10` 直接 `showToast('特别关注最多 10 条，请先取消一条')` **不弹输入框**；主进程 `add-reminder` 兜底返回 `{error:'limit', max:10}`，渲染层收到后同样 toast |
 | **关注列表（独立窗口，v1.7.12 改造）** | 工具栏书图标按钮 `#bookBtn`（主题与放大之间，title="关注列表"）点击 → `openReminderListWindow()` 打开**独立 `BrowserWindow`**（加载 `remindlist.html`，`RL_W=340`、`RL_H=440`、`frame:false transparent:true resizable:true alwaysOnTop skipTaskbar`）。**为什么要独立窗口**：原 `#reminderList` 是 `#widget` 内的绝对定位 DOM，无论怎么放开夹紧逻辑都渲染不到 `#widget` 之外（会被主窗口边界裁掉）→ 独立窗口是唯一干净解法，可拖到**屏幕任意位置**。窗口内容：不透明卡片 `#card`（`background:#fdfcfa` + 1px 描边 + 14px 圆角 + 阴影；dark 为 `#2b3040`）；标题栏 `#header` 用 **`-webkit-app-region: drag`**（Electron 原生拖动，比 IPC 手动 setBounds 丝滑），关闭按钮 `-webkit-app-region: no-drag` 排除；三列 `grid-template-columns: 62px 1fr 24px`——① **日期列**（点击 → `remindlist-goto-ym` 跳转+选中该日）；② **内容列** `.rl-text-wrap` `overflow-x:auto` + mouseX 驱动 `scrollLeft` 按住左右拖看长文；③ **✕ 列**（点击 → `remindlist-remove`(id) 删除，主进程写盘 + `broadcastReminders` 同步主窗黄格 + 本窗口）。数据注入：首次 `loadFile(query:{data})` 传 `{theme,reminders}`；复用窗口时 `pushDataToRemindlist()` 推 `remindlist-data`；主题切换 `pushThemeToRemindlist()` 推 `theme-changed`。**位置记忆**：`moved`/`resized` 事件 400ms 防抖写 `lastRemindlistBounds` 到 `settings.json`，下次打开恢复；越界（换显示器/分辨率变了）回落到 `center()`。关闭：`✕`/`Esc` → `remindlist-close`。空态：「还没有任何特别关注 / 右键日历上的任意日期，即可添加」。 |
@@ -293,7 +318,7 @@ var HOLIDAYS_2026 = {
 ## 8. 版本信息与作者（集中维护点）
 - 软件名：`简洁桌面日历`　显示名 `productName` / exe 名 `SimpleCalendar`
 - 版本号：`2.4.0`（package.json `version`；同步体现在 exe 文件版本、安装包属性、控制面板）
-- **运行时文件**：`userData/reminders.json`（特别关注）、`userData/settings.json`（v1.7.11 新增：theme/pinned/autoLaunch/dockOn；v2.4.0 新增：skinMode/nativeSkin/skinColor/desktopFollowCalendar/dockFollowCalendar/dockBoundsByDisplay/dockDisplayId）、`userData/calendar.log`（v1.7.11 新增：诊断日志，超 200KB 自动清空；打包后 stderr 不可见，**日志是唯一排查手段**）
+- **运行时文件**：`userData/reminders.json`（特别关注）、`userData/settings.json`（v1.7.11 新增：theme/pinned/autoLaunch/dockOn；v2.4.0 新增：skin{__v,surfaces{calendar,expanded,desktop,dock},opacity{calendar,desktop,dock}}/dockBoundsByDisplay/dockDisplayId；一次性迁移后旧键 skinMode/nativeSkin/skinColor 等停写）、`userData/calendar.log`（v1.7.11 新增：诊断日志，超 200KB 自动清空；打包后 stderr 不可见，**日志是唯一排查手段**）
 - 作者：`YG`（`author` 字段；版本信息中的公司/版权靠根级 `copyright` 写入 exe 文件属性）
 - 版权：`Copyright © 2026 YG`
 - 仓库/主页：`https://github.com/kt87on/simple-desktop-calendar`（GitHub 用，可改）

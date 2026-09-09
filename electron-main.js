@@ -1,9 +1,10 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, screen, nativeImage, nativeTheme, ipcMain, Menu, dialog } = require('electron');
+const { app, BrowserWindow, Tray, screen, nativeImage, nativeTheme, ipcMain, Menu, dialog, protocol, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { pathToFileURL } = require('url');
 const zlib = require('zlib');
 const { spawn } = require('child_process');
 const holidays = require('./holidays');
@@ -36,6 +37,17 @@ function log(msg) {
   } catch (e) {}
 }
 
+/* v2.4.0 第二轮：皮肤图片专用特权协议 skin://。
+ * registerSchemesAsPrivileged 必须在 app ready **之前**调用，否则渲染层加载 userData/skins 下
+ * 的图片会被同源策略 404。standard+secure+stream 让它可被 background-image / fetch 正常加载。 */
+try {
+  protocol.registerSchemesAsPrivileged([
+    { scheme: 'skin', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }
+  ]);
+} catch (e) {
+  try { process.stderr.write('[calendar] registerSchemesAsPrivileged failed: ' + (e && e.message || e) + '\n'); } catch (_) {}
+}
+
 /* ===== v1.7.11 用户设置持久化（主题 / 置顶 / 自启 / 任务栏挂件条） =====
  * 之前这些开关每次重启都会回到默认，用户改了主题下次开机又变回去。 */
 function settingsFile() {
@@ -47,22 +59,14 @@ function loadSettings() {
     if (!f) return;
     const o = JSON.parse(fs.readFileSync(f, 'utf8'));
     if (o && typeof o === 'object') {
-      /* v2.4.0：主题 → 皮肤。生效主题 themeMode 不再直接从旧 theme 字段读，
-       * 改由 recomputeTheme() 依据 nativeSkin 推导（loadSettings 之后调用）。
-       * 旧版只有 theme（light/dark），无 system 态 → 回退映射到对应手动项，保证升级不闪变。 */
-      nativeSkin = (o.nativeSkin === 'light' || o.nativeSkin === 'dark' || o.nativeSkin === 'system')
-        ? o.nativeSkin
-        : (o.theme === 'dark' ? 'dark' : 'light');
-      skinMode = (o.skinMode === 'custom') ? 'custom' : 'native';
-      if (o.skinColor && typeof o.skinColor === 'object') {
-        skinColor = {
-          calendar: validHex(o.skinColor.calendar),
-          desktop: validHex(o.skinColor.desktop),
-          dock: validHex(o.skinColor.dock)
-        };
+      /* v2.4.0 第二轮：皮肤 per-surface 结构 + 一次性迁移。
+       * 已迁移（skin.__v===2）→ normalizeSkin 直接读新结构；否则 migrateSkin 从旧字段一次性迁移。
+       * 迁移后 saveSettings 只写 skin，不再写 theme/skinMode/nativeSkin/skinColor 等旧键。 */
+      if (o.skin && o.skin.__v === 2 && o.skin.surfaces) {
+        skin = normalizeSkin(o.skin);
+      } else {
+        skin = migrateSkin(o);
       }
-      desktopFollowCalendar = o.desktopFollowCalendar !== false;
-      dockFollowCalendar = o.dockFollowCalendar !== false;
       pinned = o.pinned !== false;
       autoLaunch = o.autoLaunch !== false;
       dockOn = o.dockOn !== false;
@@ -102,9 +106,6 @@ function loadSettings() {
       desktopOn = o.desktopOn === true;
       desktopLocked = o.desktopLocked === true;
       if (o.desktopBounds && typeof o.desktopBounds.x === 'number') desktopBounds = o.desktopBounds;
-      dockOpacity = clampOpacity(o.dockOpacity, 1);
-      mainOpacity = clampOpacity(o.mainOpacity, 1);
-      desktopOpacity = clampOpacity(o.desktopOpacity, 1);
       /* v2.1.0 节假日年度更新节流：
        *   holidayLastCheck     上次真正做过检查的 ISO 时间（7 天内不自动弹窗骚扰）
        *   holidayDismissedYear 用户点过「以后再说」的年份（该年不再自动提示） */
@@ -121,13 +122,8 @@ function saveSettings() {
     const f = settingsFile();
     if (!f) return;
     fs.writeFileSync(f, JSON.stringify({
-      theme: themeMode, pinned: pinned, autoLaunch: autoLaunch, dockOn: dockOn,
-      /* v2.4.0 皮肤：theme 字段保留为「生效主题」镜像（旧版/第三方读 settings.json 不崩） */
-      skinMode: skinMode,
-      nativeSkin: nativeSkin,
-      skinColor: skinColor,
-      desktopFollowCalendar: desktopFollowCalendar,
-      dockFollowCalendar: dockFollowCalendar,
+      skin: skin,                                     // v2.4.0 第二轮：皮肤唯一真相（迁移后停写 theme/skinMode 等旧键）
+      pinned: pinned, autoLaunch: autoLaunch, dockOn: dockOn,
       dockMode: dockMode,                             // v1.7.21 需求2：桌面插件 / 桌面图标
       dockPinned: dockPinned,                         // v1.7.21：插件置顶开关
       dockBounds: dockBounds,                         // v1.7.21 需求3：插件上次落点
@@ -139,13 +135,10 @@ function saveSettings() {
       holidayLastCheck: holidayLastCheck,
       holidayDismissedYear: holidayDismissedYear,
       holidayFailCount: holidayFailCount,
-      // v2.2.0 需求4/5：桌面插件 + 三窗口透明度
+      // v2.2.0 需求4/5：桌面插件
       desktopOn: desktopOn,
       desktopLocked: desktopLocked,
-      desktopBounds: desktopBounds,
-      dockOpacity: dockOpacity,
-      mainOpacity: mainOpacity,
-      desktopOpacity: desktopOpacity
+      desktopBounds: desktopBounds
     }, null, 2), 'utf8');
   } catch (e) {}
 }
@@ -165,21 +158,65 @@ function validHex(v) {
 }
 
 /* =====================================================================
- * v2.4.0 主题 / 皮肤中枢（主进程是唯一真相）
+ * v2.4.0 第二轮 皮肤中枢（主进程是唯一真相）
  * ---------------------------------------------------------------------
- * - recomputeTheme()：唯一入口，依据 nativeSkin 推导「生效主题」themeMode。
- * - resolveBg(surface)：按 surface 解析自选纯色背景（含桌面/浮动「跟随日历」）。
- * - resolveSkinState(surface)：解析出下发给渲染层的 ResolvedSkinState。
- * - isDarkColor(hex)：WCAG 相对亮度 < 0.5 判定为深色背景（浅字）。
+ * - skin.surfaces{calendar,expanded,desktop,dock}：per-surface 配置树。
+ * - resolveSurfaceConfig(surface)：expanded/desktop 跟随日历 → 返回 calendar 配置。
+ * - surfaceTheme(surface)：per-surface 生效明暗（light/dark/system/color/image）。
+ * - surfaceBg(surface)：背景层类型（native/color/image）。
+ * - baseTheme()：非表面窗口 + 托盘跟随「日历表面」生效明暗。
+ * - resolvedSurfaceState(surface)：下发给渲染层的 ResolvedSurfaceState。
  * ===================================================================== */
-function recomputeTheme() {
-  if (nativeSkin === 'dark') themeMode = 'dark';
-  else if (nativeSkin === 'light') themeMode = 'light';
-  else {
-    try {
-      themeMode = (nativeTheme && nativeTheme.shouldUseDarkColors) ? 'dark' : 'light';
-    } catch (e) { themeMode = 'light'; }
+function resolveSurfaceConfig(surface) {
+  var c = skin.surfaces[surface];
+  if (!c) c = skin.surfaces.calendar;
+  if ((surface === 'expanded' || surface === 'desktop') && c.follow === 'calendar') {
+    return skin.surfaces.calendar;
   }
+  return c;
+}
+
+function surfaceTheme(surface) {
+  var c = resolveSurfaceConfig(surface);
+  if (c.type === 'light') return 'light';
+  if (c.type === 'dark') return 'dark';
+  if (c.type === 'system') {
+    try { return (nativeTheme && nativeTheme.shouldUseDarkColors) ? 'dark' : 'light'; }
+    catch (e) { return 'light'; }
+  }
+  if (c.text === 'light') return 'light';
+  if (c.text === 'dark') return 'dark';
+  var dark = false;
+  if (c.type === 'color') dark = isDarkColor(c.color);
+  else if (c.type === 'image') dark = !!(c.image && c.image.dark);
+  return dark ? 'dark' : 'light';
+}
+
+function surfaceBg(surface) {
+  var c = resolveSurfaceConfig(surface);
+  if (c.type === 'color') return { kind: 'color', color: c.color };
+  if (c.type === 'image') return { kind: 'image', image: c.image };
+  return { kind: 'native' };
+}
+
+function baseTheme() {
+  return surfaceTheme('calendar');
+}
+
+function resolvedSurfaceState(surface) {
+  var c = resolveSurfaceConfig(surface);
+  var bg = surfaceBg(surface);
+  return {
+    type: c.type,
+    theme: surfaceTheme(surface),
+    bg: bg.kind,
+    color: (bg.kind === 'color') ? bg.color : null,
+    image: (bg.kind === 'image') ? bg.image : null
+  };
+}
+
+function recomputeTheme() {
+  themeMode = baseTheme();
   return themeMode;
 }
 
@@ -199,53 +236,125 @@ function isDarkColor(hex) {
   } catch (e) { return false; }
 }
 
-function resolveBg(surface) {
-  if (skinMode !== 'custom') return null;
-  if (surface === 'calendar') return skinColor.calendar || null;
-  if (surface === 'desktop') return desktopFollowCalendar ? (skinColor.calendar || null) : (skinColor.desktop || null);
-  if (surface === 'dock') return dockFollowCalendar ? (skinColor.calendar || null) : (skinColor.dock || null);
-  return null;
+/* ---- 图片/皮肤归一化辅助（sanitize 防路径穿越 / 范围夹取） ---- */
+function sanitizeBasename(name) {
+  if (typeof name !== 'string') return '';
+  var b = name.replace(/\\/g, '/').split('/').pop() || '';
+  return b.replace(/[^A-Za-z0-9._-]/g, '_');
 }
-
-function resolveSkinState(surface) {
-  const bg = resolveBg(surface);
-  const custom = !!bg;
-  let ink, inkSoft, inkFaint;
-  if (custom && isDarkColor(bg)) {
-    ink = '#e8eaf0'; inkSoft = '#9aa3b3'; inkFaint = '#6a7283';   // 深背景 → 浅字
-  } else {
-    ink = '#1f2430'; inkSoft = '#6b7280'; inkFaint = '#9aa1ad';   // 浅背景 → 深字
+function clamp01(v) {
+  var n = Number(v);
+  if (!isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+function clampZoom(v) {
+  var n = Number(v);
+  if (!isFinite(n)) return 1;
+  return Math.max(1, Math.min(5, n));
+}
+function normalizeImageSpec(img) {
+  if (!img || typeof img !== 'object') return null;
+  var file = sanitizeBasename(img.file);
+  if (!file) return null;
+  var crop = { x: 0, y: 0, w: 1, h: 1 };
+  if (img.crop && typeof img.crop === 'object') {
+    crop.x = clamp01(img.crop.x);
+    crop.y = clamp01(img.crop.y);
+    crop.w = clamp01(img.crop.w);
+    crop.h = clamp01(img.crop.h);
   }
   return {
-    mode: custom ? 'custom' : 'native',
-    bg: custom ? bg : null,
-    ink: ink,
-    inkSoft: inkSoft,
-    inkFaint: inkFaint,
-    effectiveTheme: themeMode
+    file: file,
+    snapshot: img.snapshot ? sanitizeBasename(img.snapshot) : null,
+    w: (typeof img.w === 'number' && img.w > 0) ? Math.round(img.w) : 0,
+    h: (typeof img.h === 'number' && img.h > 0) ? Math.round(img.h) : 0,
+    crop: crop,
+    zoom: clampZoom(img.zoom),
+    dark: !!img.dark
   };
 }
+function normalizeSkin(raw) {
+  var out = { __v: 2, surfaces: {}, opacity: { calendar: 1, desktop: 1, dock: 1 } };
+  var names = ['calendar', 'expanded', 'desktop', 'dock'];
+  for (var i = 0; i < names.length; i++) {
+    var n = names[i];
+    var s = (raw && raw.surfaces && raw.surfaces[n]) || {};
+    var c = {
+      type: (s.type === 'dark' || s.type === 'system' || s.type === 'color' || s.type === 'image') ? s.type : 'light',
+      color: (s.type === 'color') ? validHex(s.color) : null,
+      image: (s.type === 'image') ? normalizeImageSpec(s.image) : null,
+      text: (s.text === 'light' || s.text === 'dark') ? s.text : 'auto'
+    };
+    if (n === 'expanded' || n === 'desktop') {
+      c.follow = (s.follow === 'calendar') ? 'calendar' : null;
+    }
+    out.surfaces[n] = c;
+  }
+  if (raw && raw.opacity && typeof raw.opacity === 'object') {
+    out.opacity.calendar = clampOpacity(raw.opacity.calendar, 1);
+    out.opacity.desktop = clampOpacity(raw.opacity.desktop, 1);
+    out.opacity.dock = clampOpacity(raw.opacity.dock, 1);
+  }
+  return out;
+}
+/* v2.4.0 第二轮：第一批旧字段 → per-surface 一次性迁移（严格对齐 PRD §5.4）。 */
+function migrateSkin(o) {
+  o = o || {};
+  var baseType = 'light';
+  if (o.nativeSkin === 'dark' || o.nativeSkin === 'light' || o.nativeSkin === 'system') baseType = o.nativeSkin;
+  else if (o.theme === 'dark') baseType = 'dark';
 
-/* 皮肤状态下发 + 窗口背景兜底（自选皮肤激活 → setBackgroundColor(bg)；回原生 → 透明） */
+  var sc = (o.skinColor && typeof o.skinColor === 'object') ? o.skinColor : {};
+  var calColor = validHex(sc.calendar);
+  var deskColor = validHex(sc.desktop);
+  var dockColor = validHex(sc.dock);
+
+  var calType = (o.skinMode === 'custom' && calColor) ? 'color' : baseType;
+
+  var raw = {
+    __v: 2,
+    surfaces: {
+      calendar: { type: calType, color: (calType === 'color') ? calColor : null, image: null, text: 'auto' },
+      expanded: { follow: 'calendar', type: baseType, color: null, image: null, text: 'auto' },
+      desktop: { follow: 'calendar', type: baseType, color: null, image: null, text: 'auto' },
+      dock: { type: baseType, color: null, image: null, text: 'auto' }
+    },
+    opacity: {
+      calendar: clampOpacity(o.mainOpacity, 1),
+      desktop: clampOpacity(o.desktopOpacity, 1),
+      dock: clampOpacity(o.dockOpacity, 1)
+    }
+  };
+  if (deskColor && o.desktopFollowCalendar === false) {
+    raw.surfaces.desktop = { follow: null, type: 'color', color: deskColor, image: null, text: 'auto' };
+  }
+  if (dockColor) {
+    raw.surfaces.dock = { type: 'color', color: dockColor, image: null, text: 'auto' };
+  }
+  return normalizeSkin(raw);
+}
+
+/* 皮肤状态下发 + 窗口背景兜底（纯色 → setBackgroundColor(color)；图片/原生 → 透明，背景层由渲染层绘制） */
+function bgColorFor(surface) {
+  var bg = surfaceBg(surface);
+  return (bg.kind === 'color' && bg.color) ? bg.color : '#00000000';
+}
 function pushSkinToRenderer() {
   if (win && win.webContents && !win.webContents.isDestroyed()) {
-    const st = resolveSkinState('calendar');
-    try { win.webContents.send('skin-state', st); } catch (e) {}
-    try { win.setBackgroundColor(st.mode === 'custom' ? st.bg : '#00000000'); } catch (e) {}
+    try { win.webContents.send('skin-state', { calendar: resolvedSurfaceState('calendar'), expanded: resolvedSurfaceState('expanded') }); } catch (e) {}
+    try { win.setBackgroundColor(bgColorFor('calendar')); } catch (e) {}
   }
 }
 function pushSkinToDesktop() {
   if (desktopWin && desktopWin.webContents && !desktopWin.webContents.isDestroyed()) {
-    const st = resolveSkinState('desktop');
-    try { desktopWin.webContents.send('skin-state', st); } catch (e) {}
-    try { desktopWin.setBackgroundColor(st.mode === 'custom' ? st.bg : '#00000000'); } catch (e) {}
+    try { desktopWin.webContents.send('skin-state', { desktop: resolvedSurfaceState('desktop') }); } catch (e) {}
+    try { desktopWin.setBackgroundColor(bgColorFor('desktop')); } catch (e) {}
   }
 }
 function pushSkinToDock() {
   if (dockWin && dockWin.webContents && !dockWin.webContents.isDestroyed()) {
-    const st = resolveSkinState('dock');
-    try { dockWin.webContents.send('skin-state', st); } catch (e) {}
-    try { dockWin.setBackgroundColor(st.mode === 'custom' ? st.bg : '#00000000'); } catch (e) {}
+    try { dockWin.webContents.send('skin-state', { dock: resolvedSurfaceState('dock') }); } catch (e) {}
+    try { dockWin.setBackgroundColor(bgColorFor('dock')); } catch (e) {}
   }
 }
 function pushSkinToAll() {
@@ -254,14 +363,181 @@ function pushSkinToAll() {
   pushSkinToDock();
 }
 
-/* 生效主题统一下发（复用既有 theme-changed 通道 + 托盘反色 + 设置回推） */
+/* 皮肤窗口回显数据（完整 skin + resolved + 取景框比例表） */
+function skinConfigState() {
+  var resolved = {};
+  var names = ['calendar', 'expanded', 'desktop', 'dock'];
+  for (var i = 0; i < names.length; i++) resolved[names[i]] = resolvedSurfaceState(names[i]);
+  return {
+    skin: skin,
+    resolved: resolved,
+    viewport: { calendar: { w: 340, h: 430 }, expanded: { w: 340, h: 430 }, desktop: { w: 340, h: 370 }, dock: { w: 116, h: 50 } }
+  };
+}
+function pushSkinConfigState() {
+  if (skinWin && !skinWin.isDestroyed()) {
+    try { skinWin.webContents.send('skin-config-state', skinConfigState()); } catch (e) {}
+  }
+}
+
+/* 基准主题统一广播：托盘反色 + 关注列表 + 设置回推 + 皮肤窗回显（日历/桌面/浮动走 skin-state.theme） */
 function pushThemeToAll() {
-  pushThemeToRenderer();
-  pushThemeToDock();
-  pushThemeToDesktop();
   pushThemeToRemindlist();
   if (tray) { try { tray.setImage(trayIconByTheme()); } catch (e) {} }
   pushSettingsState();
+  pushSkinConfigState();
+}
+
+/* v2.4.0 第二轮：皮肤图片目录 userData/skins/（惰性创建） */
+function skinsDir() {
+  var d = path.join(app.getPath('userData'), 'skins');
+  try { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); } catch (e) {}
+  return d;
+}
+
+/* v2.4.0 第二轮：图片皮肤导入。
+ * 校验（扩展名/≤20MB/最长边≤4096）→ 原子复制到 userData/skins/ → 采样亮度 → GIF 首帧快照。
+ * 返回 { ok, image, error }。 */
+function importSkinImage(surface, srcPath) {
+  try {
+    if (!srcPath || typeof srcPath !== 'string') return { ok: false, error: '未提供图片路径' };
+    var ext = (path.extname(srcPath) || '').toLowerCase();
+    var okExts = { '.png': 1, '.jpg': 1, '.jpeg': 1, '.gif': 1, '.webp': 1 };
+    if (!okExts[ext]) return { ok: false, error: '仅支持 png/jpg/jpeg/gif/webp' };
+
+    var st = fs.statSync(srcPath);
+    if (st.size > 20 * 1024 * 1024) return { ok: false, error: '图片超过 20MB' };
+
+    var img = nativeImage.createFromPath(srcPath);
+    if (!img || img.isEmpty()) return { ok: false, error: '图片解码失败' };
+    var size = img.getSize();
+    var maxEdge = Math.max(size.width || 0, size.height || 0);
+    if (!maxEdge || maxEdge > 4096) return { ok: false, error: '图片最长边超过 4096px' };
+
+    var ts = Date.now();
+    var base = surface + '_' + ts;
+    var destName = base + (ext === '.jpeg' ? '.jpg' : ext);
+    var destDir = skinsDir();
+    var tmp = path.join(destDir, destName + '.tmp');
+    var dest = path.join(destDir, destName);
+    fs.copyFileSync(srcPath, tmp);
+    fs.renameSync(tmp, dest);
+
+    var dark = false;
+    try {
+      var thumb = img.resize({ width: 64 });
+      var bmp = thumb.toBitmap();   // BGRA
+      var n = bmp.length / 4, sr = 0, sg = 0, sb = 0;
+      for (var i = 0; i < bmp.length; i += 4) {
+        sb += bmp[i]; sg += bmp[i + 1]; sr += bmp[i + 2];
+      }
+      if (n > 0) {
+        var rr = (sr / n) / 255, gg = (sg / n) / 255, bb = (sb / n) / 255;
+        function ch(x) { x = (x <= 0.03928) ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); return x; }
+        var lum = 0.2126 * ch(rr) + 0.7152 * ch(gg) + 0.0722 * ch(bb);
+        dark = lum < 0.5;
+      }
+    } catch (e) {}
+
+    var snapshot = null;
+    if (ext === '.gif') {
+      try {
+        var png = img.toPNG();
+        if (png && png.length) {
+          snapshot = base + '_frame.png';
+          fs.writeFileSync(path.join(destDir, snapshot), png);
+        }
+      } catch (e) {}
+    }
+
+    var image = {
+      file: destName,
+      snapshot: snapshot,
+      w: size.width,
+      h: size.height,
+      crop: { x: 0, y: 0, w: 1, h: 1 },
+      zoom: 1,
+      dark: dark
+    };
+    return { ok: true, image: image, error: null };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || '导入失败' };
+  }
+}
+
+/* v2.4.0 第二轮：皮肤写操作统一入口（skin.html → skin-set）。
+ * field ∈ type/color/text/follow/opacity/image。处理 follow 取消时的 copy-on-write 物化。 */
+function applySkinSet(payload) {
+  var surface = payload && payload.surface;
+  var field = payload && payload.field;
+  var value = payload && payload.value;
+  var validSurfaces = { calendar: 1, expanded: 1, desktop: 1, dock: 1 };
+  if (!validSurfaces[surface]) return;
+  var c = skin.surfaces[surface];
+  if (!c) return;
+
+  if (field === 'type') {
+    var t = (value === 'dark' || value === 'system' || value === 'color' || value === 'image') ? value : 'light';
+    c.type = t;
+    if (t !== 'color') c.color = null;
+    if (t !== 'image') c.image = null;
+    if (t === 'light' || t === 'dark' || t === 'system') c.text = 'auto';
+  } else if (field === 'color') {
+    c.color = validHex(value);
+    if (c.color) { c.type = 'color'; c.image = null; }
+  } else if (field === 'text') {
+    c.text = (value === 'light' || value === 'dark') ? value : 'auto';
+  } else if (field === 'follow') {
+    if (surface === 'expanded' || surface === 'desktop') {
+      if (value === 'calendar') {
+        c.follow = 'calendar';
+      } else {
+        // 取消跟随 = copy-on-write：以日历当前配置为初始快照
+        var cal = skin.surfaces.calendar;
+        c.follow = null;
+        c.type = cal.type;
+        c.color = cal.color;
+        c.image = cal.image ? JSON.parse(JSON.stringify(cal.image)) : null;
+        c.text = cal.text;
+      }
+    }
+  } else if (field === 'opacity') {
+    var key = (surface === 'calendar' || surface === 'expanded') ? 'calendar' : surface;
+    if (key === 'desktop' || key === 'dock' || key === 'calendar') {
+      skin.opacity[key] = clampOpacity(value, 1);
+      applyOpacity(key);
+    }
+  } else if (field === 'image') {
+    // value = ImageSpec（皮肤窗取景后回写 file/crop/zoom）。渲染层回写的字段覆盖，
+    // 缺失的 w/h/dark/snapshot 保留既有值（导入时主进程已算好），避免取景回写丢失亮度/冻结帧。
+    if (value && typeof value === 'object' && value.file) {
+      var prev = c.image || {};
+      c.image = normalizeImageSpec({
+        file: value.file || prev.file,
+        snapshot: (value.snapshot !== undefined) ? value.snapshot : prev.snapshot,
+        w: (value.w !== undefined) ? value.w : prev.w,
+        h: (value.h !== undefined) ? value.h : prev.h,
+        crop: value.crop || prev.crop,
+        zoom: (value.zoom !== undefined) ? value.zoom : prev.zoom,
+        dark: (value.dark !== undefined) ? value.dark : prev.dark
+      });
+      c.type = 'image';
+      c.color = null;
+    }
+  }
+  recomputeTheme();
+  saveSettings();
+  pushThemeToAll();     // baseTheme 可能变化：托盘反色 + 关注列表 + 设置窗主题跟随
+  pushSkinToAll();
+  refreshTrayMenu();
+}
+
+/* 透明度窗口级应用（opacity.calendar 作用于主窗；desktop/dock 各自独立） */
+function applyOpacity(key) {
+  var v = skin.opacity[key] || 1;
+  if (key === 'calendar' && win && !win.isDestroyed()) { try { win.setOpacity(v); } catch (e) {} }
+  if (key === 'desktop' && desktopWin && !desktopWin.isDestroyed()) { try { desktopWin.setOpacity(v); } catch (e) {} }
+  if (key === 'dock' && dockWin && !dockWin.isDestroyed()) { try { dockWin.setOpacity(v); } catch (e) {} }
 }
 
 /* ===== v1.7.22 需求3：Windows 版本检测 =====
@@ -323,16 +599,20 @@ let themeMode = 'light';      // 'light' 白日 | 'dark' 黑夜
 let pinned = true;             // 主窗置顶
 let autoLaunch = true;         // 开机自启
 
-/* ===== v2.4.0 皮肤（主题 → 皮肤统一） =====
- * skinMode  = 'native' 原生皮肤 | 'custom' 自选纯色
- * nativeSkin= 'light' | 'dark' | 'system'（system=跟随系统实时深浅色）
- * skinColor = { calendar, desktop, dock } 各自 "#RRGGBB" 或 null（null=回原生外观）
- * desktopFollowCalendar / dockFollowCalendar = 桌面插件/浮动插件是否默认跟随日历皮肤 */
-let skinMode = 'native';
-let nativeSkin = 'system';
-let skinColor = { calendar: null, desktop: null, dock: null };
-let desktopFollowCalendar = true;
-let dockFollowCalendar = true;
+/* ===== v2.4.0 第二轮 皮肤（per-surface 配置树，主进程唯一真相） =====
+ * skin.surfaces{calendar,expanded,desktop,dock}：每界面独立 type(light|dark|system|color|image)
+ *   + color/image/text(auto|light|dark)；expanded/desktop 带 follow('calendar'|null)。
+ * skin.opacity{calendar,desktop,dock}：透明度（opacity.calendar 同时作用于 mini/max 同一窗口）。 */
+let skin = {
+  __v: 2,
+  surfaces: {
+    calendar: { type: 'light', color: null, image: null, text: 'auto' },
+    expanded: { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto' },
+    desktop:  { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto' },
+    dock:     { type: 'light', color: null, image: null, text: 'auto' }
+  },
+  opacity: { calendar: 1, desktop: 1, dock: 1 }
+};
 
 /* ===== v1.7.20 任务栏挂件条（dock） =====
  * 用户要的"任务栏插件"：贴任务栏上沿右侧、始终可见的一个小条，
@@ -404,8 +684,7 @@ let desktopLocked = false;         // 锁定：锁定后不可拖动，其余功
 let desktopBounds = null;          // 上次位置
 let _desktopSaveTimer = null;      // 拖动结束位置落盘防抖
 const DESKTOP_W = 340, DESKTOP_H = 370;
-// 透明度（需求5）：三窗口各自一份，默认不透明
-let dockOpacity = 1, mainOpacity = 1, desktopOpacity = 1;
+// 透明度已并入 skin.opacity.*（v2.4.0 第二轮，见皮肤中枢）
 
 let quitting = false;          // 退出中，禁止窗口自动重建
 /* v1.7.20：浮动态下的渲染进程崩溃保护。浮动态也偶发 crash（GPU/驱动/D3D），但不会"嵌入崩溃循环"，
@@ -1150,10 +1429,11 @@ function buildReminderMenuItems() {
 }
 
 function toggleTheme() {
-  // v2.4.0：主题→皮肤后，本函数保留为兼容入口 —— 语义 = 原生皮肤 light↔dark。
-  // system 态下点击切到与当前生效主题相反的手动项，不改变 skinMode。
-  if (nativeSkin === 'system') nativeSkin = (themeMode === 'dark') ? 'light' : 'dark';
-  else nativeSkin = (nativeSkin === 'dark') ? 'light' : 'dark';
+  // v2.4.0 第二轮：托盘菜单「主题」= 日历表面 native light↔dark 快捷切换。
+  var cal = skin.surfaces.calendar;
+  if (cal.type === 'system') cal.type = (themeMode === 'dark') ? 'light' : 'dark';
+  else cal.type = (cal.type === 'dark') ? 'light' : 'dark';
+  cal.color = null; cal.image = null; cal.text = 'auto';
   recomputeTheme();
   pushThemeToAll();
   pushSkinToAll();
@@ -1308,11 +1588,6 @@ function toggleDockPinned() {
 function desktopClamped(x, y) {
   return clampDockToWorkArea({ x: x, y: y, width: DESKTOP_W, height: DESKTOP_H });
 }
-function pushThemeToDesktop() {
-  if (desktopWin && desktopWin.webContents && !desktopWin.webContents.isDestroyed()) {
-    try { desktopWin.webContents.send('theme-changed', themeMode); } catch (e) {}
-  }
-}
 // 锁定状态 → 渲染层（锁图标 / 是否可拖）
 function pushDesktopState() {
   if (desktopWin && desktopWin.webContents && !desktopWin.webContents.isDestroyed()) {
@@ -1331,16 +1606,21 @@ function createDesktopWidget() {
     });
     desktopWin.loadFile(path.join(__dirname, 'calendar.html'), { query: { mode: 'desktopWidget' } });
     desktopWin.webContents.on('did-finish-load', function () {
-      pushThemeToDesktop();
-      pushSkinToDesktop();   // v2.4.0：桌面插件皮肤（默认跟随日历，可独立）
+      pushSkinToDesktop();   // v2.4.0 第二轮：桌面插件皮肤（skin-state 含 theme + 背景层）
       pushDesktopState();
     });
     desktopWin.once('ready-to-show', function () {
       try {
         if (desktopBounds) desktopWin.setBounds(desktopClamped(desktopBounds.x, desktopBounds.y));
         else desktopWin.center();
-        desktopWin.setOpacity(desktopOpacity);   // 需求5：应用透明度
+        desktopWin.setOpacity(skin.opacity.desktop);   // v2.4.0 第二轮：透明度读 skin.opacity
         desktopWin.show();
+      } catch (e) {}
+    });
+    // v2.4.0 A-bug1：桌面插件窗口外点击 → 下发 win-hidden → 渲染层 clearRange（只清 range、不隐藏）。
+    desktopWin.on('blur', function () {
+      try {
+        if (desktopWin && desktopWin.webContents && !desktopWin.webContents.isDestroyed()) desktopWin.webContents.send('win-hidden');
       } catch (e) {}
     });
     // 拖动结束记位置（防抖写 settings）
@@ -1376,9 +1656,10 @@ function toggleDesktop() {
  * 全部收进这个独立卡片弹窗。主进程是唯一真相：每个操作执行完 pushSettingsState()，
  * 弹窗只渲染收到的状态，保证与菜单、主窗实时一致。 */
 let settingsWin = null;
+let skinWin = null;             // v2.4.0 第二轮：独立皮肤设置窗口
 function settingsSnapshot() {
   return {
-    theme: themeMode,
+    theme: baseTheme(),        // 设置窗自身主题跟随日历表面基准
     pinned: pinned,
     autoLaunch: autoLaunch,
     dockOn: dockOn,
@@ -1386,21 +1667,7 @@ function settingsSnapshot() {
     dockPinned: dockPinned,
     desktopOn: desktopOn,
     desktopLocked: desktopLocked,
-    dockOpacity: dockOpacity,
-    mainOpacity: mainOpacity,
-    desktopOpacity: desktopOpacity,
-    mainVisible: !!(win && win.isVisible()),
-    // v2.4.0 皮肤字段 + 各表面解析后的背景（供设置页色卡预览，主进程唯一真相）
-    skinMode: skinMode,
-    nativeSkin: nativeSkin,
-    skinColor: skinColor,
-    desktopFollowCalendar: desktopFollowCalendar,
-    dockFollowCalendar: dockFollowCalendar,
-    skinResolved: {
-      calendar: resolveBg('calendar'),
-      desktop: resolveBg('desktop'),
-      dock: resolveBg('dock')
-    }
+    mainVisible: !!(win && win.isVisible())
   };
 }
 function pushSettingsState() {
@@ -1431,6 +1698,33 @@ function openSettingsWindow() {
     try { settingsWin.show(); pushSettingsState(); } catch (e) {}
   });
   settingsWin.on('closed', function () { settingsWin = null; });
+}
+
+/* v2.4.0 第二轮：独立皮肤设置窗口（skin.html）。复用 settings.html 的卡片窗范式，
+ * 自身不应用皮肤背景，只跟随基准主题 baseTheme()。 */
+function openSkinWindow() {
+  if (skinWin && !skinWin.isDestroyed()) {
+    try { skinWin.focus(); } catch (e) {}
+    pushSkinConfigState();
+    return;
+  }
+  const wa = screen.getPrimaryDisplay().workAreaSize;
+  const W = 520, H = 620;
+  skinWin = new BrowserWindow({
+    width: W, height: H,
+    x: Math.round((wa.width - W) / 2),
+    y: Math.round((wa.height - H) / 2),
+    frame: false, transparent: true, resizable: false,
+    alwaysOnTop: true, skipTaskbar: true,
+    backgroundColor: '#00000000', show: false,
+    webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.js') }
+  });
+  skinWin.setAlwaysOnTop(true, 'screen-saver');
+  skinWin.loadFile(path.join(__dirname, 'skin.html'), { query: { theme: baseTheme() } });
+  skinWin.once('ready-to-show', function () {
+    try { skinWin.show(); pushSkinConfigState(); } catch (e) {}
+  });
+  skinWin.on('closed', function () { skinWin = null; });
 }
 
 function buildTrayMenu() {
@@ -1556,11 +1850,10 @@ function createWindow() {
     webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.js') }
   });
   win.loadFile(path.join(__dirname, 'calendar.html'));
-  try { win.setOpacity(mainOpacity); } catch (e) {}   // v2.2.0 需求5：应用日历透明度
+  try { win.setOpacity(skin.opacity.calendar); } catch (e) {}   // v2.4.0 第二轮：日历透明度读 skin.opacity
 
   win.webContents.on('did-finish-load', function () {
-    pushThemeToRenderer();
-    pushSkinToRenderer();   // v2.4.0：首帧应用皮肤（背景 + 自动明暗文字）
+    pushSkinToRenderer();   // v2.4.0 第二轮：首帧应用皮肤（skin-state 含 theme + 背景层）
     // v1.7.11：页面就绪时同步一次尺寸状态（mini / expanded），
     // 否则渲染层可能错过启动时那次 notifyExpandState，导致 .max 类不同步。
     setTimeout(notifyExpandState, 60);
@@ -1582,21 +1875,18 @@ function createWindow() {
   // v2.4.0 A1：窗口显示时清空 blur grace（显示即已获得焦点，此后真实 blur 应正常隐藏）
   win.on('show', function () { blurGraceUntil = 0; });
   // 需求 2 / 3：blur = 隐藏（点击主体外消失；放大后点击外面也消失）
-  /* v2.4.0 A1 重构：不再用 suppressBlur 布尔 + 多处 setTimeout（存在竞态），
-   * 改为 blurGraceUntil 时间戳 + BrowserWindow.getFocusedWindow() 判定焦点是否仍在本应用。
-   * getFocusedWindow() 返回 null = 焦点已离开本应用 → 稳定隐藏，消除 dock.isFocused() 竞态。 */
+  /* v2.4.0 A-bug2 修复：删除 BrowserWindow.getFocusedWindow() 这条过于宽松的判断（点空白桌面/
+   * 任务栏时它仍会返回陈旧/自身/置顶 dock 窗口 → 误判"焦点仍在本应用"而漏 hideMain）。
+   * 改为显式逐个 isFocused() 判定已知兄弟窗口，全部不在焦点才隐藏。guardBlur 保留给菜单/唤起。 */
   win.on('blur', function () {
     if (Date.now() < blurGraceUntil) return;
     try {
-      const fw = BrowserWindow.getFocusedWindow();
-      // 焦点仍在本应用任一窗口（主窗自己 / dock / 桌面插件 / 设置 / 关注列表 / 提醒）→ 不隐藏
-      if (fw && !fw.isDestroyed()) return;
-      // 兜底：某些环境 getFocusedWindow 拿不到，退回 isFocused / isVisible 判定
       if (dockWin && !dockWin.isDestroyed() && dockWin.isFocused()) return;
       if (desktopWin && !desktopWin.isDestroyed() && desktopWin.isFocused()) return;
-      if (settingsWin && !settingsWin.isDestroyed() && settingsWin.isVisible()) return;
-      if (remindlistWin && !remindlistWin.isDestroyed() && remindlistWin.isVisible()) return;
-      if (reminderWin && !reminderWin.isDestroyed() && reminderWin.isVisible()) return;
+      if (settingsWin && !settingsWin.isDestroyed() && settingsWin.isFocused()) return;
+      if (skinWin && !skinWin.isDestroyed() && skinWin.isFocused()) return;
+      if (remindlistWin && !remindlistWin.isDestroyed() && remindlistWin.isFocused()) return;
+      if (reminderWin && !reminderWin.isDestroyed() && reminderWin.isFocused()) return;
     } catch (e) {}
     hideMain();
   });
@@ -1623,11 +1913,6 @@ function createWindow() {
   win.on('closed', function () { win = null; });
 }
 
-function pushThemeToRenderer() {
-  if (win && win.webContents && !win.webContents.isDestroyed()) {
-    try { win.webContents.send('theme-changed', themeMode); } catch (e) {}
-  }
-}
 /* v2.2.0 需求2：把主窗物理宽高下发渲染层，驱动放大模式的 CSS zoom 等比缩放。
  * getBounds() 拿到的是物理窗口尺寸（不受页面 zoom 影响），渲染层据此算 --uizoom。 */
 function pushWinSize() {
@@ -1636,11 +1921,6 @@ function pushWinSize() {
       const b = win.getBounds();
       win.webContents.send('win-size', { width: b.width, height: b.height });
     } catch (e) {}
-  }
-}
-function pushThemeToDock() {
-  if (dockWin && dockWin.webContents && !dockWin.webContents.isDestroyed()) {
-    try { dockWin.webContents.send('theme-changed', themeMode); } catch (e) {}
   }
 }
 
@@ -1817,7 +2097,7 @@ function createDock() {
       } catch (e) {}
     });
     dockWin.loadFile(path.join(__dirname, 'dock.html'));
-    try { dockWin.setOpacity(dockOpacity); } catch (e) {}   // v2.2.0 需求5：应用浮动插件透明度
+    try { dockWin.setOpacity(skin.opacity.dock); } catch (e) {}   // v2.4.0 第二轮：浮动透明度读 skin.opacity
     /* v1.7.21：置顶等级用 'floating'，不再用 'screen-saver'。
      * 'screen-saver' 是 Electron 的最高置顶层，会盖在全屏视频 / 游戏 / 投屏之上很碍事；
      * 'floating' 依然是最顶层（普通窗口盖不住插件），但不再跟全屏应用抢最高层。
@@ -1834,8 +2114,7 @@ function createDock() {
      * 于是不管窗口多留了多少透明边，真正能点的永远只有那张可见的小卡片。 */
     try { dockWin.setIgnoreMouseEvents(true, { forward: true }); } catch (e) {}
     dockWin.webContents.on('did-finish-load', function () {
-      pushThemeToDock();
-      pushSkinToDock();   // v2.4.0：浮动插件皮肤（默认跟随日历，可独立）
+      pushSkinToDock();   // v2.4.0 第二轮：浮动插件皮肤（skin-state 含 theme + 背景层）
       pushDockSize();
     });
     /* v1.7.20：渲染进程崩溃（浮动态偶发 GPU/D3D 崩溃）兜底。只记日志 + 延迟到下个 tick
@@ -2127,16 +2406,17 @@ ipcMain.on('remindlist-remove', function (evt, id) {
 });
 // 主窗 themeBtn 点击 → 原生皮肤 light↔dark 快捷切换（v2.4.0 主题→皮肤语义变更）
 ipcMain.on('set-theme', function (evt, mode) {
-  // 不改变 skinMode：只是切换原生皮肤的手动项。
-  // system 态下点击 → 切到与当前生效主题相反的手动项。
-  if (nativeSkin === 'system') {
-    nativeSkin = (themeMode === 'dark') ? 'light' : 'dark';
+  // v2.4.0 第二轮：主窗 themeBtn = 日历表面 native light↔dark 快捷切换（不动 follow/其它表面）。
+  var cal = skin.surfaces.calendar;
+  if (cal.type === 'system') {
+    cal.type = (themeMode === 'dark') ? 'light' : 'dark';
   } else {
-    nativeSkin = (mode === 'dark') ? 'dark' : 'light';
+    cal.type = (mode === 'dark') ? 'dark' : 'light';
   }
+  cal.color = null; cal.image = null; cal.text = 'auto';
   recomputeTheme();
   pushThemeToAll();
-  pushSkinToAll();          // 生效主题变化同步进 skin-state（状态色来源不变，仅 effectiveTheme 字段更新）
+  pushSkinToAll();
   saveSettings();
   refreshTrayMenu();
 });
@@ -2204,46 +2484,16 @@ ipcMain.on('desktop-toggle', function () { toggleDesktop(); });
  * ===================================================================== */
 ipcMain.on('settings-set', function (evt, key, value) {
   switch (key) {
-    case 'theme':                 // v2.4.0 兼容旧调用：等价于设 nativeSkin 手动项
-      nativeSkin = (value === 'dark') ? 'dark' : 'light';
-      recomputeTheme();
-      pushThemeToAll();
-      pushSkinToAll();
-      break;
-    case 'skinMode':
-      skinMode = (value === 'custom') ? 'custom' : 'native';
-      pushSkinToAll();
-      break;
-    case 'nativeSkin':
-      if (value === 'light' || value === 'dark' || value === 'system') {
-        nativeSkin = value;
+    case 'theme':                 // 兼容旧调用：日历表面 native light↔dark（与 set-theme 等价）
+      (function () {
+        var cal = skin.surfaces.calendar;
+        cal.type = (value === 'dark') ? 'dark' : 'light';
+        cal.color = null; cal.image = null; cal.text = 'auto';
         recomputeTheme();
         pushThemeToAll();
         pushSkinToAll();
-      }
+      })();
       break;
-    case 'skinColor': {
-      // value = { surface: 'calendar'|'desktop'|'dock', hex: '#RRGGBB'|null }
-      const surface = (value && (value.surface === 'desktop' || value.surface === 'dock')) ? value.surface : 'calendar';
-      skinColor[surface] = validHex(value && value.hex);
-      pushSkinToAll();
-      break;
-    }
-    case 'desktopFollowCalendar':
-      desktopFollowCalendar = !!value;
-      pushSkinToAll();
-      break;
-    case 'dockFollowCalendar':
-      dockFollowCalendar = !!value;
-      pushSkinToAll();
-      break;
-    case 'skinReset': {
-      // value = surface：恢复该表面为原生主题外观（清空自选纯色）
-      const sr = (value === 'desktop' || value === 'dock') ? value : 'calendar';
-      skinColor[sr] = null;
-      pushSkinToAll();
-      break;
-    }
     case 'pinned':
       pinned = !!value;
       if (win) win.setAlwaysOnTop(pinned);
@@ -2275,18 +2525,6 @@ ipcMain.on('settings-set', function (evt, key, value) {
       desktopLocked = !!value;
       pushDesktopState();
       break;
-    case 'dockOpacity':
-      dockOpacity = clampOpacity(value, 1);
-      if (dockWin && !dockWin.isDestroyed()) { try { dockWin.setOpacity(dockOpacity); } catch (e) {} }
-      break;
-    case 'mainOpacity':
-      mainOpacity = clampOpacity(value, 1);
-      if (win && !win.isDestroyed()) { try { win.setOpacity(mainOpacity); } catch (e) {} }
-      break;
-    case 'desktopOpacity':
-      desktopOpacity = clampOpacity(value, 1);
-      if (desktopWin && !desktopWin.isDestroyed()) { try { desktopWin.setOpacity(desktopOpacity); } catch (e) {} }
-      break;
     default:
       return;
   }
@@ -2299,7 +2537,55 @@ ipcMain.on('settings-action', function (evt, action) {
     try { maybeHolidayUpdate(true); } catch (e) { log('settings check-holiday failed: ' + (e && e.stack || e)); }
   } else if (action === 'close') {
     if (settingsWin && !settingsWin.isDestroyed()) { try { settingsWin.close(); } catch (e) {} }
+  } else if (action === 'open-skin') {
+    try { openSkinWindow(); } catch (e) { log('open-skin failed: ' + (e && e.stack || e)); }
   }
+});
+
+/* =====================================================================
+ * v2.4.0 第二轮：皮肤窗口 IPC
+ * ---------------------------------------------------------------------
+ * skin-set(surface, field, value)：皮肤写操作（主进程唯一真相，处理后推回）。
+ * skin-action(action, payload)：close（关皮肤窗）/ choose-file（主进程文件对话框）。
+ * skin-import(surface, srcPath) [invoke]：拖入路径导入图片，返回 { ok, image, error }。
+ * ===================================================================== */
+ipcMain.on('skin-set', function (evt, surface, field, value) {
+  try { applySkinSet({ surface: surface, field: field, value: value }); }
+  catch (e) { log('skin-set failed: ' + (e && e.stack || e)); }
+});
+ipcMain.on('skin-action', function (evt, action, payload) {
+  try {
+    if (action === 'close') {
+      if (skinWin && !skinWin.isDestroyed()) { try { skinWin.close(); } catch (e) {} }
+    } else if (action === 'choose-file') {
+      var surface = (payload && payload.surface) || 'calendar';
+      dialog.showOpenDialog({
+        title: '选择皮肤图片',
+        properties: ['openFile'],
+        filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }]
+      }).then(function (r) {
+        if (r && !r.canceled && r.filePaths && r.filePaths[0]) {
+          var res = importSkinImage(surface, r.filePaths[0]);
+          if (res && res.ok) {
+            skin.surfaces[surface].type = 'image';
+            skin.surfaces[surface].image = res.image;
+            skin.surfaces[surface].color = null;
+            recomputeTheme();
+            saveSettings();
+            pushThemeToAll();     // baseTheme 可能变化：托盘/关注列表/设置窗主题跟随
+            pushSkinToAll();
+            refreshTrayMenu();
+          }
+          if (skinWin && !skinWin.isDestroyed()) {
+            try { skinWin.webContents.send('skin-import-result', res); } catch (e) {}
+          }
+        }
+      });
+    }
+  } catch (e) { log('skin-action failed: ' + (e && e.stack || e)); }
+});
+ipcMain.handle('skin-import', function (evt, surface, srcPath) {
+  return importSkinImage(surface, srcPath);
 });
 
 /* =====================================================================
@@ -2890,11 +3176,33 @@ ipcMain.on('holiday-dialog-close', function () {
 
 app.whenReady().then(function () {
   log('=========== app start v' + app.getVersion() + ' ===========');
+  // v2.4.0 第二轮：skin:// 特权协议 handler —— 把 skin://{basename} 映射到 userData/skins/{basename}。
+  // registerSchemesAsPrivileged 已在模块顶层（app ready 前）注册；handle 必须在 ready 后注册。
+  try {
+    protocol.handle('skin', function (request) {
+      return new Promise(function (resolve) {
+        try {
+          var url = request.url || '';
+          var name = url.replace(/^skin:\/\//, '').split('?')[0];
+          name = decodeURIComponent(name);
+          name = sanitizeBasename(name);
+          var file = path.join(skinsDir(), name);
+          if (name && fs.existsSync(file)) {
+            net.fetch(pathToFileURL(file).toString()).then(resolve, function () {
+              resolve(new Response('', { status: 404 }));
+            });
+            return;
+          }
+        } catch (e) {}
+        resolve(new Response('', { status: 404 }));
+      });
+    });
+  } catch (e) { log('skin protocol.handle failed: ' + (e && e.message || e)); }
   // v1.7.20：必须在建任何窗口之前先清残留（越早越好，此时 Electron 还没 fork 渲染/GPU 进程）。
   // 且函数内部按「父子关系」过滤，只杀不是自己子孙的同名进程 —— 见函数上方注释的事故记录。
   cleanupStaleInstances();
   loadSettings();          // v1.7.11：先读设置，再按设置建窗口
-  recomputeTheme();        // v2.4.0：依据 nativeSkin 推导「生效主题」themeMode（唯一入口）
+  recomputeTheme();        // v2.4.0 第二轮：baseTheme() = surfaceTheme('calendar')（唯一入口）
   /* v1.7.22 需求3：启动时检测系统版本并写回配置项 isWin11（供后续像素补偿微调用） */
   isWin11 = detectWin11();
   try { log('OS: ' + (isWin11 ? 'Windows 11' : 'Windows 10') + ' (build ' + os.release() + ')'); } catch (e) {}
@@ -2941,18 +3249,16 @@ app.whenReady().then(function () {
       } catch (e) {}
     });
   } catch (e) {}
-  /* v2.4.0 B4：跟随系统实时深浅色。只在 whenReady 注册一次；
-   * 仅 nativeSkin==='system' 时重算生效主题并广播，手动项不受系统深浅色影响。 */
+  /* v2.4.0 第二轮：跟随系统实时深浅色。system 表面在系统切换时重算；color/image/text 手动的表面
+   * 由 surfaceTheme 的 text 字段决定，不受系统深浅影响。基准主题变化时广播托盘/关注列表/设置。 */
   try {
     nativeTheme.on('updated', function () {
-      if (nativeSkin !== 'system') return;
-      const prev = themeMode;
+      var prev = themeMode;
       recomputeTheme();
       if (themeMode !== prev) {
         pushThemeToAll();
-        pushSkinToAll();   // v2.4.0：同步刷新 skin-state 的 effectiveTheme，避免系统切换后短暂陈旧
-        saveSettings();
       }
+      pushSkinToAll();   // 各表面 system 型明暗实时刷新（skin-state.theme 更新）
     });
   } catch (e) {}
   process.on('uncaughtException', function (e) {
@@ -2960,7 +3266,7 @@ app.whenReady().then(function () {
   });
   // v1.7.9（修复）：用户双击桌面图标 / 开机自启后，必须主动 showMini 把窗口贴右下角，
   // 否则 createWindow 里 show:false + blur 自动隐藏会让用户以为"窗口不存在"。
-  // setTimeout 0 是为了让 did-finish-load 先跑完（pushThemeToRenderer），再定位窗口。
+  // setTimeout 0 是为了让 did-finish-load 先跑完（pushSkinToRenderer），再定位窗口。
   setTimeout(function () { try { showMini(); } catch (e) {} }, 120);
   // v1.6.2：每 60s 巡检到期关注；启动时先跑一次避免重启后错过今天
   reminderCheckTimer = setInterval(checkReminders, 60 * 1000);
@@ -2987,6 +3293,7 @@ app.on('before-quit', function () {
   if (dockWin) { try { dockWin.destroy(); } catch (e) {} dockWin = null; }
   if (desktopWin) { try { desktopWin.destroy(); } catch (e) {} desktopWin = null; }
   if (settingsWin) { try { settingsWin.destroy(); } catch (e) {} settingsWin = null; }
+  if (skinWin) { try { skinWin.destroy(); } catch (e) {} skinWin = null; }
   if (remindlistWin) { try { remindlistWin.destroy(); } catch (e) {} remindlistWin = null; }
   if (_rlSaveTimer) { clearTimeout(_rlSaveTimer); _rlSaveTimer = null; }
   if (_desktopSaveTimer) { clearTimeout(_desktopSaveTimer); _desktopSaveTimer = null; }

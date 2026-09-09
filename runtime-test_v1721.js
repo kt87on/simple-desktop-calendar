@@ -604,115 +604,201 @@ ok('isDarkColor #1f2430 → true（日历深色预设）', colorApi.isDarkColor(
 ok('isDarkColor #e8eaf0 → false（深背景浅字用浅色）', colorApi.isDarkColor('#e8eaf0') === false);
 ok('isDarkColor 非法输入 → false（不抛错）', colorApi.isDarkColor('nope') === false);
 
-/* ============ v2.4.0 皮肤中枢：resolveBg / resolveSkinState ============ */
-console.log('\n【v2.4.0】resolveBg / resolveSkinState —— 分区解析 + 跟随日历 + 自动明暗文字');
+/* ============ v2.4.0 第二轮 皮肤中枢：per-surface 明暗 + 背景 + 迁移 ============ */
+console.log('\n【v2.4.0 第二轮】resolveSurfaceConfig / surfaceTheme / surfaceBg / resolvedSurfaceState / migrateSkin / normalizeSkin');
 
-function makeSkinApi(state) {
-  return new Function('skinMode', 'skinColor', 'desktopFollowCalendar', 'dockFollowCalendar', 'themeMode',
-    extractFn(mainSrc, 'validHex') + '\n' +
-    extractFn(mainSrc, 'isDarkColor') + '\n' +
-    extractFn(mainSrc, 'resolveBg') + '\n' +
-    extractFn(mainSrc, 'resolveSkinState') +
-    '; return { resolveBg: resolveBg, resolveSkinState: resolveSkinState };'
-  )(state.skinMode, state.skinColor, state.desktopFollowCalendar, state.dockFollowCalendar, state.themeMode);
+function makeSkinHub(skinState, nativeThemeMock) {
+  const src = [
+    'sanitizeBasename', 'clamp01', 'clampZoom', 'validHex', 'isDarkColor', 'clampOpacity',
+    'normalizeImageSpec', 'normalizeSkin', 'migrateSkin', 'resolveSurfaceConfig',
+    'surfaceTheme', 'surfaceBg', 'baseTheme', 'resolvedSurfaceState'
+  ].map(function (n) { return extractFn(mainSrc, n); }).join('\n');
+  return new Function('skin', 'nativeTheme', src +
+    '; return { resolveSurfaceConfig: resolveSurfaceConfig, surfaceTheme: surfaceTheme, surfaceBg: surfaceBg, baseTheme: baseTheme, resolvedSurfaceState: resolvedSurfaceState, migrateSkin: migrateSkin, normalizeSkin: normalizeSkin };'
+  )(skinState, nativeThemeMock);
 }
 
 (function () {
-  const api = makeSkinApi({
-    skinMode: 'native',
-    skinColor: { calendar: '#1f2430', desktop: '#3b6fd4', dock: '#d6453f' },
-    desktopFollowCalendar: true, dockFollowCalendar: true, themeMode: 'light'
-  });
-  ok('native 模式 → calendar 背景 null', api.resolveBg('calendar') === null);
-  ok('native 模式 → desktop 背景 null', api.resolveBg('desktop') === null);
-  ok('native 模式 → dock 背景 null', api.resolveBg('dock') === null);
+  const skin = { __v: 2, surfaces: {
+    calendar: { type: 'color', color: '#1f2430', image: null, text: 'auto' },
+    expanded: { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto' },
+    desktop: { follow: null, type: 'dark', color: null, image: null, text: 'auto' },
+    dock: { type: 'light', color: null, image: null, text: 'auto' }
+  }, opacity: { calendar: 1, desktop: 1, dock: 1 } };
+  const api = makeSkinHub(skin, { shouldUseDarkColors: false });
+  ok('expanded follow=calendar → 返回 calendar 配置', api.resolveSurfaceConfig('expanded').type === 'color');
+  ok('desktop follow=null → 返回自身 dark', api.resolveSurfaceConfig('desktop').type === 'dark');
+  ok('dock 独立 → 返回自身 light', api.resolveSurfaceConfig('dock').type === 'light');
+  ok('baseTheme = calendar 表面生效明暗', api.baseTheme() === 'dark');
 })();
 
 (function () {
-  const api = makeSkinApi({
-    skinMode: 'custom',
-    skinColor: { calendar: '#1f2430', desktop: '#3b6fd4', dock: '#d6453f' },
-    desktopFollowCalendar: true, dockFollowCalendar: true, themeMode: 'dark'
-  });
-  ok('custom + calendar → 取日历色', api.resolveBg('calendar') === '#1f2430');
-  ok('custom + desktop 跟随日历 → 取日历色（忽略 desktop 自选）', api.resolveBg('desktop') === '#1f2430');
-  ok('custom + dock 跟随日历 → 取日历色（忽略 dock 自选）', api.resolveBg('dock') === '#1f2430');
-  ok('未知 surface → null', api.resolveBg('other') === null);
+  const skin = { __v: 2, surfaces: {
+    calendar: { type: 'light', color: null, image: null, text: 'auto' },
+    expanded: { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto' },
+    desktop: { follow: null, type: 'system', color: null, image: null, text: 'auto' },
+    dock: { type: 'color', color: '#1f2430', image: null, text: 'auto' }
+  }, opacity: {} };
+  const api = makeSkinHub(skin, { shouldUseDarkColors: true });
+  ok('surfaceTheme light → light', api.surfaceTheme('calendar') === 'light');
+  ok('surfaceTheme system + 系统深色 → dark', api.surfaceTheme('desktop') === 'dark');
+  ok('surfaceTheme color 深色 + text=auto → dark', api.surfaceTheme('dock') === 'dark');
 })();
 
 (function () {
-  const api = makeSkinApi({
-    skinMode: 'custom',
-    skinColor: { calendar: '#1f2430', desktop: '#3b6fd4', dock: '#d6453f' },
-    desktopFollowCalendar: false, dockFollowCalendar: false, themeMode: 'dark'
-  });
-  ok('desktop 不跟随 → 取 desktop 自选', api.resolveBg('desktop') === '#3b6fd4');
-  ok('dock 不跟随 → 取 dock 自选', api.resolveBg('dock') === '#d6453f');
+  const skin = { __v: 2, surfaces: {
+    calendar: { type: 'color', color: '#1f2430', image: null, text: 'light' },
+    expanded: { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto' },
+    desktop: { follow: null, type: 'dark', color: null, image: null, text: 'auto' },
+    dock: { type: 'image', image: { file: 'x.png', snapshot: null, w: 1000, h: 1000, crop: { x: 0, y: 0, w: 1, h: 1 }, zoom: 1, dark: false }, text: 'auto' }
+  }, opacity: {} };
+  const api = makeSkinHub(skin, { shouldUseDarkColors: false });
+  ok('surfaceTheme color 深色但 text=light（手动深字/浅底）→ light', api.surfaceTheme('calendar') === 'light');
+  ok('surfaceTheme dark → dark', api.surfaceTheme('desktop') === 'dark');
+  ok('surfaceTheme image 亮图 auto → light', api.surfaceTheme('dock') === 'light');
 })();
 
 (function () {
-  const api = makeSkinApi({
-    skinMode: 'custom',
-    skinColor: { calendar: null, desktop: '#3b6fd4', dock: null },
-    desktopFollowCalendar: false, dockFollowCalendar: false, themeMode: 'light'
-  });
-  ok('calendar 为空 → null', api.resolveBg('calendar') === null);
-  ok('desktop 不跟随但 desktop 为空 → null', api.resolveBg('dock') === null);
+  const skin = { __v: 2, surfaces: {
+    calendar: { type: 'color', color: '#224466', image: null, text: 'auto' },
+    expanded: { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto' },
+    desktop: { follow: null, type: 'image', image: { file: 'd.png', snapshot: null, w: 1000, h: 1000, crop: { x: 0, y: 0, w: 1, h: 1 }, zoom: 1, dark: false }, text: 'auto' },
+    dock: { type: 'light', color: null, image: null, text: 'auto' }
+  }, opacity: {} };
+  const api = makeSkinHub(skin, { shouldUseDarkColors: false });
+  const b1 = api.surfaceBg('calendar');
+  ok('surfaceBg calendar color → {kind:color,color}', b1.kind === 'color' && b1.color === '#224466', JSON.stringify(b1));
+  ok('surfaceBg expanded follow → 复用 calendar 背景', api.surfaceBg('expanded').kind === 'color');
+  ok('surfaceBg desktop image → {kind:image}', api.surfaceBg('desktop').kind === 'image');
+  ok('surfaceBg dock light → {kind:native}', api.surfaceBg('dock').kind === 'native');
 })();
 
 (function () {
-  const api = makeSkinApi({
-    skinMode: 'custom',
-    skinColor: { calendar: '#fcfbf9', desktop: null, dock: null },
-    desktopFollowCalendar: true, dockFollowCalendar: true, themeMode: 'light'
-  });
-  const st = api.resolveSkinState('calendar');
-  ok('resolveSkinState 浅背景 → mode=custom + 深字', st.mode === 'custom' && st.bg === '#fcfbf9' &&
-    st.ink === '#1f2430', JSON.stringify(st));
-  ok('浅背景 → inkSoft/inkFaint 为深字档', st.inkSoft === '#6b7280' && st.inkFaint === '#9aa1ad');
-  ok('浅背景 → effectiveTheme 透传 themeMode', st.effectiveTheme === 'light');
+  const skin = { __v: 2, surfaces: {
+    calendar: { type: 'color', color: '#1f2430', image: null, text: 'auto' },
+    expanded: { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto' },
+    desktop: { follow: null, type: 'dark', color: null, image: null, text: 'auto' },
+    dock: { type: 'image', image: { file: 'd.gif', snapshot: 'd_frame.png', w: 1280, h: 853, crop: { x: 0.2, y: 0.1, w: 0.6, h: 0.8 }, zoom: 1.5, dark: true }, text: 'auto' }
+  }, opacity: {} };
+  const api = makeSkinHub(skin, { shouldUseDarkColors: false });
+  const st = api.resolvedSurfaceState('calendar');
+  ok('resolvedSurfaceState calendar → type/theme/bg/color 齐全', st.type === 'color' && st.theme === 'dark' && st.bg === 'color' && st.color === '#1f2430', JSON.stringify(st));
+  const dk = api.resolvedSurfaceState('dock');
+  ok('resolvedSurfaceState dock image → image 透传 + theme=dark', dk.bg === 'image' && dk.image && dk.image.file === 'd.gif' && dk.theme === 'dark', JSON.stringify(dk));
 })();
 
 (function () {
-  const api = makeSkinApi({
-    skinMode: 'custom',
-    skinColor: { calendar: '#1f2430', desktop: null, dock: null },
-    desktopFollowCalendar: true, dockFollowCalendar: true, themeMode: 'dark'
-  });
-  const st = api.resolveSkinState('calendar');
-  ok('resolveSkinState 深背景 → mode=custom + 浅字', st.mode === 'custom' && st.bg === '#1f2430' &&
-    st.ink === '#e8eaf0', JSON.stringify(st));
-  ok('深背景 → inkSoft/inkFaint 为浅字档', st.inkSoft === '#9aa3b3' && st.inkFaint === '#6a7283');
-  ok('深背景 → effectiveTheme 透传 themeMode', st.effectiveTheme === 'dark');
+  const api = makeSkinHub({}, { shouldUseDarkColors: false });
+  const m = api.migrateSkin({ theme: 'dark', nativeSkin: 'light', skinMode: 'custom', skinColor: { calendar: '#224466', desktop: '#334455', dock: '#102030' }, desktopFollowCalendar: false, dockFollowCalendar: false, mainOpacity: 0.8, desktopOpacity: 0.6, dockOpacity: 0.7 });
+  ok('migrateSkin 日历 custom 色 → type=color + color', m.surfaces.calendar.type === 'color' && m.surfaces.calendar.color === '#224466');
+  ok('migrateSkin 桌面不跟随+色 → follow=null + color', m.surfaces.desktop.follow === null && m.surfaces.desktop.type === 'color' && m.surfaces.desktop.color === '#334455');
+  ok('migrateSkin 浮动色 → dock color（丢弃 dockFollowCalendar）', m.surfaces.dock.type === 'color' && m.surfaces.dock.color === '#102030');
+  ok('migrateSkin 透明度迁移 0.8/0.6/0.7', m.opacity.calendar === 0.8 && m.opacity.desktop === 0.6 && m.opacity.dock === 0.7);
+  ok('migrateSkin __v===2', m.__v === 2);
 })();
 
 (function () {
-  const api = makeSkinApi({
-    skinMode: 'native',
-    skinColor: { calendar: null, desktop: null, dock: null },
-    desktopFollowCalendar: true, dockFollowCalendar: true, themeMode: 'dark'
-  });
-  const st = api.resolveSkinState('calendar');
-  ok('resolveSkinState native → mode=native + bg=null + 深字档', st.mode === 'native' && st.bg === null &&
-    st.ink === '#1f2430' && st.inkSoft === '#6b7280', JSON.stringify(st));
-  ok('native → effectiveTheme=dark', st.effectiveTheme === 'dark');
+  const api = makeSkinHub({}, { shouldUseDarkColors: false });
+  const m = api.migrateSkin({ nativeSkin: 'system' });
+  ok('migrateSkin nativeSkin=system（无自定义色）→ calendar.type=system', m.surfaces.calendar.type === 'system');
+  ok('migrateSkin expanded/desktop 默认 follow=calendar', m.surfaces.expanded.follow === 'calendar' && m.surfaces.desktop.follow === 'calendar');
 })();
 
-/* ============ v2.4.0 主题中枢：recomputeTheme（nativeSkin → 生效主题） ============ */
-console.log('\n【v2.4.0】recomputeTheme —— 依据 nativeSkin 推导生效主题');
+(function () {
+  const api = makeSkinHub({}, { shouldUseDarkColors: false });
+  const n = api.normalizeSkin({ __v: 2, surfaces: {
+    calendar: { type: 'color', color: 'abc' },
+    dock: { type: 'image', image: { file: '../../evil.png', crop: { x: -1, y: 2, w: 3, h: 0.5 }, zoom: 9 } }
+  }, opacity: { calendar: 2, dock: 0.1 } });
+  ok('normalizeSkin 非法色 → null（validHex 校验）', n.surfaces.calendar.color === null);
+  ok('normalizeSkin 路径穿越 → basename 消毒', n.surfaces.dock.image && n.surfaces.dock.image.file === 'evil.png');
+  ok('normalizeSkin crop clamp 到 0~1', n.surfaces.dock.image.crop.x === 0 && n.surfaces.dock.image.crop.w === 1);
+  ok('normalizeSkin zoom clamp 到 1~5', n.surfaces.dock.image.zoom === 5);
+  ok('normalizeSkin opacity clamp 到 0.3~1', n.opacity.calendar === 1 && n.opacity.dock === 0.3);
+})();
 
-function runRecompute(nativeSkin, nativeThemeMock) {
-  const fn = new Function('nativeSkin', 'nativeTheme',
-    'var themeMode = "light"; ' + extractFn(mainSrc, 'recomputeTheme') + '; return recomputeTheme;'
-  )(nativeSkin, nativeThemeMock);
-  return fn();
+/* ============ v2.4.0 第二轮 取景数学：crop+zoom ↔ CSS background（正向/反向一致性） ============ */
+console.log('\n【v2.4.0 第二轮】取景数学 —— 归一化 crop/zoom 与视口/原图尺寸解耦，重启复现一致');
+
+function _clamp01(v) { return Math.max(0, Math.min(1, v)); }
+function _clampZoom(v) { return Math.max(1, Math.min(5, v)); }
+function cropForward(image, cropRect, zoom, vp) {
+  const IW = image.w, IH = image.h;
+  const cx = cropRect.x * IW, cy = cropRect.y * IH, cw = cropRect.w * IW, ch = cropRect.h * IH;
+  // 全图 cover 基准（crop.w/h 是 zoom 的派生冗余，不进基准；否则与反向 zoom=s/s0 不互逆）
+  const s0 = Math.max(vp.w / IW, vp.h / IH);
+  const s = s0 * zoom;
+  return {
+    size: [IW * s, IH * s],
+    pos: [vp.w / 2 - (cx + cw / 2) * s, vp.h / 2 - (cy + ch / 2) * s],
+    s: s, s0: s0
+  };
 }
-ok('nativeSkin=dark → dark', runRecompute('dark', { shouldUseDarkColors: false }) === 'dark');
-ok('nativeSkin=light → light', runRecompute('light', { shouldUseDarkColors: true }) === 'light');
-ok('nativeSkin=system + 系统深色 → dark', runRecompute('system', { shouldUseDarkColors: true }) === 'dark');
-ok('nativeSkin=system + 系统浅色 → light', runRecompute('system', { shouldUseDarkColors: false }) === 'light');
-ok('nativeSkin=system + nativeTheme 抛错 → 回落 light 不抛',
-  runRecompute('system', { get shouldUseDarkColors() { throw new Error('boom'); } }) === 'light');
+function cropReverse(image, center, s, vp) {
+  const IW = image.w, IH = image.h;
+  const vw = vp.w / s, vh = vp.h / s;
+  return {
+    crop: {
+      x: _clamp01(Math.max(0, Math.min((center.x - vw / 2) / IW, Math.max(0, 1 - vw / IW)))),
+      y: _clamp01(Math.max(0, Math.min((center.y - vh / 2) / IH, Math.max(0, 1 - vh / IH)))),
+      w: _clamp01(vw / IW),
+      h: _clamp01(vh / IH)
+    },
+    zoom: _clampZoom(s / Math.max(vp.w / IW, vp.h / IH))
+  };
+}
+
+(function () {
+  const img = { w: 1280, h: 853 };
+  // 日历取景框 340×430，原图 cover 缩放后（zoom=1）应横向取满、纵向裁切
+  const f1 = cropForward(img, { x: 0, y: 0, w: 1, h: 1 }, 1, { w: 340, h: 430 });
+  ok('cover 缩放（zoom=1）横图 → 尺寸铺满且纵向超出视口', f1.size[0] >= 340 && f1.size[1] >= 430, JSON.stringify(f1.size));
+  ok('cover 缩放中心对齐 → pos 使图片中心落在视口中心', Math.abs(f1.pos[0] - (340 / 2 - 640 * f1.s)) < 1e-6);
+})();
+
+(function () {
+  const img = { w: 1280, h: 853 };
+  const vp = { w: 340, h: 430 };
+  // 自洽数据：从权威 center + zoom 反向推导 crop（crop.w/h 是 zoom 的派生冗余），
+  // 再正向→反向必须全量还原（crop.x/y/w/h 与 zoom 都一致，含中心点）。
+  const center = { x: 0.5 * img.w, y: 0.5 * img.h };
+  const zoom = 1.5;
+  const s0 = Math.max(vp.w / img.w, vp.h / img.h);
+  const s = s0 * zoom;
+  const crop0 = cropReverse(img, center, s, vp).crop;
+  const f = cropForward(img, crop0, zoom, vp);
+  const centerF = { x: (crop0.x + crop0.w / 2) * img.w, y: (crop0.y + crop0.h / 2) * img.h };
+  const rev = cropReverse(img, centerF, f.s, vp);
+  ok('正向→反向还原 zoom 一致（≈1.5）', Math.abs(rev.zoom - zoom) < 1e-9, 'rev.zoom=' + rev.zoom);
+  ok('正向→反向还原 crop 中心 x（0.5*IW）',
+    Math.abs((rev.crop.x + rev.crop.w / 2) - 0.5) < 1e-9, 'rev.cx=' + (rev.crop.x + rev.crop.w / 2));
+  ok('正向→反向还原 crop 中心 y（0.5*IH）',
+    Math.abs((rev.crop.y + rev.crop.h / 2) - 0.5) < 1e-9, 'rev.cy=' + (rev.crop.y + rev.crop.h / 2));
+  ok('正向→反向全量还原 crop/zoom（自洽数据）',
+    Math.abs(rev.crop.x - crop0.x) < 1e-9 && Math.abs(rev.crop.y - crop0.y) < 1e-9 &&
+    Math.abs(rev.crop.w - crop0.w) < 1e-9 && Math.abs(rev.crop.h - crop0.h) < 1e-9 &&
+    Math.abs(rev.zoom - zoom) < 1e-9,
+    'crop0=' + JSON.stringify(crop0) + ' rev=' + JSON.stringify(rev.crop) + ' zoom=' + rev.zoom);
+})();
+
+(function () {
+  // 缩放越大，crop 矩形越小（可见源区域越小）
+  const img = { w: 1280, h: 853 }, vp = { w: 340, h: 430 };
+  const z1 = cropReverse(img, { x: 640, y: 426.5 }, cropForward(img, { x: 0, y: 0, w: 1, h: 1 }, 1, vp).s, vp);
+  const z5 = cropReverse(img, { x: 640, y: 426.5 }, cropForward(img, { x: 0, y: 0, w: 1, h: 1 }, 5, vp).s, vp);
+  ok('zoom 越大 crop 面积越小', z5.crop.w * z5.crop.h < z1.crop.w * z1.crop.h, 'z1=' + JSON.stringify(z1.crop) + ' z5=' + JSON.stringify(z5.crop));
+})();
+
+// 静态复核：真实代码里用的就是同一套正向公式（全图 cover 基准 + background-size/position）
+ok('[关键] app.js applySkinImage 用全图 cover 基准 Math.max(vp.w/IW, vp.h/IH)',
+  /Math\.max\(vp\.w \/ IW, vp\.h \/ IH\)/.test(fs.readFileSync('app.js', 'utf8')));
+ok('[关键] app.js 背景定位用取景中心对齐 (vp.w/2 - centerX*s)',
+  /vp\.w \/ 2 - centerX \* s/.test(fs.readFileSync('app.js', 'utf8')));
+ok('[关键] dock.html 同样用全图 cover 基准公式',
+  /Math\.max\(vp\.w \/ IW, vp\.h \/ IH\)/.test(dockSrc));
+ok('[关键] skin.html 反向换算 crop/zoom 落盘（saveCrop）',
+  /crop\.center\.x - vw \/ 2/.test(fs.readFileSync('skin.html', 'utf8')) &&
+  /crop\.s \/ crop\.s0/.test(fs.readFileSync('skin.html', 'utf8')));
 
 /* ============ v2.4.0 A3：pickDockRestore（按显示器 ID 记忆插件落点） ============ */
 console.log('\n【v2.4.0 A3】pickDockRestore —— 多屏插件位置记忆');
