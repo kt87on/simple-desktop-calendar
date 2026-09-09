@@ -400,6 +400,8 @@ function skinsDir() {
  * 返回 { ok, image, error }。 */
 function importSkinImage(surface, srcPath) {
   try {
+    var validSurfaces = { calendar: 1, expanded: 1, desktop: 1, dock: 1 };
+    if (!validSurfaces[surface]) return { ok: false, error: '无效的皮肤界面' };
     if (!srcPath || typeof srcPath !== 'string') return { ok: false, error: '未提供图片路径' };
     var ext = (path.extname(srcPath) || '').toLowerCase();
     var okExts = { '.png': 1, '.jpg': 1, '.jpeg': 1, '.gif': 1, '.webp': 1 };

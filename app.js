@@ -995,9 +995,14 @@ function confirmRemindInput() {
         }
       });
     }
-    // v2.4.0 A2：窗口隐藏/桌面插件失焦 → 清除算天数 range 状态 + 冻结 GIF
+    // v2.4.0 A2：窗口隐藏/桌面插件失焦 → 清除算天数 range 状态。
+    // 桌面插件失焦（blur，窗口仍可见）只清 range、不冻结 GIF——GIF 冻结改由
+    // visibilitychange（真正不可见时）驱动，与 dock 一致（A-bug1 修复收口）。
     if (window.api.onWinHidden) {
-      window.api.onWinHidden(function () { if (rangeSel.length) clearRange(); setSkinFrozen(true); });
+      window.api.onWinHidden(function () {
+        if (rangeSel.length) clearRange();
+        if (!IS_DESKTOP) setSkinFrozen(true);
+      });
     }
     if (window.api.onGotoYm) {
       window.api.onGotoYm(function (y, m, d) { gotoYm(y, m, d); });

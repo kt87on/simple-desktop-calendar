@@ -522,8 +522,9 @@ check('[v2.4.0 R2] registerSchemesAsPrivileged 注册 skin://（app ready 前）
 check('[v2.4.0 R2] protocol.handle("skin") 映射 userData/skins（net.fetch + pathToFileURL）',
   /protocol\.handle\('skin'/.test(mainCode) && /path\.join\(skinsDir\(\), name\)/.test(mainCode) &&
   /net\.fetch\(pathToFileURL\(file\)\.toString\(\)\)/.test(mainCode));
-check('[v2.4.0 R2] importSkinImage 校验（扩展名/≤20MB/最长边≤4096）',
+check('[v2.4.0 R2] importSkinImage 校验（surface 白名单/扩展名/≤20MB/最长边≤4096）',
   /function importSkinImage\(surface, srcPath\)/.test(mainCode) &&
+  /validSurfaces\[surface\]/.test(mainCode) &&
   /20 \* 1024 \* 1024/.test(mainCode) && /4096/.test(mainCode));
 check('[v2.4.0 R2] 图片亮度采样 64px resize.toBitmap',
   /resize\(\{ width: 64 \}\)/.test(mainCode) && /toBitmap\(\)/.test(mainCode));
@@ -599,6 +600,10 @@ check('[v2.4.0 R2] app.js 持有 skinCalendar/skinExpanded 并按 .max 切换',
   /applySkinState\(expanded \? skinExpanded : skinCalendar\)/.test(codeOnly(appjs)));
 check('[v2.4.0 R2] app.js 已移除 onThemeChanged 订阅（主题改由 skin-state.theme 驱动）',
   !/onThemeChanged\(function \(mode\)/.test(codeOnly(appjs)));
+// 桌面插件失焦（blur 仍可见）只清 range、不冻结 GIF；冻结改由 visibilitychange 驱动（与 dock 一致）
+check('[v2.4.0 R2] app.js onWinHidden 桌面模式跳过 setSkinFrozen（GIF 失焦不冻结）',
+  /if \(!IS_DESKTOP\) setSkinFrozen\(true\)/.test(codeOnly(appjs)) &&
+  /setSkinFrozen\(document\.hidden\)/.test(codeOnly(appjs)));
 check('[v2.4.0 R2] template.html 新增 #skinImg 层 + [data-skin=color/image]',
   /id="skinImg"/.test(tmpl) && /#skinImg\s*\{/.test(tmpl) &&
   /\[data-skin="color"\] #widget/.test(tmpl) && /\[data-skin="image"\] #widget/.test(tmpl));
