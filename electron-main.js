@@ -47,7 +47,22 @@ function loadSettings() {
     if (!f) return;
     const o = JSON.parse(fs.readFileSync(f, 'utf8'));
     if (o && typeof o === 'object') {
-      themeMode = (o.theme === 'dark') ? 'dark' : 'light';
+      /* v2.4.0：主题 → 皮肤。生效主题 themeMode 不再直接从旧 theme 字段读，
+       * 改由 recomputeTheme() 依据 nativeSkin 推导（loadSettings 之后调用）。
+       * 旧版只有 theme（light/dark），无 system 态 → 回退映射到对应手动项，保证升级不闪变。 */
+      nativeSkin = (o.nativeSkin === 'light' || o.nativeSkin === 'dark' || o.nativeSkin === 'system')
+        ? o.nativeSkin
+        : (o.theme === 'dark' ? 'dark' : 'light');
+      skinMode = (o.skinMode === 'custom') ? 'custom' : 'native';
+      if (o.skinColor && typeof o.skinColor === 'object') {
+        skinColor = {
+          calendar: validHex(o.skinColor.calendar),
+          desktop: validHex(o.skinColor.desktop),
+          dock: validHex(o.skinColor.dock)
+        };
+      }
+      desktopFollowCalendar = o.desktopFollowCalendar !== false;
+      dockFollowCalendar = o.dockFollowCalendar !== false;
       pinned = o.pinned !== false;
       autoLaunch = o.autoLaunch !== false;
       dockOn = o.dockOn !== false;
@@ -77,6 +92,12 @@ function loadSettings() {
       if (o.remindlistBounds && typeof o.remindlistBounds.x === 'number') {
         lastRemindlistBounds = o.remindlistBounds;
       }
+      // v2.4.0 A3：按显示器 ID 记忆插件位置（多屏各自记住，换机/ID 变化回落默认落点）
+      if (o.dockBoundsByDisplay && typeof o.dockBoundsByDisplay === 'object') {
+        dockBoundsByDisplay = o.dockBoundsByDisplay;
+      }
+      if (typeof o.dockDisplayId === 'number') dockDisplayId = o.dockDisplayId;
+      else if (typeof o.dockDisplayId === 'string') dockDisplayId = Number(o.dockDisplayId) || null;
       // v2.2.0 需求4/5：桌面插件开关/锁定/位置 + 三窗口透明度
       desktopOn = o.desktopOn === true;
       desktopLocked = o.desktopLocked === true;
@@ -101,9 +122,17 @@ function saveSettings() {
     if (!f) return;
     fs.writeFileSync(f, JSON.stringify({
       theme: themeMode, pinned: pinned, autoLaunch: autoLaunch, dockOn: dockOn,
+      /* v2.4.0 皮肤：theme 字段保留为「生效主题」镜像（旧版/第三方读 settings.json 不崩） */
+      skinMode: skinMode,
+      nativeSkin: nativeSkin,
+      skinColor: skinColor,
+      desktopFollowCalendar: desktopFollowCalendar,
+      dockFollowCalendar: dockFollowCalendar,
       dockMode: dockMode,                             // v1.7.21 需求2：桌面插件 / 桌面图标
       dockPinned: dockPinned,                         // v1.7.21：插件置顶开关
       dockBounds: dockBounds,                         // v1.7.21 需求3：插件上次落点
+      dockBoundsByDisplay: dockBoundsByDisplay,       // v2.4.0 A3：按显示器记忆
+      dockDisplayId: dockDisplayId,                   // v2.4.0 A3：上次所在显示器
       isWin11: isWin11,                               // v1.7.22 需求3：Windows 版本标记
       remindlistBounds: lastRemindlistBounds,         // v1.7.12：关注列表窗口位置
       // v2.1.0 节假日年度更新节流
@@ -126,6 +155,113 @@ function clampOpacity(v, def) {
   const n = Number(v);
   if (!isFinite(n)) return def;
   return Math.max(0.3, Math.min(1, n));
+}
+
+/* v2.4.0 皮肤色值校验：合法 "#RRGGBB" 原样返回（统一大写），非法返回 null */
+function validHex(v) {
+  if (typeof v !== 'string') return null;
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(v.trim());
+  return m ? ('#' + m[1].toUpperCase()) : null;
+}
+
+/* =====================================================================
+ * v2.4.0 主题 / 皮肤中枢（主进程是唯一真相）
+ * ---------------------------------------------------------------------
+ * - recomputeTheme()：唯一入口，依据 nativeSkin 推导「生效主题」themeMode。
+ * - resolveBg(surface)：按 surface 解析自选纯色背景（含桌面/浮动「跟随日历」）。
+ * - resolveSkinState(surface)：解析出下发给渲染层的 ResolvedSkinState。
+ * - isDarkColor(hex)：WCAG 相对亮度 < 0.5 判定为深色背景（浅字）。
+ * ===================================================================== */
+function recomputeTheme() {
+  if (nativeSkin === 'dark') themeMode = 'dark';
+  else if (nativeSkin === 'light') themeMode = 'light';
+  else {
+    try {
+      themeMode = (nativeTheme && nativeTheme.shouldUseDarkColors) ? 'dark' : 'light';
+    } catch (e) { themeMode = 'light'; }
+  }
+  return themeMode;
+}
+
+function isDarkColor(hex) {
+  try {
+    const c = validHex(hex);
+    if (!c) return false;
+    const r = parseInt(c.slice(1, 3), 16) / 255;
+    const g = parseInt(c.slice(3, 5), 16) / 255;
+    const b = parseInt(c.slice(5, 7), 16) / 255;
+    function chan(x) {
+      x = (x <= 0.03928) ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+      return x;
+    }
+    const lum = 0.2126 * chan(r) + 0.7152 * chan(g) + 0.0722 * chan(b);
+    return lum < 0.5;
+  } catch (e) { return false; }
+}
+
+function resolveBg(surface) {
+  if (skinMode !== 'custom') return null;
+  if (surface === 'calendar') return skinColor.calendar || null;
+  if (surface === 'desktop') return desktopFollowCalendar ? (skinColor.calendar || null) : (skinColor.desktop || null);
+  if (surface === 'dock') return dockFollowCalendar ? (skinColor.calendar || null) : (skinColor.dock || null);
+  return null;
+}
+
+function resolveSkinState(surface) {
+  const bg = resolveBg(surface);
+  const custom = !!bg;
+  let ink, inkSoft, inkFaint;
+  if (custom && isDarkColor(bg)) {
+    ink = '#e8eaf0'; inkSoft = '#9aa3b3'; inkFaint = '#6a7283';   // 深背景 → 浅字
+  } else {
+    ink = '#1f2430'; inkSoft = '#6b7280'; inkFaint = '#9aa1ad';   // 浅背景 → 深字
+  }
+  return {
+    mode: custom ? 'custom' : 'native',
+    bg: custom ? bg : null,
+    ink: ink,
+    inkSoft: inkSoft,
+    inkFaint: inkFaint,
+    effectiveTheme: themeMode
+  };
+}
+
+/* 皮肤状态下发 + 窗口背景兜底（自选皮肤激活 → setBackgroundColor(bg)；回原生 → 透明） */
+function pushSkinToRenderer() {
+  if (win && win.webContents && !win.webContents.isDestroyed()) {
+    const st = resolveSkinState('calendar');
+    try { win.webContents.send('skin-state', st); } catch (e) {}
+    try { win.setBackgroundColor(st.mode === 'custom' ? st.bg : '#00000000'); } catch (e) {}
+  }
+}
+function pushSkinToDesktop() {
+  if (desktopWin && desktopWin.webContents && !desktopWin.webContents.isDestroyed()) {
+    const st = resolveSkinState('desktop');
+    try { desktopWin.webContents.send('skin-state', st); } catch (e) {}
+    try { desktopWin.setBackgroundColor(st.mode === 'custom' ? st.bg : '#00000000'); } catch (e) {}
+  }
+}
+function pushSkinToDock() {
+  if (dockWin && dockWin.webContents && !dockWin.webContents.isDestroyed()) {
+    const st = resolveSkinState('dock');
+    try { dockWin.webContents.send('skin-state', st); } catch (e) {}
+    try { dockWin.setBackgroundColor(st.mode === 'custom' ? st.bg : '#00000000'); } catch (e) {}
+  }
+}
+function pushSkinToAll() {
+  pushSkinToRenderer();
+  pushSkinToDesktop();
+  pushSkinToDock();
+}
+
+/* 生效主题统一下发（复用既有 theme-changed 通道 + 托盘反色 + 设置回推） */
+function pushThemeToAll() {
+  pushThemeToRenderer();
+  pushThemeToDock();
+  pushThemeToDesktop();
+  pushThemeToRemindlist();
+  if (tray) { try { tray.setImage(trayIconByTheme()); } catch (e) {} }
+  pushSettingsState();
 }
 
 /* ===== v1.7.22 需求3：Windows 版本检测 =====
@@ -187,6 +323,17 @@ let themeMode = 'light';      // 'light' 白日 | 'dark' 黑夜
 let pinned = true;             // 主窗置顶
 let autoLaunch = true;         // 开机自启
 
+/* ===== v2.4.0 皮肤（主题 → 皮肤统一） =====
+ * skinMode  = 'native' 原生皮肤 | 'custom' 自选纯色
+ * nativeSkin= 'light' | 'dark' | 'system'（system=跟随系统实时深浅色）
+ * skinColor = { calendar, desktop, dock } 各自 "#RRGGBB" 或 null（null=回原生外观）
+ * desktopFollowCalendar / dockFollowCalendar = 桌面插件/浮动插件是否默认跟随日历皮肤 */
+let skinMode = 'native';
+let nativeSkin = 'system';
+let skinColor = { calendar: null, desktop: null, dock: null };
+let desktopFollowCalendar = true;
+let dockFollowCalendar = true;
+
 /* ===== v1.7.20 任务栏挂件条（dock） =====
  * 用户要的"任务栏插件"：贴任务栏上沿右侧、始终可见的一个小条，
  * 上排 24 小时制时间、下排年月日；左键=开/关日历主窗，右键=弹出与托盘完全相同的菜单。
@@ -238,6 +385,10 @@ const WIN11_POS_COMP_Y = 0;
 /* v1.7.21 需求3：拖动的落点限制在「屏幕工作区」内（工作区已自动排除任务栏）。
  * 记录插件上次位置，切到图标模式再切回来时自动回到原处。 */
 let dockBounds = null;
+/* v2.4.0 A3：按显示器 ID 记忆插件位置。dockBoundsByDisplay[displayId] → 矩形，
+ * dockDisplayId = 上次所在屏。display-removed 回落、display-added 还原、越界夹取。 */
+let dockBoundsByDisplay = {};
+let dockDisplayId = null;
 /* v1.7.21：插件置顶开关。默认开，但置顶等级用 'floating'（低于 'screen-saver'），
  * 不跟全屏游戏/视频抢最高层；用户看全屏视频时可在这里手动关掉。 */
 let dockPinned = true;
@@ -267,8 +418,12 @@ let dockStableTimer = null;
 /* ===== v1.7.11 特别关注字数限制 ===== */
 const MAX_REMINDER_TEXT = 15;  // 单条内容最多 15 字（v2.3.0：移除「最多 10 条」数量上限）
 
-// 托盘点击后短暂抑制 blur（否则左键唤起时窗口刚 show 又立即 blur 触发 hide）
-let suppressBlur = false;
+/* v2.4.0 A1：托盘/菜单唤起后的短暂 blur 保护，改用时间戳 + guardBlur(ms)，
+ * 不再用裸布尔 + 多处 setTimeout 复位（旧实现存在竞态，导致"点外部不消失"偶发）。 */
+let blurGraceUntil = 0;
+function guardBlur(ms) {
+  blurGraceUntil = Date.now() + (ms || 350);
+}
 
 /* ===== v1.6.2 特别关注（reminder） =====
  * 数据结构：
@@ -852,8 +1007,7 @@ function showExpanded() {
 // 托盘左键 / IPC 切换：已显示就隐藏，未显示就 mini 唤起
 function toggleFromTray() {
   if (!win) return;
-  suppressBlur = true;
-  setTimeout(function () { suppressBlur = false; }, 350);
+  guardBlur(350);
   if (win.isVisible()) {
     win.hide();
   } else {
@@ -876,8 +1030,7 @@ function trayGotoYm(y, m, d) {
   if (win && !win.isVisible()) showMini();
   if (win) {
     win.focus();
-    suppressBlur = true;
-    setTimeout(function () { suppressBlur = false; }, 350);
+    guardBlur(350);
     setTimeout(function () { try { win.webContents.send('goto-ym', y, m, d); } catch (e) {} }, 120);
   }
 }
@@ -997,11 +1150,13 @@ function buildReminderMenuItems() {
 }
 
 function toggleTheme() {
-  themeMode = (themeMode === 'light') ? 'dark' : 'light';
-  pushThemeToRenderer();
-  pushThemeToDock();
-  pushThemeToRemindlist();   // v1.7.12：同步关注列表独立窗口
-  if (tray) { try { tray.setImage(trayIconByTheme()); } catch (e) {} }
+  // v2.4.0：主题→皮肤后，本函数保留为兼容入口 —— 语义 = 原生皮肤 light↔dark。
+  // system 态下点击切到与当前生效主题相反的手动项，不改变 skinMode。
+  if (nativeSkin === 'system') nativeSkin = (themeMode === 'dark') ? 'light' : 'dark';
+  else nativeSkin = (nativeSkin === 'dark') ? 'light' : 'dark';
+  recomputeTheme();
+  pushThemeToAll();
+  pushSkinToAll();
   saveSettings();
   refreshTrayMenu();
 }
@@ -1050,9 +1205,12 @@ function applyDockMode() {
       // v1.7.21 需求2：回到之前的位置（有记录就恢复，没有就用默认位置）。
       /* v1.7.22.3 修复（与 ready-to-show 同源）：只取 x/y，尺寸强制用窗口真实宽高，
        * 防止旧版错写的非 116×50 尺寸（典型如 350×178）再次把窗口撑大。 */
-      if (dockBounds) {
+      const restoreRect = pickDockRestore(
+        (typeof screen.getAllDisplays === 'function') ? screen.getAllDisplays() : [],
+        dockBoundsByDisplay, dockDisplayId, dockBounds);
+      if (restoreRect) {
         try {
-          dockWin.setBounds(dockClamped(dockBounds.x, dockBounds.y));
+          dockWin.setBounds(dockClamped(restoreRect.x, restoreRect.y));
         } catch (e) {}
       } else {
         positionDock();
@@ -1093,6 +1251,31 @@ function clampDockToWorkArea(b) {
  * 压缩一大截，表现为"拖不到底 / 拖不到右 / 卡在半空"。 */
 function dockClamped(x, y) {
   return clampDockToWorkArea({ x: x, y: y, width: dockW, height: dockH });
+}
+
+/* v2.4.0 A3：按显示器 ID 选择要恢复的插件落点（纯函数，便于运行时单测）。
+ * 优先级：① dockDisplayId 对应屏还有记录且屏仍存活 → 原屏原位；
+ *         ② 任一存活屏上有记录 → 按屏顺序回退（换机/ID 变化）；
+ *         ③ 旧式单一 dockBounds；都无 → null（调用方走 positionDock 默认落点）。 */
+function pickDockRestore(displays, map, displayId, fallbackRect) {
+  let rect = null;
+  if (displays && map) {
+    if (displayId !== null && displayId !== undefined && map[String(displayId)]) {
+      let alive = false;
+      for (let i = 0; i < displays.length; i++) {
+        if (String(displays[i].id) === String(displayId)) { alive = true; break; }
+      }
+      if (alive) rect = map[String(displayId)];
+    }
+    if (!rect) {
+      for (let j = 0; j < displays.length; j++) {
+        const k = String(displays[j].id);
+        if (map[k]) { rect = map[k]; break; }
+      }
+    }
+  }
+  if (!rect) rect = fallbackRect;
+  return rect;
 }
 
 /* 挂件条总开关：关闭后插件与托盘图标都不显示。仅 hide 不销毁；
@@ -1149,6 +1332,7 @@ function createDesktopWidget() {
     desktopWin.loadFile(path.join(__dirname, 'calendar.html'), { query: { mode: 'desktopWidget' } });
     desktopWin.webContents.on('did-finish-load', function () {
       pushThemeToDesktop();
+      pushSkinToDesktop();   // v2.4.0：桌面插件皮肤（默认跟随日历，可独立）
       pushDesktopState();
     });
     desktopWin.once('ready-to-show', function () {
@@ -1205,7 +1389,18 @@ function settingsSnapshot() {
     dockOpacity: dockOpacity,
     mainOpacity: mainOpacity,
     desktopOpacity: desktopOpacity,
-    mainVisible: !!(win && win.isVisible())
+    mainVisible: !!(win && win.isVisible()),
+    // v2.4.0 皮肤字段 + 各表面解析后的背景（供设置页色卡预览，主进程唯一真相）
+    skinMode: skinMode,
+    nativeSkin: nativeSkin,
+    skinColor: skinColor,
+    desktopFollowCalendar: desktopFollowCalendar,
+    dockFollowCalendar: dockFollowCalendar,
+    skinResolved: {
+      calendar: resolveBg('calendar'),
+      desktop: resolveBg('desktop'),
+      dock: resolveBg('dock')
+    }
   };
 }
 function pushSettingsState() {
@@ -1347,6 +1542,11 @@ let trayTooltipTimer = null;
  * 主窗
  * ===================================================================== */
 let mainClampLock = false;   // v2.3.2：放大模式拖动夹取防重入标志（move→setBounds→move 短路）
+/* v2.4.0 A1/A2：隐藏主窗的唯一收口。blur / 插件 toggle / 关闭 都走这里；win-hidden 由 'hide' 事件统一下发。 */
+function hideMain() {
+  if (!win || win.isDestroyed()) return;
+  try { win.hide(); } catch (e) {}
+}
 function createWindow() {
   win = new BrowserWindow({
     width: MINI_W, height: MINI_H,
@@ -1360,6 +1560,7 @@ function createWindow() {
 
   win.webContents.on('did-finish-load', function () {
     pushThemeToRenderer();
+    pushSkinToRenderer();   // v2.4.0：首帧应用皮肤（背景 + 自动明暗文字）
     // v1.7.11：页面就绪时同步一次尺寸状态（mini / expanded），
     // 否则渲染层可能错过启动时那次 notifyExpandState，导致 .max 类不同步。
     setTimeout(notifyExpandState, 60);
@@ -1371,21 +1572,33 @@ function createWindow() {
     e.preventDefault();
     win.hide();
   });
-  // 需求 2 / 3：blur = 隐藏（点击主体外消失；放大后点击外面也消失）
-  win.on('blur', function () {
-    if (suppressBlur) return;
-    // v1.7.17 需求1：关注列表/提醒弹窗打开时，主窗不因 blur 隐藏（修复"点特别关注列表日历消失"）
+  // v2.4.0 A2：窗口隐藏统一下发 win-hidden（渲染层收到即 clearRange 清除算天数残留）。
+  // 统一挂在 'hide' 事件上，覆盖 blur 隐藏 / close 隐藏 / 插件 toggle 隐藏所有路径。
+  win.on('hide', function () {
     try {
-      if (remindlistWin && !remindlistWin.isDestroyed() && remindlistWin.isVisible()) return;
-      if (reminderWin && !reminderWin.isDestroyed() && reminderWin.isVisible()) return;
-      /* v2.2.0 需求1：点击浮动插件 toggle 主窗时，焦点会从主窗转移到插件窗口，
-       * 这个 blur 会先于插件的 click 触发并把主窗 hide()，随后 toggle 又判"不可见"→重新 show，
-       * 结果表现为"点插件关不掉，只能点别处"。这里只要焦点还在插件（或桌面插件）上就不隐藏，
-       * 让 toggleFromTray 的 isVisible() 判断看到真实状态。 */
+      if (win && win.webContents && !win.webContents.isDestroyed()) win.webContents.send('win-hidden');
+    } catch (e) {}
+  });
+  // v2.4.0 A1：窗口显示时清空 blur grace（显示即已获得焦点，此后真实 blur 应正常隐藏）
+  win.on('show', function () { blurGraceUntil = 0; });
+  // 需求 2 / 3：blur = 隐藏（点击主体外消失；放大后点击外面也消失）
+  /* v2.4.0 A1 重构：不再用 suppressBlur 布尔 + 多处 setTimeout（存在竞态），
+   * 改为 blurGraceUntil 时间戳 + BrowserWindow.getFocusedWindow() 判定焦点是否仍在本应用。
+   * getFocusedWindow() 返回 null = 焦点已离开本应用 → 稳定隐藏，消除 dock.isFocused() 竞态。 */
+  win.on('blur', function () {
+    if (Date.now() < blurGraceUntil) return;
+    try {
+      const fw = BrowserWindow.getFocusedWindow();
+      // 焦点仍在本应用任一窗口（主窗自己 / dock / 桌面插件 / 设置 / 关注列表 / 提醒）→ 不隐藏
+      if (fw && !fw.isDestroyed()) return;
+      // 兜底：某些环境 getFocusedWindow 拿不到，退回 isFocused / isVisible 判定
       if (dockWin && !dockWin.isDestroyed() && dockWin.isFocused()) return;
       if (desktopWin && !desktopWin.isDestroyed() && desktopWin.isFocused()) return;
+      if (settingsWin && !settingsWin.isDestroyed() && settingsWin.isVisible()) return;
+      if (remindlistWin && !remindlistWin.isDestroyed() && remindlistWin.isVisible()) return;
+      if (reminderWin && !reminderWin.isDestroyed() && reminderWin.isVisible()) return;
     } catch (e) {}
-    if (win && win.isVisible()) win.hide();
+    hideMain();
   });
   // v2.2.0 需求2：系统拖拽窗口边框（resizable）时实时下发新宽，内容等比缩放跟随
   win.on('resize', function () {
@@ -1622,6 +1835,7 @@ function createDock() {
     try { dockWin.setIgnoreMouseEvents(true, { forward: true }); } catch (e) {}
     dockWin.webContents.on('did-finish-load', function () {
       pushThemeToDock();
+      pushSkinToDock();   // v2.4.0：浮动插件皮肤（默认跟随日历，可独立）
       pushDockSize();
     });
     /* v1.7.20：渲染进程崩溃（浮动态偶发 GPU/D3D 崩溃）兜底。只记日志 + 延迟到下个 tick
@@ -1650,10 +1864,14 @@ function createDock() {
        * 用当前 dockWin 的真实尺寸 —— 即使磁盘上的 dockBounds 被旧版错写成了异常尺寸
        * （实测有用户残留 350×178，疑似早期嵌入循环里的主窗/嵌入子窗 bounds），也不能再把
        * 物理窗口撑大：撑大后 clampDockToWorkArea 按大矩形算 maxX/maxY，挂件条的可活动范围
-       * 被严重压缩 → 卡片看着"卡在半空、过不去"。 */
-      if (dockBounds) {
+       * 被严重压缩 → 卡片看着"卡在半空、过不去"。
+       * v2.4.0 A3：恢复优先走按显示器 ID 记忆（pickDockRestore），多屏各自回到原位。 */
+      const restoreRect = pickDockRestore(
+        (typeof screen.getAllDisplays === 'function') ? screen.getAllDisplays() : [],
+        dockBoundsByDisplay, dockDisplayId, dockBounds);
+      if (restoreRect) {
         try {
-          dockWin.setBounds(dockClamped(dockBounds.x, dockBounds.y));
+          dockWin.setBounds(dockClamped(restoreRect.x, restoreRect.y));
         } catch (e) {}
       } else {
         positionDock();
@@ -1787,14 +2005,12 @@ ipcMain.on('toggle-expand', function () {
 ipcMain.on('dock-toggle-main', function () { toggleFromTray(); });
 ipcMain.on('dock-show-menu', function () {
   // v1.7.17 需求1：弹菜单期间抑制主窗 blur 隐藏（原生菜单抢焦点会触发主窗 hide）
-  suppressBlur = true;
-  setTimeout(function () { suppressBlur = false; }, 800);
+  guardBlur(800);
   try { buildTrayMenu().popup(); } catch (e) { log('dock menu popup failed: ' + (e && e.message || e)); }
 });
 // v1.7.17 需求8：主窗右键菜单（去托盘后的菜单入口）
 ipcMain.on('main-show-menu', function () {
-  suppressBlur = true;
-  setTimeout(function () { suppressBlur = false; }, 800);
+  guardBlur(800);
   try { buildTrayMenu().popup(); } catch (e) { log('main menu popup failed: ' + (e && e.message || e)); }
 });
 /* v1.7.22.5 拖拽改写 —— 绝对定位，禁止累加漂移（用户给的标准模板）。
@@ -1848,6 +2064,15 @@ ipcMain.on('dock-drag-end', function () {
     const nb = dockClamped(cur.x, cur.y);
     dockWin.setBounds(nb);
     dockBounds = { x: nb.x, y: nb.y, width: dockW, height: dockH };  // 内存立即更新
+    /* v2.4.0 A3：按显示器 ID 记忆（多屏各自记住落点）。display.id 换机可能变化，
+     * 以"当前运行时 ID 表"为准；键统一字符串化，JSON 持久化安全。 */
+    try {
+      const disp = screen.getDisplayMatching(nb);
+      if (disp && disp.id !== null && disp.id !== undefined) {
+        dockDisplayId = disp.id;
+        dockBoundsByDisplay[String(disp.id)] = { x: nb.x, y: nb.y, width: dockW, height: dockH };
+      }
+    } catch (e) {}
     clearTimeout(_dockSaveTimer);
     _dockSaveTimer = setTimeout(function () {
       _dockSaveTimer = null;
@@ -1882,8 +2107,7 @@ ipcMain.on('remindlist-goto-ym', function (evt, y, m, d) {
   if (win) {
     try {
       if (!win.isVisible()) showMini();
-      suppressBlur = true;
-      setTimeout(function () { suppressBlur = false; }, 350);
+      guardBlur(350);
       win.focus(); win.moveTop();
       win.webContents.send('goto-ym', y, m, d);
     } catch (e) { log('remindlist goto failed: ' + (e && e.message || e)); }
@@ -1901,20 +2125,19 @@ ipcMain.on('remindlist-remove', function (evt, id) {
     }
   }
 });
-// 主窗 themeBtn 点击 → 主进程切换主题（同步托盘菜单）
+// 主窗 themeBtn 点击 → 原生皮肤 light↔dark 快捷切换（v2.4.0 主题→皮肤语义变更）
 ipcMain.on('set-theme', function (evt, mode) {
-  themeMode = (mode === 'dark') ? 'dark' : 'light';
-  // 重生托盘图标（颜色随之变化）
-  if (tray) {
-    try {
-      tray.setImage(trayIconByTheme());
-    } catch (e) {}
+  // 不改变 skinMode：只是切换原生皮肤的手动项。
+  // system 态下点击 → 切到与当前生效主题相反的手动项。
+  if (nativeSkin === 'system') {
+    nativeSkin = (themeMode === 'dark') ? 'light' : 'dark';
+  } else {
+    nativeSkin = (mode === 'dark') ? 'dark' : 'light';
   }
-  pushThemeToDock();
-  pushThemeToDesktop();   // v2.2.0：桌面插件跟随主题
-  pushDataToRemindlist();  // v1.7.12：关注列表独立窗口跟随主题
-  pushSettingsState();     // v2.2.0：设置弹窗（若开着）同步
-  saveSettings();          // v1.7.11：主题持久化
+  recomputeTheme();
+  pushThemeToAll();
+  pushSkinToAll();          // 生效主题变化同步进 skin-state（状态色来源不变，仅 effectiveTheme 字段更新）
+  saveSettings();
   refreshTrayMenu();
 });
 // v1.6：渲染层 resize 手柄 → 主进程按宽度统一算高度，比例永锁
@@ -1981,14 +2204,46 @@ ipcMain.on('desktop-toggle', function () { toggleDesktop(); });
  * ===================================================================== */
 ipcMain.on('settings-set', function (evt, key, value) {
   switch (key) {
-    case 'theme':
-      themeMode = (value === 'dark') ? 'dark' : 'light';
-      pushThemeToRenderer();
-      pushThemeToDock();
-      pushThemeToRemindlist();
-      pushThemeToDesktop();
-      if (tray) { try { tray.setImage(trayIconByTheme()); } catch (e) {} }
+    case 'theme':                 // v2.4.0 兼容旧调用：等价于设 nativeSkin 手动项
+      nativeSkin = (value === 'dark') ? 'dark' : 'light';
+      recomputeTheme();
+      pushThemeToAll();
+      pushSkinToAll();
       break;
+    case 'skinMode':
+      skinMode = (value === 'custom') ? 'custom' : 'native';
+      pushSkinToAll();
+      break;
+    case 'nativeSkin':
+      if (value === 'light' || value === 'dark' || value === 'system') {
+        nativeSkin = value;
+        recomputeTheme();
+        pushThemeToAll();
+        pushSkinToAll();
+      }
+      break;
+    case 'skinColor': {
+      // value = { surface: 'calendar'|'desktop'|'dock', hex: '#RRGGBB'|null }
+      const surface = (value && (value.surface === 'desktop' || value.surface === 'dock')) ? value.surface : 'calendar';
+      skinColor[surface] = validHex(value && value.hex);
+      pushSkinToAll();
+      break;
+    }
+    case 'desktopFollowCalendar':
+      desktopFollowCalendar = !!value;
+      pushSkinToAll();
+      break;
+    case 'dockFollowCalendar':
+      dockFollowCalendar = !!value;
+      pushSkinToAll();
+      break;
+    case 'skinReset': {
+      // value = surface：恢复该表面为原生主题外观（清空自选纯色）
+      const sr = (value === 'desktop' || value === 'dock') ? value : 'calendar';
+      skinColor[sr] = null;
+      pushSkinToAll();
+      break;
+    }
     case 'pinned':
       pinned = !!value;
       if (win) win.setAlwaysOnTop(pinned);
@@ -2639,6 +2894,7 @@ app.whenReady().then(function () {
   // 且函数内部按「父子关系」过滤，只杀不是自己子孙的同名进程 —— 见函数上方注释的事故记录。
   cleanupStaleInstances();
   loadSettings();          // v1.7.11：先读设置，再按设置建窗口
+  recomputeTheme();        // v2.4.0：依据 nativeSkin 推导「生效主题」themeMode（唯一入口）
   /* v1.7.22 需求3：启动时检测系统版本并写回配置项 isWin11（供后续像素补偿微调用） */
   isWin11 = detectWin11();
   try { log('OS: ' + (isWin11 ? 'Windows 11' : 'Windows 10') + ' (build ' + os.release() + ')'); } catch (e) {}
@@ -2665,6 +2921,37 @@ app.whenReady().then(function () {
         const cur = dockWin.getBounds();
         dockWin.setBounds(dockClamped(cur.x, cur.y));
       } catch (e) {}
+    });
+    /* v2.4.0 A3：显示器断开 → 回落到剩余存活工作区（越界夹取，不漂移不丢失） */
+    screen.on('display-removed', function () {
+      if (!dockWin || dockWin.isDestroyed()) return;
+      try {
+        const cur = dockWin.getBounds();
+        dockWin.setBounds(dockClamped(cur.x, cur.y));
+      } catch (e) {}
+    });
+    /* v2.4.0 A3：显示器重新连接 → 若该屏有记忆位置则还原到原屏原位 */
+    screen.on('display-added', function (evt, display) {
+      if (!dockWin || dockWin.isDestroyed() || dockMode !== 'dock') return;
+      try {
+        const rect = pickDockRestore(
+          (typeof screen.getAllDisplays === 'function') ? screen.getAllDisplays() : [],
+          dockBoundsByDisplay, (display && display.id), null);
+        if (rect) dockWin.setBounds(dockClamped(rect.x, rect.y));
+      } catch (e) {}
+    });
+  } catch (e) {}
+  /* v2.4.0 B4：跟随系统实时深浅色。只在 whenReady 注册一次；
+   * 仅 nativeSkin==='system' 时重算生效主题并广播，手动项不受系统深浅色影响。 */
+  try {
+    nativeTheme.on('updated', function () {
+      if (nativeSkin !== 'system') return;
+      const prev = themeMode;
+      recomputeTheme();
+      if (themeMode !== prev) {
+        pushThemeToAll();
+        saveSettings();
+      }
     });
   } catch (e) {}
   process.on('uncaughtException', function (e) {

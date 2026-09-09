@@ -46,6 +46,10 @@ contextBridge.exposeInMainWorld('api', {
   setTheme: function (mode) { ipcRenderer.send('set-theme', mode); },
   resizeWindow: function (w) { ipcRenderer.send('resize-window', w); },
   onThemeChanged: function (cb) { ipcRenderer.on('theme-changed', function (e, mode) { cb(mode); }); },
+  // v2.4.0：皮肤状态（按 surface 解析好的背景 + 自动明暗文字）下发
+  onSkinState: function (cb) { ipcRenderer.on('skin-state', function (e, state) { try { cb && cb(state); } catch (err) {} }); },
+  // v2.4.0 A2：窗口隐藏信号（渲染层收到即 clearRange 清除算天数残留）
+  onWinHidden: function (cb) { ipcRenderer.on('win-hidden', function () { try { cb && cb(); } catch (err) {} }); },
   onGotoYm: function (cb) { ipcRenderer.on('goto-ym', function (e, y, m, d) { cb(y, m, d); }); },
   // v2.2.0 需求7：每次打开日历回到当前月份
   onResetMonth: function (cb) { ipcRenderer.on('reset-month', function () { try { cb && cb(); } catch (err) {} }); },

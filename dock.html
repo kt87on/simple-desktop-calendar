@@ -93,6 +93,11 @@
     --hi: rgba(255, 255, 255, 0.85);          /* 顶部高光 */
     --ink: var(--ink-800);
     --ink-soft: var(--ink-600);
+    /* v2.4.0 皮肤层（浮动插件默认跟随日历皮肤，可拆分独立设色） */
+    --skin-bg-solid: transparent;
+    --skin-ink: #1f2430;
+    --skin-ink-soft: #6b7280;
+    --skin-ink-faint: #9aa1ad;
     --accent: var(--blue-500);
     --accent-soft: rgba(59, 111, 212, 0.10);
     --hover: rgba(31, 35, 48, 0.055);
@@ -122,6 +127,13 @@
     --shadow-hover: 0 0 0 1px rgba(122, 165, 255, 0.28),
                     0 0 12px rgba(0, 0, 0, 0.42),
                     inset 0 1px 0 var(--hi);
+  }
+
+  /* v2.4.0 自选纯色皮肤：只覆盖卡片 #card（窗口外透明区保持穿透，不改 body） */
+  [data-skin="custom"] #card { background: var(--skin-bg-solid); }
+  [data-skin="custom"] {
+    --ink: var(--skin-ink);
+    --ink-soft: var(--skin-ink-soft);
   }
 
   /* ============================ L3 组件层 ============================ */
@@ -170,12 +182,15 @@
     font-feature-settings: var(--font-num-feat);
   }
   #dockDate {
+    display: flex; align-items: center; justify-content: center;
+    gap: 6px;              /* v2.4.0 A6：星期与日期间距放宽 */
     font-size: var(--fs-xs); font-weight: var(--fw-semibold); line-height: 1;
     letter-spacing: 0.4px;
     color: var(--ink-soft);
     font-variant-numeric: tabular-nums;
     font-feature-settings: var(--font-num-feat);
   }
+  #dockDate span { display: inline-block; }
 
   @media (prefers-reduced-motion: reduce) {
     * { transition-duration: 0.01ms !important; }
@@ -186,22 +201,28 @@
 <body data-page-node-id="IppGOXXE1GZRBnFK9ZZBEd">
   <div id="card" data-page-node-id="4R1nm1s3QOxU7AyZct3c3P">
     <div id="dockTime" data-page-node-id="biML9qHPDIPoYeS24xkdXn">--:--:--</div>
-    <div id="dockDate" data-page-node-id="vSIUXgsAB0RQf0l5ETxEOG">周- --/--</div>
+    <div id="dockDate" data-page-node-id="vSIUXgsAB0RQf0l5ETxEOG">
+      <span id="dockWeek">周-</span><span id="dockDateNum">--/--</span>
+    </div>
   </div>
   <script>
     (function () {
       'use strict';
       var timeEl = document.getElementById('dockTime');
       var dateEl = document.getElementById('dockDate');
+      var weekEl = document.getElementById('dockWeek');
+      var dateNumEl = document.getElementById('dockDateNum');
       var cardEl = document.getElementById('card');
 
       function pad2(n) { return n < 10 ? '0' + n : '' + n; }
 
       // v2.2.0 需求3：新增秒与星期几。宽度 116px 下"周X MM/DD"去掉年份更紧凑，
       // 风格（字号/颜色/字重/tabular-nums）沿用原 token 不变。
+      // v2.4.0 A6：星期与日期拆成两个 span，gap 放宽、整体在卡片内垂直居中。
       var WEEK_CN = ['日', '一', '二', '三', '四', '五', '六'];
 
       var lastTimeText = '';
+      var lastWeekText = '';
       var lastDateText = '';
       function tick() {
         var t = new Date();
@@ -210,9 +231,13 @@
           var txt = pad2(t.getHours()) + ':' + pad2(t.getMinutes()) + ':' + pad2(t.getSeconds());
           if (txt !== lastTimeText) { lastTimeText = txt; timeEl.textContent = txt; }
         }
-        if (dateEl) {
-          var dtxt = '周' + WEEK_CN[t.getDay()] + ' ' + pad2(t.getMonth() + 1) + '/' + pad2(t.getDate());
-          if (dtxt !== lastDateText) { lastDateText = dtxt; dateEl.textContent = dtxt; }
+        if (weekEl) {
+          var wtxt = '周' + WEEK_CN[t.getDay()];
+          if (wtxt !== lastWeekText) { lastWeekText = wtxt; weekEl.textContent = wtxt; }
+        }
+        if (dateNumEl) {
+          var dtxt = pad2(t.getMonth() + 1) + '/' + pad2(t.getDate());
+          if (dtxt !== lastDateText) { lastDateText = dtxt; dateNumEl.textContent = dtxt; }
         }
       }
 
@@ -287,6 +312,14 @@
         }
       }
 
+      /* v2.4.0 A4：右键原生菜单弹出期间收不到 mousemove/mouseleave → body.hit 残留。
+       * contextmenu / 窗口 blur 时显式复位：清 hitInside、移除 body.hit、恢复鼠标穿透。 */
+      function resetHit() {
+        hitInside = false;
+        document.body.classList.remove('hit');
+        if (window.api && window.api.dockSetMouse) window.api.dockSetMouse(true);
+      }
+
       /* v1.7.22.5 拖拽改写 —— 绝对定位，禁止累加漂移（详见下方注释）。
        * v1.7.17 需求5 + v1.7.21 需求3/6：按住拖动，落点受工作区限制，松手不吸附。
        *
@@ -351,16 +384,12 @@
       });
       document.addEventListener('mouseup', function (e) { endDrag(e); });
       // 兜底：指针捕获也没兜住时（切窗口、系统弹窗抢焦点等），失焦/取消一律收口
-      window.addEventListener('blur', function () { endDrag(null); });
+      window.addEventListener('blur', function () { endDrag(null); resetHit(); });
       document.addEventListener('pointercancel', function () { endDrag(null); });
       // 鼠标移出窗口 → 恢复穿透（避免窗口边缘残留的非透明热区）
       document.addEventListener('mouseleave', function () {
         if (dragging) return;
-        if (hitInside) {
-          hitInside = false;
-          document.body.classList.remove('hit');
-          if (window.api && window.api.dockSetMouse) window.api.dockSetMouse(true);
-        }
+        resetHit();
       });
 
       // 左键：开 / 关日历主窗（拖动结束后松手的 click 不触发）
@@ -369,15 +398,31 @@
         if (dragMoved) { dragMoved = false; return; }
         if (window.api && window.api.dockToggleMain) window.api.dockToggleMain();
       });
-      // 右键：弹出托盘同款菜单
+      // 右键：弹出托盘同款菜单（v2.4.0 A4：先复位热区，防原生菜单期间收不到事件导致残留）
       document.addEventListener('contextmenu', function (e) {
         e.preventDefault();
+        resetHit();
         if (window.api && window.api.dockShowMenu) window.api.dockShowMenu();
       });
       // v1.7.20：挂件条恒为浮动卡片，配色始终跟随软件主题（嵌入态让位系统主题的逻辑已删除）
       if (window.api && window.api.onThemeChanged) {
         window.api.onThemeChanged(function (mode) {
           document.documentElement.dataset.theme = (mode === 'dark') ? 'dark' : 'light';
+        });
+      }
+      // v2.4.0：皮肤状态（背景 + 自动明暗文字）订阅
+      if (window.api && window.api.onSkinState) {
+        window.api.onSkinState(function (state) {
+          var root = document.documentElement;
+          if (state && state.mode === 'custom' && state.bg) {
+            root.dataset.skin = 'custom';
+            root.style.setProperty('--skin-bg-solid', state.bg);
+            root.style.setProperty('--skin-ink', state.ink);
+            root.style.setProperty('--skin-ink-soft', state.inkSoft);
+            if (state.inkFaint) root.style.setProperty('--skin-ink-faint', state.inkFaint);
+          } else {
+            delete root.dataset.skin;
+          }
         });
       }
 

@@ -41,7 +41,7 @@ const whenReadyBody = main.slice(main.indexOf('app.whenReady'), main.indexOf("ap
 // =====================================================================
 // 版本号
 // =====================================================================
-check('版本号=2.3.2', pkg.version === '2.3.2', 'package.json version=' + pkg.version);
+check('版本号=2.4.0', pkg.version === '2.4.0', 'package.json version=' + pkg.version);
 
 // =====================================================================
 // v2.3.0 Phase 3：设置窗口拖动 / 解除特别关注数量限制 / 安装后说明弹出
@@ -89,7 +89,8 @@ check('[需求1] 松手后 force 复判一次',
   /function endDrag[\s\S]{0,400}updateHit\(e\.clientX, e\.clientY, true\)/.test(dockCode) &&
   /mouseup[\s\S]{0,120}endDrag\(e\)/.test(dockCode));
 check('[需求1] 鼠标移出窗口恢复穿透',
-  /mouseleave[\s\S]{0,300}dockSetMouse\(true\)/.test(dockCode));
+  /mouseleave[\s\S]{0,300}resetHit\(\)/.test(dockCode) &&
+  /function resetHit[\s\S]{0,300}dockSetMouse\(true\)/.test(dockCode));
 check('[需求1] hover 高亮只在实际可点时出现（body.hit）',
   /body\.hit #card:hover/.test(dock) &&
   !/(^|\n)\s*#card:hover/.test(dock.replace(/\/\*[\s\S]*?\*\//g, '')));
@@ -122,7 +123,8 @@ check('[需求2] 左键单击托盘切回插件',
 check('[需求2] 不再同时绑 double-click（避免与 click 打架）',
   !/tray\.on\('double-click'/.test(mainCode));
 check('[需求2] 切回插件时恢复到之前的位置',
-  /function applyDockMode[\s\S]{0,900}dockBounds\.x, dockBounds\.y\)/.test(mainCode));
+  /function applyDockMode[\s\S]{0,900}pickDockRestore\(/.test(mainCode) &&
+  /dockClamped\(restoreRect\.x, restoreRect\.y\)/.test(mainCode));
 check('[需求2] dockMode 持久化（存）', /dockMode:\s*dockMode,/.test(mainCode));
 check('[需求2] dockMode 持久化（读）',
   /dockMode = \(o\.dockMode === 'icon'\) \? 'icon' : 'dock';/.test(mainCode));
@@ -167,9 +169,11 @@ check('[v1.7.22.3] loadSettings 异常尺寸记日志并丢弃（dockBounds=null
  * 因为实测发现物理窗口本身就会被引擎/OS 撑大（232×164 vs 意图 116×40）。
  * 新语义更强：既不认磁盘，也不认被撑大的窗口。 */
 check('[v1.7.22.7] ready-to-show 恢复时只取 dockBounds.x/y，尺寸用意图常量',
-  /ready-to-show[\s\S]{0,900}dockClamped\(dockBounds\.x, dockBounds\.y\)/.test(mainCode));
+  /ready-to-show[\s\S]{0,900}pickDockRestore\(/.test(mainCode) &&
+  /dockClamped\(restoreRect\.x, restoreRect\.y\)/.test(mainCode));
 check('[v1.7.22.7] applyDockMode 恢复时同样走 dockClamped',
-  /applyDockMode[\s\S]{0,900}dockClamped\(dockBounds\.x, dockBounds\.y\)/.test(mainCode));
+  /applyDockMode[\s\S]{0,900}pickDockRestore\(/.test(mainCode) &&
+  /dockClamped\(restoreRect\.x, restoreRect\.y\)/.test(mainCode));
 
 /* v1.7.22.4 修复（"弹窗没挨着插件 / 插件和任务栏有空白"） */
 check('[v1.7.22.4] below 方位 x 右对齐（dockRect.x+dockRect.width-W）',
@@ -326,7 +330,7 @@ check('[v1.7.22.6] dock-drag-end 落盘 500ms 防抖（内存 dockBounds 立即�
   /let _dockSaveTimer = null;/.test(mainCode) &&
   /_dockSaveTimer = setTimeout\(function \(\) \{[\s\S]{0,200}saveSettings\(\)/.test(mainCode) &&
   /\}, 500\);/.test(mainCode) &&
-  /dockBounds = \{ x: nb\.x, y: nb\.y, width: dockW, height: dockH \};[\s\S]{0,120}clearTimeout\(_dockSaveTimer\)/.test(mainCode));
+  /dockBounds = \{ x: nb\.x, y: nb\.y, width: dockW, height: dockH \};[\s\S]{0,600}clearTimeout\(_dockSaveTimer\)/.test(mainCode));
 check('[v1.7.22.6] 退出前 flushDockBounds 兜底（防抖不能丢最后一次落点）',
   /function flushDockBounds\(\)/.test(mainCode) &&
   /before-quit[\s\S]{0,2000}flushDockBounds\(\)/.test(mainCode));
@@ -465,8 +469,128 @@ check('[v2.0] 设计规范文档存在',
   fs.existsSync(path.join(__dirname, 'UI_DESIGN_SYSTEM.md')));
 
 // =====================================================================
-// 输出
+// v2.4.0 第一批：主题→皮肤 + 自选纯色 + 设置页4分区 + 稳定性修复
 // =====================================================================
+
+/* ---- 皮肤数据模型（主进程唯一真相） ---- */
+check('[v2.4.0] 皮肤状态变量声明（skinMode/nativeSkin/skinColor/跟随开关）',
+  /let skinMode = 'native';/.test(mainCode) &&
+  /let nativeSkin = 'system';/.test(mainCode) &&
+  /let skinColor = \{ calendar: null, desktop: null, dock: null \};/.test(mainCode) &&
+  /let desktopFollowCalendar = true;/.test(mainCode) &&
+  /let dockFollowCalendar = true;/.test(mainCode));
+check('[v2.4.0] recomputeTheme 唯一入口存在', /function recomputeTheme\(\)/.test(mainCode));
+check('[v2.4.0] isDarkColor（WCAG 相对亮度<0.5）实现存在', /function isDarkColor\(hex\)/.test(mainCode) && /0\.2126/.test(mainCode));
+check('[v2.4.0] resolveBg(surface) 实现存在', /function resolveBg\(surface\)/.test(mainCode));
+check('[v2.4.0] resolveSkinState(surface) 实现存在', /function resolveSkinState\(surface\)/.test(mainCode));
+check('[v2.4.0] pushSkinToAll 实现存在', /function pushSkinToAll\(\)/.test(mainCode));
+check('[v2.4.0] 皮肤色值校验 validHex（非法回退 null）', /function validHex\(v\)/.test(mainCode));
+check('[v2.4.0] 旧 theme 字段保留为生效主题镜像写入', /theme: themeMode/.test(mainCode));
+check('[v2.4.0] loadSettings 支持 skinMode/nativeSkin/skinColor 回退不崩',
+  /o\.skinMode === 'custom'/.test(mainCode) &&
+  /o\.nativeSkin === 'light' \|\| o\.nativeSkin === 'dark' \|\| o\.nativeSkin === 'system'/.test(mainCode) &&
+  /o\.theme === 'dark' \? 'dark' : 'light'/.test(mainCode));
+check('[v2.4.0] settingsSnapshot 增加皮肤字段与各表面解析背景',
+  /skinMode: skinMode/.test(mainCode) && /nativeSkin: nativeSkin/.test(mainCode) &&
+  /skinResolved: \{/.test(mainCode) && /resolveBg\('calendar'\)/.test(mainCode));
+check('[v2.4.0] 皮肤窗口背景兜底 setBackgroundColor', /setBackgroundColor\(st\.mode === 'custom' \? st\.bg : '#00000000'\)/.test(mainCode));
+
+/* ---- 跟随系统实时深浅色（B4） ---- */
+check('[v2.4.0 B4] nativeTheme.on(updated) 只注册一次且 nativeSkin==system 才重算',
+  (mainCode.match(/nativeTheme\.on\('updated'/g) || []).length === 1 &&
+  /nativeSkin !== 'system'\) return;/.test(mainCode));
+
+/* ---- IPC 通道（skin-state / win-hidden / settings-set 扩展） ---- */
+check('[v2.4.0] 主进程下发 skin-state', /'skin-state'/.test(mainCode));
+check('[v2.4.0] 主进程下发 win-hidden（窗口隐藏统一清 range）',
+  /win\.on\('hide'/.test(mainCode) && /'win-hidden'/.test(mainCode));
+check('[v2.4.0] settings-set 支持 skinMode/nativeSkin/skinColor/skinReset',
+  /case 'skinMode'/.test(mainCode) && /case 'nativeSkin'/.test(mainCode) &&
+  /case 'skinColor'/.test(mainCode) && /case 'skinReset'/.test(mainCode));
+check('[v2.4.0] settings-set 支持 desktopFollowCalendar/dockFollowCalendar',
+  /case 'desktopFollowCalendar'/.test(mainCode) && /case 'dockFollowCalendar'/.test(mainCode));
+check('[v2.4.0] set-theme 映射 nativeSkin（不改变 skinMode）',
+  /ipcMain\.on\('set-theme'/.test(mainCode) &&
+  /nativeSkin = \(themeMode === 'dark'\) \? 'light' : 'dark'/.test(mainCode) &&
+  /nativeSkin = \(mode === 'dark'\) \? 'dark' : 'light'/.test(mainCode));
+
+/* ---- preload 桥 ---- */
+check('[v2.4.0] preload 暴露 onSkinState', /onSkinState:/.test(preloadCode) && /'skin-state'/.test(preloadCode));
+check('[v2.4.0] preload 暴露 onWinHidden', /onWinHidden:/.test(preloadCode) && /'win-hidden'/.test(preloadCode));
+
+/* ---- 渲染层应用（app.js / template.html / dock.html） ---- */
+check('[v2.4.0] app.js 有 applySkin + 订阅 onSkinState + onWinHidden',
+  /function applySkin\(state\)/.test(codeOnly(appjs)) &&
+  /onSkinState\(function \(state\) \{ applySkin\(state\); \}\)/.test(codeOnly(appjs)) &&
+  /onWinHidden\(function \(\) \{ if \(rangeSel\.length\) clearRange\(\); \}\)/.test(codeOnly(appjs)));
+check('[v2.4.0] template.html 定义 --skin-* 四个变量',
+  /--skin-bg-solid:/.test(tmpl) && /--skin-ink:/.test(tmpl) &&
+  /--skin-ink-soft:/.test(tmpl) && /--skin-ink-faint:/.test(tmpl));
+check('[v2.4.0] template.html 有 [data-skin="custom"] 覆盖规则',
+  /\[data-skin="custom"\] body/.test(tmpl) && /\[data-skin="custom"\] #widget/.test(tmpl) &&
+  /\[data-skin="custom"\] \{[\s\S]{0,200}--ink: var\(--skin-ink\)/.test(tmpl));
+check('[v2.4.0] dock.html 有 [data-skin="custom"] #card 规则（不改 body 保持穿透）',
+  /\[data-skin="custom"\] #card/.test(dock) && /\[data-skin="custom"\] \{[\s\S]{0,200}--ink: var\(--skin-ink\)/.test(dock));
+check('[v2.4.0] dock.html 订阅 onSkinState', /onSkinState/.test(dock));
+
+/* ---- A1 blur 重构 ---- */
+check('[v2.4.0 A1] blurGraceUntil 时间戳 + guardBlur(ms)（无 suppressBlur 布尔）',
+  /let blurGraceUntil = 0;/.test(mainCode) && /function guardBlur\(ms\)/.test(mainCode) &&
+  !/let suppressBlur = false;/.test(mainCode));
+check('[v2.4.0 A1] getFocusedWindow() 判定焦点是否仍在本应用',
+  /BrowserWindow\.getFocusedWindow\(\)/.test(mainCode));
+check('[v2.4.0 A1] hideMain() 统一收口 + win.on(show) 清 grace',
+  /function hideMain\(\)/.test(mainCode) &&
+  /win\.on\('show', function \(\) \{ blurGraceUntil = 0; \}\)/.test(mainCode));
+check('[v2.4.0 A1] 菜单/唤起用 guardBlur 保护（不再 setTimeout 复位 suppressBlur）',
+  /guardBlur\(800\)/.test(mainCode) && /guardBlur\(350\)/.test(mainCode));
+
+/* ---- A3 多屏位置记忆 ---- */
+check('[v2.4.0 A3] dockBoundsByDisplay + dockDisplayId 状态变量',
+  /let dockBoundsByDisplay = \{\};/.test(mainCode) && /let dockDisplayId = null;/.test(mainCode));
+check('[v2.4.0 A3] pickDockRestore 纯函数存在（displayId keying）',
+  /function pickDockRestore\(displays, map, displayId, fallbackRect\)/.test(mainCode) &&
+  /map\[String\(displayId\)\]/.test(mainCode));
+check('[v2.4.0 A3] dock-drag-end 按 getDisplayMatching 记忆当前屏',
+  /screen\.getDisplayMatching\(nb\)/.test(mainCode) &&
+  /dockBoundsByDisplay\[String\(disp\.id\)\] = /.test(mainCode));
+check('[v2.4.0 A3] display-added 还原 / display-removed 回落',
+  /screen\.on\('display-added'/.test(mainCode) && /screen\.on\('display-removed'/.test(mainCode));
+check('[v2.4.0 A3] 多屏位置持久化（存/读）',
+  /dockBoundsByDisplay: dockBoundsByDisplay/.test(mainCode) &&
+  /dockDisplayId: dockDisplayId/.test(mainCode) &&
+  /o\.dockBoundsByDisplay && typeof o\.dockBoundsByDisplay === 'object'/.test(mainCode));
+
+/* ---- A4 / A5 / A6 ---- */
+check('[v2.4.0 A4] dock.html resetHit + contextmenu/blur 复位',
+  /function resetHit\(\)/.test(dockCode) &&
+  /contextmenu[\s\S]{0,200}resetHit\(\)/.test(dockCode) &&
+  /addEventListener\('blur'[\s\S]{0,120}resetHit\(\)/.test(dockCode));
+check('[v2.4.0 A5] #infoBar 顶部时间栏可拖动',
+  /#infoBar\s*\{[\s\S]{0,400}-webkit-app-region:\s*drag/.test(tmpl));
+check('[v2.4.0 A6] dock 日期拆「星期 + 日期」两 span + gap 放宽',
+  /id="dockWeek"/.test(dock) && /id="dockDateNum"/.test(dock) &&
+  /#dockDate\s*\{[\s\S]{0,300}gap: 6px/.test(dock));
+
+/* ---- 设置页 4 分区 + 皮肤选择器 ---- */
+check('[v2.4.0] settings.html 四分区齐全（功能区/桌面插件区/浮动插件区/日历窗口区）',
+  /功能区/.test(settingsCode) && /桌面插件区/.test(settingsCode) &&
+  /浮动插件区/.test(settingsCode) && /日历窗口区/.test(settingsCode));
+check('[v2.4.0] settings.html 皮肤类型 seg + 原生三选 seg',
+  /data-seg="skinMode"/.test(settingsCode) && /data-seg="nativeSkin"/.test(settingsCode) &&
+  /data-v="system"/.test(settingsCode));
+check('[v2.4.0] settings.html 三表面色卡 + 预设色板 + input type=color + 图片占位',
+  /data-surface="calendar"/.test(settingsCode) && /data-surface="desktop"/.test(settingsCode) &&
+  /data-surface="dock"/.test(settingsCode) &&
+  /type="color"/.test(settingsCode) && /即将推出/.test(settingsCode));
+check('[v2.4.0] settings.html 桌面/浮动跟随开关 + 重置',
+  /data-toggle="desktopFollowCalendar"/.test(settingsCode) &&
+  /data-toggle="dockFollowCalendar"/.test(settingsCode) && /data-surface/.test(settingsCode) &&
+  /skinReset/.test(settingsCode));
+check('[v2.4.0] settings.html 皮肤即时回写 settings-set（skinColor/skinReset）',
+  /settingsSet\('skinColor'/.test(settingsCode) && /settingsSet\('skinReset'/.test(settingsCode));
+
+
 let pass = 0, fail = 0;
 for (const c of checks) {
   if (c.ok) { pass++; console.log('  ✓ ' + c.name); }

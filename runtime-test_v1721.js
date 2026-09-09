@@ -365,10 +365,10 @@ function makeLoadSettings(fakeJson) {
  * v1.7.22.7 实测发现 getBounds() 本身就会被撑大（日志取证：请求 116×40，
  * 实际落到 232×164，且同一次运行内从 230×152 变到 232×164），
  * 因此升级为"尺寸用意图常量 dockW×dockH"，统一走 dockClamped()。 */
-ok('[关键] ready-to-show 恢复位置 → 尺寸用意图常量（走 dockClamped）',
-  /ready-to-show[\s\S]{0,900}dockClamped\(dockBounds\.x, dockBounds\.y\)/.test(mainSrc));
-ok('[关键] applyDockMode 恢复位置 → 同样走 dockClamped',
-  /applyDockMode[\s\S]{0,900}dockClamped\(dockBounds\.x, dockBounds\.y\)/.test(mainSrc));
+ok('[关键] ready-to-show 恢复位置 → pickDockRestore 选落点 + dockClamped 夹取（意图尺寸）',
+  /ready-to-show[\s\S]{0,1200}pickDockRestore\([\s\S]{0,700}dockClamped\(restoreRect\.x, restoreRect\.y\)/.test(mainSrc));
+ok('[关键] applyDockMode 恢复位置 → 同样 pickDockRestore + dockClamped',
+  /applyDockMode[\s\S]{0,1200}pickDockRestore\([\s\S]{0,700}dockClamped\(restoreRect\.x, restoreRect\.y\)/.test(mainSrc));
 ok('[关键] loadSettings 第一道防线：宽度差 <=4 + 高度 [36,60] 才放行',
   /Math\.abs\(bw - DOCK_W\) <= 4/.test(mainSrc) && /bh >= 36 && bh <= 60/.test(mainSrc));
 
@@ -574,6 +574,185 @@ ok('[关键·反向] 已无 placeMainNearDock(dockWin.getBounds()) 直传',
   !/placeMainNearDock\(dockWin\.getBounds\(\)\)/.test(mainSrc));
 ok('建窗后自诊断：实际尺寸 ≠ 意图尺寸时写日志',
   /dock size INFLATED by OS/.test(mainSrc));
+
+/* ============ v2.4.0 皮肤中枢：validHex / isDarkColor（WCAG 相对亮度） ============ */
+console.log('\n【v2.4.0】validHex / isDarkColor —— 色值校验 + WCAG 深色判定');
+
+const colorApi = new Function(
+  extractFn(mainSrc, 'validHex') + '\n' + extractFn(mainSrc, 'isDarkColor') +
+  '; return { validHex: validHex, isDarkColor: isDarkColor };'
+)();
+
+ok('validHex "#123456" → 原样大写', colorApi.validHex('#123456') === '#123456');
+ok('validHex "123456"（无#）→ 补全#', colorApi.validHex('123456') === '#123456');
+ok('validHex "#abcDEF" → 统一大写', colorApi.validHex('#abcDEF') === '#ABCDEF');
+ok('validHex "  #1a2b3c  "（含空白）→ trim 后解析', colorApi.validHex('  #1a2b3c  ') === '#1A2B3C');
+ok('validHex "#fff"（3位）→ null', colorApi.validHex('#fff') === null);
+ok('validHex "#gggggg"（非法字符）→ null', colorApi.validHex('#gggggg') === null);
+ok('validHex "#12345g" → null', colorApi.validHex('#12345g') === null);
+ok('validHex "12345"（5位）→ null', colorApi.validHex('12345') === null);
+ok('validHex "" → null', colorApi.validHex('') === null);
+ok('validHex null → null', colorApi.validHex(null) === null);
+ok('validHex 123456（非字符串）→ null', colorApi.validHex(123456) === null);
+
+ok('isDarkColor #000000 → true（纯黑）', colorApi.isDarkColor('#000000') === true);
+ok('isDarkColor #FFFFFF → false（纯白）', colorApi.isDarkColor('#ffffff') === false);
+ok('isDarkColor #0000FF → true（纯蓝，亮度≈0.07）', colorApi.isDarkColor('#0000FF') === true);
+ok('isDarkColor #FFFF00 → false（纯黄，亮度≈0.93）', colorApi.isDarkColor('#FFFF00') === false);
+ok('isDarkColor #808080 → true（中灰，WCAG 亮度≈0.216 < 0.5）', colorApi.isDarkColor('#808080') === true);
+ok('isDarkColor #1f2430 → true（日历深色预设）', colorApi.isDarkColor('#1f2430') === true);
+ok('isDarkColor #e8eaf0 → false（深背景浅字用浅色）', colorApi.isDarkColor('#e8eaf0') === false);
+ok('isDarkColor 非法输入 → false（不抛错）', colorApi.isDarkColor('nope') === false);
+
+/* ============ v2.4.0 皮肤中枢：resolveBg / resolveSkinState ============ */
+console.log('\n【v2.4.0】resolveBg / resolveSkinState —— 分区解析 + 跟随日历 + 自动明暗文字');
+
+function makeSkinApi(state) {
+  return new Function('skinMode', 'skinColor', 'desktopFollowCalendar', 'dockFollowCalendar', 'themeMode',
+    extractFn(mainSrc, 'validHex') + '\n' +
+    extractFn(mainSrc, 'isDarkColor') + '\n' +
+    extractFn(mainSrc, 'resolveBg') + '\n' +
+    extractFn(mainSrc, 'resolveSkinState') +
+    '; return { resolveBg: resolveBg, resolveSkinState: resolveSkinState };'
+  )(state.skinMode, state.skinColor, state.desktopFollowCalendar, state.dockFollowCalendar, state.themeMode);
+}
+
+(function () {
+  const api = makeSkinApi({
+    skinMode: 'native',
+    skinColor: { calendar: '#1f2430', desktop: '#3b6fd4', dock: '#d6453f' },
+    desktopFollowCalendar: true, dockFollowCalendar: true, themeMode: 'light'
+  });
+  ok('native 模式 → calendar 背景 null', api.resolveBg('calendar') === null);
+  ok('native 模式 → desktop 背景 null', api.resolveBg('desktop') === null);
+  ok('native 模式 → dock 背景 null', api.resolveBg('dock') === null);
+})();
+
+(function () {
+  const api = makeSkinApi({
+    skinMode: 'custom',
+    skinColor: { calendar: '#1f2430', desktop: '#3b6fd4', dock: '#d6453f' },
+    desktopFollowCalendar: true, dockFollowCalendar: true, themeMode: 'dark'
+  });
+  ok('custom + calendar → 取日历色', api.resolveBg('calendar') === '#1f2430');
+  ok('custom + desktop 跟随日历 → 取日历色（忽略 desktop 自选）', api.resolveBg('desktop') === '#1f2430');
+  ok('custom + dock 跟随日历 → 取日历色（忽略 dock 自选）', api.resolveBg('dock') === '#1f2430');
+  ok('未知 surface → null', api.resolveBg('other') === null);
+})();
+
+(function () {
+  const api = makeSkinApi({
+    skinMode: 'custom',
+    skinColor: { calendar: '#1f2430', desktop: '#3b6fd4', dock: '#d6453f' },
+    desktopFollowCalendar: false, dockFollowCalendar: false, themeMode: 'dark'
+  });
+  ok('desktop 不跟随 → 取 desktop 自选', api.resolveBg('desktop') === '#3b6fd4');
+  ok('dock 不跟随 → 取 dock 自选', api.resolveBg('dock') === '#d6453f');
+})();
+
+(function () {
+  const api = makeSkinApi({
+    skinMode: 'custom',
+    skinColor: { calendar: null, desktop: '#3b6fd4', dock: null },
+    desktopFollowCalendar: false, dockFollowCalendar: false, themeMode: 'light'
+  });
+  ok('calendar 为空 → null', api.resolveBg('calendar') === null);
+  ok('desktop 不跟随但 desktop 为空 → null', api.resolveBg('dock') === null);
+})();
+
+(function () {
+  const api = makeSkinApi({
+    skinMode: 'custom',
+    skinColor: { calendar: '#fcfbf9', desktop: null, dock: null },
+    desktopFollowCalendar: true, dockFollowCalendar: true, themeMode: 'light'
+  });
+  const st = api.resolveSkinState('calendar');
+  ok('resolveSkinState 浅背景 → mode=custom + 深字', st.mode === 'custom' && st.bg === '#fcfbf9' &&
+    st.ink === '#1f2430', JSON.stringify(st));
+  ok('浅背景 → inkSoft/inkFaint 为深字档', st.inkSoft === '#6b7280' && st.inkFaint === '#9aa1ad');
+  ok('浅背景 → effectiveTheme 透传 themeMode', st.effectiveTheme === 'light');
+})();
+
+(function () {
+  const api = makeSkinApi({
+    skinMode: 'custom',
+    skinColor: { calendar: '#1f2430', desktop: null, dock: null },
+    desktopFollowCalendar: true, dockFollowCalendar: true, themeMode: 'dark'
+  });
+  const st = api.resolveSkinState('calendar');
+  ok('resolveSkinState 深背景 → mode=custom + 浅字', st.mode === 'custom' && st.bg === '#1f2430' &&
+    st.ink === '#e8eaf0', JSON.stringify(st));
+  ok('深背景 → inkSoft/inkFaint 为浅字档', st.inkSoft === '#9aa3b3' && st.inkFaint === '#6a7283');
+  ok('深背景 → effectiveTheme 透传 themeMode', st.effectiveTheme === 'dark');
+})();
+
+(function () {
+  const api = makeSkinApi({
+    skinMode: 'native',
+    skinColor: { calendar: null, desktop: null, dock: null },
+    desktopFollowCalendar: true, dockFollowCalendar: true, themeMode: 'dark'
+  });
+  const st = api.resolveSkinState('calendar');
+  ok('resolveSkinState native → mode=native + bg=null + 深字档', st.mode === 'native' && st.bg === null &&
+    st.ink === '#1f2430' && st.inkSoft === '#6b7280', JSON.stringify(st));
+  ok('native → effectiveTheme=dark', st.effectiveTheme === 'dark');
+})();
+
+/* ============ v2.4.0 主题中枢：recomputeTheme（nativeSkin → 生效主题） ============ */
+console.log('\n【v2.4.0】recomputeTheme —— 依据 nativeSkin 推导生效主题');
+
+function runRecompute(nativeSkin, nativeThemeMock) {
+  const fn = new Function('nativeSkin', 'nativeTheme',
+    'var themeMode = "light"; ' + extractFn(mainSrc, 'recomputeTheme') + '; return recomputeTheme;'
+  )(nativeSkin, nativeThemeMock);
+  return fn();
+}
+ok('nativeSkin=dark → dark', runRecompute('dark', { shouldUseDarkColors: false }) === 'dark');
+ok('nativeSkin=light → light', runRecompute('light', { shouldUseDarkColors: true }) === 'light');
+ok('nativeSkin=system + 系统深色 → dark', runRecompute('system', { shouldUseDarkColors: true }) === 'dark');
+ok('nativeSkin=system + 系统浅色 → light', runRecompute('system', { shouldUseDarkColors: false }) === 'light');
+ok('nativeSkin=system + nativeTheme 抛错 → 回落 light 不抛',
+  runRecompute('system', { get shouldUseDarkColors() { throw new Error('boom'); } }) === 'light');
+
+/* ============ v2.4.0 A3：pickDockRestore（按显示器 ID 记忆插件落点） ============ */
+console.log('\n【v2.4.0 A3】pickDockRestore —— 多屏插件位置记忆');
+
+const pickDockRestore = new Function(extractFn(mainSrc, 'pickDockRestore') + '; return pickDockRestore;')();
+const DISP = [{ id: 'a' }, { id: 'b' }];
+const MAP = { a: { x: 10, y: 20 }, b: { x: 100, y: 200 } };
+
+(function () {
+  const r = pickDockRestore(DISP, MAP, 'a', null);
+  ok('displayId=a 且 a 存活 → 原屏原位', r.x === 10 && r.y === 20, JSON.stringify(r));
+})();
+(function () {
+  const r = pickDockRestore([{ id: 'b' }], MAP, 'a', null);
+  ok('displayId=a 已不存在 → 回退首个存活且有记录的屏（b）', r.x === 100 && r.y === 200, JSON.stringify(r));
+})();
+(function () {
+  const r = pickDockRestore(DISP, MAP, null, null);
+  ok('无 displayId → 首个存活且有记录的屏（a）', r.x === 10 && r.y === 20, JSON.stringify(r));
+})();
+(function () {
+  const r = pickDockRestore(DISP, MAP, 'a', { x: 5, y: 6 });
+  ok('displayId 命中且存活 → 忽略 fallback', r.x === 10 && r.y === 20, JSON.stringify(r));
+})();
+(function () {
+  const fb = { x: 5, y: 6 };
+  const r = pickDockRestore([{ id: 'c' }], MAP, 'a', fb);
+  ok('无任何存活记录 → 用 fallbackRect', r === fb, JSON.stringify(r));
+})();
+(function () {
+  ok('空 map → fallbackRect', pickDockRestore(DISP, {}, 'a', { x: 9, y: 9 }) !== null);
+  ok('null map → fallbackRect', pickDockRestore(DISP, null, 'a', { x: 9, y: 9 }) !== null);
+  ok('null displays → fallbackRect', pickDockRestore(null, MAP, 'a', { x: 9, y: 9 }) !== null);
+  ok('空 displays + 空 map + null fallback → null', pickDockRestore([], {}, 'a', null) === null);
+})();
+(function () {
+  // 换机 / 显示器 ID 变化：map 里还留着旧 ID，但当前屏列表按顺序给出新 ID → 应回退到首个存活屏
+  const r = pickDockRestore([{ id: 'x' }, { id: 'y' }], { x: { x: 33, y: 44 } }, 'old', null);
+  ok('换机后旧 displayId 无记录 → 回退首个存活屏记录', r.x === 33 && r.y === 44, JSON.stringify(r));
+})();
 
 console.log('\n==================================');
 console.log('运行时单测： ' + pass + ' 通过 / ' + fail + ' 失败');

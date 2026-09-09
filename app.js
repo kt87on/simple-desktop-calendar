@@ -653,6 +653,22 @@ function confirmRemindInput() {
     if (!IS_DESKTOP) syncThemeIcon();   // v2.2.0：桌面模式下换肤键已改为锁键，图标由锁逻辑接管
   }
 
+  /* ===== v2.4.0 皮肤（独立背景层 + 自动明暗文字） =====
+   * applyTheme() 只管 data-theme（决定状态色 token）；applySkin() 管 data-skin + --skin-* 变量，
+   * 两者解耦。主进程已算好背景色与自动明暗文字色，这里只 setProperty 应用，不做亮度判定。 */
+  function applySkin(state) {
+    var root = document.documentElement;
+    if (state && state.mode === 'custom' && state.bg) {
+      root.dataset.skin = 'custom';
+      root.style.setProperty('--skin-bg-solid', state.bg);
+      root.style.setProperty('--skin-ink', state.ink);
+      root.style.setProperty('--skin-ink-soft', state.inkSoft);
+      root.style.setProperty('--skin-ink-faint', state.inkFaint);
+    } else {
+      delete root.dataset.skin;   // 回原生皮肤外观
+    }
+  }
+
   /* ===== R3. 托盘 tooltip：农历 + 星期字符串 ===== */
   var WEEK_CN = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
   function tooltipString(y, m, d) {
@@ -911,6 +927,14 @@ function confirmRemindInput() {
         S.theme = (mode === 'dark') ? 'dark' : 'light';
         applyTheme();
       });
+    }
+    // v2.4.0：皮肤状态（背景 + 自动明暗文字）订阅
+    if (window.api.onSkinState) {
+      window.api.onSkinState(function (state) { applySkin(state); });
+    }
+    // v2.4.0 A2：窗口隐藏 → 清除算天数 range 状态（重开无绿格/无天数浮层）
+    if (window.api.onWinHidden) {
+      window.api.onWinHidden(function () { if (rangeSel.length) clearRange(); });
     }
     if (window.api.onGotoYm) {
       window.api.onGotoYm(function (y, m, d) { gotoYm(y, m, d); });

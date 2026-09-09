@@ -4,6 +4,23 @@
 
 ---
 
+## [2.4.0] - 2026-09-07
+
+### 新增
+- **皮肤系统（主题 + 皮肤统一为「皮肤」）**：主进程是唯一真相，持久化 `skinMode`（原生/自选纯色）、`nativeSkin`（浅/深/跟随系统，由旧 `theme` 字段兼容映射）、`skinColor`（日历/桌面插件/浮动插件三表面各自颜色）与 `desktopFollowCalendar` / `dockFollowCalendar`（桌面、浮动插件默认跟随日历皮肤）。
+- **自选纯色自动明暗文字**：`isDarkColor(hex)` 用 WCAG 相对亮度（< 0.5 判深色）自动配浅字/深字，深背景浅字、浅背景深字；状态色（今日蓝/节假日红/选中绿）保持不变。
+- **设置页改 4 分区 + 内联皮肤色板**：功能区 / 桌面插件区 / 浮动插件区 / 日历窗口区；皮肤入口用内联色板（12 预设 + `<input type="color">` 取色 + 图片占位 + 重置），不开新窗；主窗 `#themeBtn` 仍是原生皮肤 light↔dark 快捷键。
+- **多屏插件位置记忆（A3）**：`dockBoundsByDisplay`（显示器 ID → 落点）+ `dockDisplayId`，`pickDockRestore()` 按「原屏原位 → 存活屏回退 → 旧式单一 dockBounds → 默认落点」恢复。
+
+### 修复
+- **blur 误关主窗（A1）**：`suppressBlur` 布尔改为 `blurGraceUntil` 时间戳 + `guardBlur(ms)`，高频焦点切换更抗抖动。
+- **隐藏主窗不清理区间（A2）**：统一 `hideMain()` 隐藏路径，经 `win-hidden` 通道通知渲染层 `clearRange()` 清空已选日期区间。
+- **插件鼠标移出/右键后穿透失效（A4）**：`dock.html` 抽出 `resetHit()`，`blur` / `mouseleave` / `contextmenu` 三处统一恢复鼠标穿透。
+- **功能栏不可拖动（A5）**：`#infoBar` 加 `-webkit-app-region: drag` + `user-select: none`，与其它窗口标题栏拖动一致。
+- **插件日期/星期挤成一团（A6）**：`#dockDate` 拆为 `#dockWeek` + `#dockDateNum` 两个独立 span，`gap: 6px` 排版。
+
+---
+
 ## [2.3.2] - 2026-09-07
 
 ### 新增

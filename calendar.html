@@ -137,6 +137,14 @@
     --ink-soft: var(--ink-500);
     --ink-faint: var(--ink-400);
 
+    /* ========== v2.4.0 皮肤层（独立背景 + 自动明暗文字） ==========
+     * 主进程是唯一真相：亮度判定 / 背景解析 / 文字色都在主进程算好，渲染层只 setProperty。
+     * --skin-* 仅由 JS 写入，[data-skin="custom"] 才生效；状态色（今日蓝/节假日红/选中绿）不覆盖。 */
+    --skin-bg-solid: transparent;
+    --skin-ink: #1f2430;
+    --skin-ink-soft: #6b7280;
+    --skin-ink-faint: #9aa1ad;
+
     --accent: var(--blue-500);
     --accent-strong: var(--blue-600);            /* 今日 */
     --accent-soft: rgba(59, 111, 212, 0.10);
@@ -245,6 +253,18 @@
     --shadow-soft: var(--e-4);
   }
 
+  /* ========== v2.4.0 自选纯色皮肤（独立背景层 + 自动明暗文字） ==========
+   * 声明在 [data-theme="dark"] 之后，保证无论生效主题是白日还是黑夜，
+   * 自选皮肤的文字明暗都能覆盖 --ink/--ink-soft/--ink-faint。
+   * 只覆盖文字明暗 + 背景；状态色（今日蓝/节假日红/选中绿）仍取生效主题 token。 */
+  [data-skin="custom"] body     { background: var(--skin-bg-solid); }
+  [data-skin="custom"] #widget  { background: var(--skin-bg-solid); }
+  [data-skin="custom"] {
+    --ink: var(--skin-ink);
+    --ink-soft: var(--skin-ink-soft);
+    --ink-faint: var(--skin-ink-faint);
+  }
+
   /* ============================ L3 组件层 ============================ */
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -290,6 +310,9 @@
     background: linear-gradient(180deg, var(--paper-hi), rgba(0, 0, 0, 0));
     border-bottom: 1px solid var(--paper-edge);
     transition: background var(--dur-slow) var(--ease-in-out);
+    /* v2.4.0 A5：放大界面顶部时间栏可拖动（内部仅时钟/日期文本，无按钮，无需 no-drag） */
+    -webkit-app-region: drag;
+    user-select: none;
   }
   #clkTime {
     font-size: var(--fs-6xl); font-weight: var(--fw-semibold);
@@ -1534,6 +1557,22 @@ function confirmRemindInput() {
     if (!IS_DESKTOP) syncThemeIcon();   // v2.2.0：桌面模式下换肤键已改为锁键，图标由锁逻辑接管
   }
 
+  /* ===== v2.4.0 皮肤（独立背景层 + 自动明暗文字） =====
+   * applyTheme() 只管 data-theme（决定状态色 token）；applySkin() 管 data-skin + --skin-* 变量，
+   * 两者解耦。主进程已算好背景色与自动明暗文字色，这里只 setProperty 应用，不做亮度判定。 */
+  function applySkin(state) {
+    var root = document.documentElement;
+    if (state && state.mode === 'custom' && state.bg) {
+      root.dataset.skin = 'custom';
+      root.style.setProperty('--skin-bg-solid', state.bg);
+      root.style.setProperty('--skin-ink', state.ink);
+      root.style.setProperty('--skin-ink-soft', state.inkSoft);
+      root.style.setProperty('--skin-ink-faint', state.inkFaint);
+    } else {
+      delete root.dataset.skin;   // 回原生皮肤外观
+    }
+  }
+
   /* ===== R3. 托盘 tooltip：农历 + 星期字符串 ===== */
   var WEEK_CN = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
   function tooltipString(y, m, d) {
@@ -1792,6 +1831,14 @@ function confirmRemindInput() {
         S.theme = (mode === 'dark') ? 'dark' : 'light';
         applyTheme();
       });
+    }
+    // v2.4.0：皮肤状态（背景 + 自动明暗文字）订阅
+    if (window.api.onSkinState) {
+      window.api.onSkinState(function (state) { applySkin(state); });
+    }
+    // v2.4.0 A2：窗口隐藏 → 清除算天数 range 状态（重开无绿格/无天数浮层）
+    if (window.api.onWinHidden) {
+      window.api.onWinHidden(function () { if (rangeSel.length) clearRange(); });
     }
     if (window.api.onGotoYm) {
       window.api.onGotoYm(function (y, m, d) { gotoYm(y, m, d); });

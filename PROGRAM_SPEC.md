@@ -1,7 +1,7 @@
 # 简洁桌面日历 · 程序规格书（可复制级 / AI 可直接复刻）
 
 > **用途**：本文件是为「让 AI 在零上下文情况下重建该程序」而写。任何 AI 拿到本文件，都能完整还原软件的功能、视觉、行为与打包方式。修改或升级时，直接把本文件 + 源码目录交给 AI 即可。
-> **版本**：1.7.22 　**作者**：YG　**协议**：MIT　**平台**：Windows
+> **版本**：2.4.0 　**作者**：YG　**协议**：MIT　**平台**：Windows
 
 ---
 
@@ -131,6 +131,33 @@ node make-icon.js    # 生成 icon.ico（多尺寸）
 - 周起始开关：真 toggle（轨道+滑块+一/日标签，平滑过渡 cubic-bezier）
 - 月份切换：仅网格淡入，无缩放抖动
 
+### 4.6 皮肤系统（v2.4.0）
+
+v2.4.0 起把「主题」与「皮肤」合并为统一的**皮肤**概念。主进程是皮肤状态的唯一真相，渲染层只被动消费下发的解析结果。
+
+**状态模型（`electron-main.js`，持久化到 `settings.json`）**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `skinMode` | `'native' \| 'custom'` | 皮肤类型：原生主题 / 自选纯色 |
+| `nativeSkin` | `'light' \| 'dark' \| 'system'` | 原生皮肤三态（旧 `theme` 字段兼容映射） |
+| `skinColor` | `{calendar, desktop, dock}` | 三个表面各自的自选纯色（`#RRGGBB` 或 `null`） |
+| `desktopFollowCalendar` | `bool` | 桌面插件默认跟随日历皮肤（默认 `true`） |
+| `dockFollowCalendar` | `bool` | 浮动插件默认跟随日历皮肤（默认 `true`） |
+
+**解析链路（主进程唯一入口）**
+
+1. `recomputeTheme()`：唯一入口，依据 `nativeSkin` 推导生效主题 `themeMode`——`dark` → `dark`、`light` → `light`、`system` → 读 `nativeTheme.shouldUseDarkColors`（异常回落 `light`）。
+2. `resolveBg(surface)`：`skinMode !== 'custom'` 直接 `null`；否则按 surface 返回自选色，桌面/浮动「跟随日历」时返回 `skinColor.calendar`。
+3. `resolveSkinState(surface)`：结合 `isDarkColor(bg)`（WCAG 相对亮度 < 0.5 判深色）产出 `{mode, bg, ink, inkSoft, inkFaint, effectiveTheme}`，深背景给浅字、浅背景给深字。
+4. 下发：`skin-state` 通道推送解析结果；自选皮肤激活时 `win.setBackgroundColor(bg)` 兜底，回原生则 `#00000000` 透明。生效主题仍复用既有 `theme-changed` 通道。
+
+**渲染层落地**
+
+- `template.html` / `dock.html` 的 `:root` 增加 `--skin-bg-solid` / `--skin-ink` / `--skin-ink-soft` / `--skin-ink-faint`，`[data-skin="custom"]` 规则覆盖背景与文字色；`app.js` / `dock.html` 收到 `skin-state` 后 `applySkin(state)` 切换 `data-skin` 并写入 CSS 变量。
+- **状态色不变**：今日雅蓝 / 节假日朱砂红 / 选中深绿维持原 token，不随自选纯色改变。
+- 设置页皮肤入口用**内联色板**（不开新窗）：类型分段（原生/自选）+ 原生三态分段（浅/深/跟随系统）+ 三个表面的 12 预设色板 + `<input type="color">` 取色 + 图片占位 + 重置；桌面/浮动插件各有「跟随日历」开关。主窗 `#themeBtn` 仍是原生皮肤 light↔dark 的快捷键。
+
 ---
 
 ## 5. 核心行为清单（必须遵守）
@@ -139,14 +166,14 @@ node make-icon.js    # 生成 icon.ico（多尺寸）
 |---|---|
 | **托盘图标（v1.7.21 复活，按需创建）** | **v1.7.17~v1.7.20 停用，v1.7.21 起改为「只在桌面图标形态下创建」**：`dockMode==='icon'` 时才调 `createTray()`；切回插件形态时 `destroyTray()` 销毁图标并停掉 tooltip 看门狗定时器。`createTray()` / `scheduleTrayRetry()` / `updateTrayTooltip()` 三处开头都有 `if (dockMode !== 'icon') return;` 门控。**只绑 `click` 不绑 `double-click`**——两个都绑会互相打架（双击时 click 先触发一次、double-click 再触发一次，等于切两下 = 点了没反应）。图标形态下左键单击 = `setDockMode('dock')` 切回插件。其余形态 `tray` 恒为 `null`，`refreshTrayMenu()` 因 `if (!tray) return;` 空转。：启动流程里 `createTray()` 被移除，运行期 `tray` 恒为 `null`，右下角不再有图标，菜单/开关统一收拢到「挂件条右键 `dock-show-menu` + 主窗空白处右键 `main-show-menu`」两个入口，二者都调同一个 **`buildTrayMenu()`**（注意：代码里的函数名仍是 `buildTrayMenu`，文档曾误写为 `buildDockMenu`）。**遗留（v1.7.20 未清理）**：`makeTrayIcon` PNG 编码器、`updateTrayTooltip`、`scheduleTrayRetry`、`createTray`、`trayTooltipTimer` 等约 200 行代码仍留在 `electron-main.js` 但**永不执行**（`createTray` 无调用点，`updateTrayTooltip` 的定时器也只在 `createTray` 内启动），`refreshTrayMenu()` 因 `if (!tray) return;` 直接空转。功能无影响，后续可整块删除。`icon.ico` 仍用于 EXE/任务栏固定/开始菜单/控制面板 |
 | **托盘 tooltip** | v1.7.21 随托盘一起复活，但只在图标形态运行：每秒刷新农历/节气/星期，同时充当托盘存活看门狗（Explorer 重启会抹掉图标，`setToolTip` 抛错即探测到失效并重建） |
-| **挂件条左键** | 点击 → 主窗隐藏则 `showMini()`，已显示则 `hide()`（`toggleMainWindow()`）；用 `suppressBlur`（350ms）避免刚打开即被 blur 误关 |
+| **挂件条左键** | 点击 → 主窗隐藏则 `showMini()`，已显示则 `hide()`（`toggleMainWindow()`）；用 `guardBlur(350)`（`blurGraceUntil` 时间戳）避免刚打开即被 blur 误关（v2.4.0 由 `suppressBlur` 布尔改为时间戳，更抗抖动） |
 | **功能菜单（`buildTrayMenu`，两个入口）** | 入口①：挂件条右键 → `dock-show-menu`。入口②：**主窗空白处右键 → `main-show-menu`（v1.7.20 兜底）**——v1.7.17 移除托盘后挂件条右键一度是唯一入口，用户一旦从菜单里关掉挂件条（`dockOn:false`）就再也开不回来，只能手改 `settings.json`；现在主窗右键可调出同一份菜单，里面「🕒 任务栏挂件条」开关能恢复。渲染层 `bindMainContextMenu()` 在 `document` 上监听 `contextmenu`，排除 `.cell`（日期格走自己的关注菜单，已 `stopPropagation()` 防双重弹）、`#remindInput`、`INPUT/TEXTAREA/SELECT`（保留系统菜单可复制粘贴）。<br>菜单内容：①「本年最近节日」标题 + 3 个节日扁平列出（`节日名 · MM/DD · X 天`，点击 `goto-ym` 跳转）；② 分隔；③「📒 特别关注（N）」：**单一二级菜单** = 「📂 打开关注列表」+ 分隔 + 全部关注项（按日期升序，每项 `📅 YYYY/MM/DD · 内容摘要 · X 天`，点击 `goto-ym` 跳转）；④ 分隔；⑤ 主题（白日↔黑夜）、置顶、开机自启（开关）；⑥ 分隔；⑦「📅 显示 / 隐藏日历」（**v1.7.21 新增**：图标形态下左键被"切回插件"占用，日历改从这里开）；⑧「🕒 挂件条总开关」；⑨ 挂件条开启时额外两条：**「🗕 缩小至桌面图标」/「🖥 切回桌面插件」**（**v1.7.21 需求2**，形态切换）与**「📌 插件总在最前」**（置顶开关，默认开）；⑩ 分隔；⑪ 退出软件。<br>**v1.7.21 需求6 删除项**：「贴回任务栏上沿（重置位置）」与松手自动吸附一并移除——物理嵌入已放弃，这些功能无意义且实测从未生效。<br>**v1.7.11 修复「右键菜单无效」的历史教训仍适用**：`buildTrayMenu()` 里若 `const menu` 后又 `menu = menu.concat(...)` 会运行时抛 `TypeError` 被 `try/catch` 静默吞掉 → 菜单从未挂上。**catch 里必须写日志**，`node --check` 只查语法查不出 const 重复赋值 |
 | **单实例锁** | `app.requestSingleInstanceLock()`，第二实例直接 `quit()`；`second-instance` 事件唤起已有窗口（隐藏则 `showMini`，否则 `focus`+`moveTop`） |
-| **默认隐藏 / 关闭 / blur** | `show:false` 不自动弹；`close` 事件非退出时 `preventDefault()+hide()`；`blur` 事件隐藏（suppressBlur 时跳过） |
+| **默认隐藏 / 关闭 / blur** | `show:false` 不自动弹；`close` 事件非退出时 `preventDefault()+hide()`；`blur` 事件统一走 `hideMain()` 隐藏（`blurGraceUntil` 宽限期内跳过），并经 `win-hidden` 通道通知渲染层清空区间选择 `clearRange()`（v2.4.0 A2） |
 | **双窗口模式** | mini `340×430`（贴右下，`setResizable(false)`、`setAspectRatio(0)`）↔ expanded `760×959`（居中，`setResizable(true)`、`setAspectRatio(ASPECT)` 锁比例）；放大按钮经 IPC `toggle-expand` 切换（`win.isResizable()` 判断当前态）。**v1.7.11 修复「放大无效」（反复出现的老 bug）**：`showMini()`/`showExpanded()`/`toggle-expand`/`did-finish-load` 末尾各调一次 `notifyExpandState()` → `win.webContents.send('expand-changed', !!win.isResizable())`；渲染层 `window.api.onExpandChanged(cb)` 收到后执行 `widgetEl.classList.toggle('max', !!expanded)`。<br>**真因**：旧代码只在**浏览器预览的 fallback 分支**里做 `widgetEl.classList.toggle('max')`，Electron 路径下 `.max` 类**从未被添加** → OS 窗口虽然撑到 760×959，但 `#widget` 仍是 340×430，内容缩在大透明窗中间 → 看起来就是"完全没放大"。**复刻时切勿把 DOM 状态同步只写在 fallback 分支里** |
 | **等比缩放** | expanded 下渲染层 resize 手柄 → IPC `resize-window`(w) → 主进程 `w = clamp(EXP_MIN_W=700 … 1400)`，`h = round(w/ASPECT)`，`setBounds` 保比例 |
 | **点击外部消失** | 见「blur」；隐藏后不自动复位 mode |
-| **主题切换** | 主窗 `#themeBtn` → `set-theme` → 主进程改 `themeMode` → `theme-changed` 推送渲染层（`#widget` 加 `data-theme="dark"`）；挂件条随软件主题反色（**v1.7.20 起已无嵌入态**，`nativeTheme.shouldUseDarkColors` 那套"跟随系统主题"的逻辑一并移除） |
+| **皮肤/主题切换** | **v2.4.0**：主进程是唯一真相。`#themeBtn` 仍是原生皮肤 light↔dark 快捷键 → `set-theme` → 主进程改 `nativeSkin` → `recomputeTheme()` 推导生效主题 → `theme-changed` 推送渲染层（`#widget` 加 `data-theme="dark"`）；自选皮肤经 `skin-state` 下发（详见 4.6），挂件条随软件主题反色 |
 | **区间选择** | 点一格 → `.range` 深绿；点第二格 → 两端深绿、中间 `.range-between` 浅绿 + 浮层「共计 N 天」；第三下点击 → 清空（`clearRange`）；`Esc` 或点空白 → 清空；支持跨月（端点按时间戳 `Math.min/max` + strict between 判定，跨月 other 格 `.range/.range-between` opacity 提升到 0.6）。**v1.7.12 提亮中间色**：白日 `.range-between` 背景 `rgba(34,197,94,0.08)`→`0.15`、圆角 3px，让两个端点之间连成更醒目的浅绿带；补黑夜模式覆盖（深底叠半透明绿会发暗）。**v1.7.13 修复「放大模式下中间格不变绿」**：真因是 CSS 特异性——`#widget.max .cell` 为 (1,2,0)，`#widget.max .cell { background: transparent }` 压过了 `.cell.range-between` 的 (0,2,0)，把状态底色整条吞掉；端点 `.range` 因带 `box-shadow` 描边仍可见，中间格没有描边就彻底隐形，现象恰是「端点绿、中间不绿」。解法：几何样式照给所有格子，只有 `background` 那条改用 `#widget.max .cell:not(.range):not(.range-between):not(.today):not(.selected):not(.reminder):not(:hover)`，让基础状态色重新生效；并补 `#widget.max .cell.range-between { border-radius: 12px }` 与周围大圆格保持一致 |
 | **特别关注（添加）** | 右键格子 → 弹出 `#remindInput`（第一排「特别关注 日期」+ 第二排「（到日期会弹窗提醒）」+ 输入框 `maxlength="15"`、placeholder「请输入：（15字以内）」+ 确定/取消）→ 确定走 `add-reminder` → 主进程生成 `{id,y,m,d,text,createdAt,snoozeUntil:0,ackedDate:''}` 存盘、广播 → 该格 `.reminder` 金黄 + 「关」角标。**v1.7.11 双重限额**：<br>① **单条 ≤ 15 字** —— 渲染层 `maxlength` 截输入、`confirmRemindInput` 再 `.slice(0,15)`，主进程 `add-reminder` 兜底 `String(text||'').trim().slice(0,15)`；<br>② **总数 ≤ 10 条** —— `openRemindInput` 入口先判 `reminders.length >= 10` 直接 `showToast('特别关注最多 10 条，请先取消一条')` **不弹输入框**；主进程 `add-reminder` 兜底返回 `{error:'limit', max:10}`，渲染层收到后同样 toast |
 | **关注列表（独立窗口，v1.7.12 改造）** | 工具栏书图标按钮 `#bookBtn`（主题与放大之间，title="关注列表"）点击 → `openReminderListWindow()` 打开**独立 `BrowserWindow`**（加载 `remindlist.html`，`RL_W=340`、`RL_H=440`、`frame:false transparent:true resizable:true alwaysOnTop skipTaskbar`）。**为什么要独立窗口**：原 `#reminderList` 是 `#widget` 内的绝对定位 DOM，无论怎么放开夹紧逻辑都渲染不到 `#widget` 之外（会被主窗口边界裁掉）→ 独立窗口是唯一干净解法，可拖到**屏幕任意位置**。窗口内容：不透明卡片 `#card`（`background:#fdfcfa` + 1px 描边 + 14px 圆角 + 阴影；dark 为 `#2b3040`）；标题栏 `#header` 用 **`-webkit-app-region: drag`**（Electron 原生拖动，比 IPC 手动 setBounds 丝滑），关闭按钮 `-webkit-app-region: no-drag` 排除；三列 `grid-template-columns: 62px 1fr 24px`——① **日期列**（点击 → `remindlist-goto-ym` 跳转+选中该日）；② **内容列** `.rl-text-wrap` `overflow-x:auto` + mouseX 驱动 `scrollLeft` 按住左右拖看长文；③ **✕ 列**（点击 → `remindlist-remove`(id) 删除，主进程写盘 + `broadcastReminders` 同步主窗黄格 + 本窗口）。数据注入：首次 `loadFile(query:{data})` 传 `{theme,reminders}`；复用窗口时 `pushDataToRemindlist()` 推 `remindlist-data`；主题切换 `pushThemeToRemindlist()` 推 `theme-changed`。**位置记忆**：`moved`/`resized` 事件 400ms 防抖写 `lastRemindlistBounds` 到 `settings.json`，下次打开恢复；越界（换显示器/分辨率变了）回落到 `center()`。关闭：`✕`/`Esc` → `remindlist-close`。空态：「还没有任何特别关注 / 右键日历上的任意日期，即可添加」。 |
@@ -265,8 +292,8 @@ var HOLIDAYS_2026 = {
 
 ## 8. 版本信息与作者（集中维护点）
 - 软件名：`简洁桌面日历`　显示名 `productName` / exe 名 `SimpleCalendar`
-- 版本号：`1.7.20`（package.json `version`；同步体现在 exe 文件版本、安装包属性、控制面板）
-- **运行时文件**：`userData/reminders.json`（特别关注）、`userData/settings.json`（v1.7.11 新增：theme/pinned/autoLaunch/dockOn）、`userData/calendar.log`（v1.7.11 新增：诊断日志，超 200KB 自动清空；打包后 stderr 不可见，**日志是唯一排查手段**）
+- 版本号：`2.4.0`（package.json `version`；同步体现在 exe 文件版本、安装包属性、控制面板）
+- **运行时文件**：`userData/reminders.json`（特别关注）、`userData/settings.json`（v1.7.11 新增：theme/pinned/autoLaunch/dockOn；v2.4.0 新增：skinMode/nativeSkin/skinColor/desktopFollowCalendar/dockFollowCalendar/dockBoundsByDisplay/dockDisplayId）、`userData/calendar.log`（v1.7.11 新增：诊断日志，超 200KB 自动清空；打包后 stderr 不可见，**日志是唯一排查手段**）
 - 作者：`YG`（`author` 字段；版本信息中的公司/版权靠根级 `copyright` 写入 exe 文件属性）
 - 版权：`Copyright © 2026 YG`
 - 仓库/主页：`https://github.com/kt87on/simple-desktop-calendar`（GitHub 用，可改）
