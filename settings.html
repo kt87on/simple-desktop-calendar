@@ -177,6 +177,8 @@
 
   /* 动作按钮行（检查节假日更新） */
   .action-row { padding: 9px var(--s-4); }
+  /* v2.4.4：功能入口按钮下的说明文案（与 .row .hint 同一套字阶/颜色） */
+  .action-row .hint { margin-top: 5px; text-align: center; font-size: var(--fs-2xs); color: var(--ink-faint); }
   .action-row button {
     width: 100%; border: 1px solid var(--ctl-edge); border-radius: var(--r-sm);
     background: var(--ctl-bg); color: var(--ink); font-family: inherit;
@@ -286,6 +288,7 @@
 
       <div class="action-row">
         <button id="btnSkin">🎨 皮肤设置</button>
+        <div class="hint">含 UI 清晰度</div>
       </div>
 
       <div class="row">

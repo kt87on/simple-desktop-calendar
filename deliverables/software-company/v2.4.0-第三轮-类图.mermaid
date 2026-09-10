@@ -1,0 +1,80 @@
+classDiagram
+    class SkinConfig {
+        +int __v
+        +SurfaceMap surfaces
+        +OpacityMap opacity
+    }
+    class SurfaceConfig {
+        +string type
+        +string color
+        +ImageSpec image
+        +string text
+        +string follow
+        +string|number clarity
+    }
+    class ImageSpec {
+        +string file
+        +string snapshot
+        +int w
+        +int h
+        +CropRect crop
+        +float zoom
+        +float opacity
+        +bool dark
+        +float complexity
+    }
+    class CropRect {
+        +float x
+        +float y
+        +float w
+        +float h
+    }
+    class ImageStats {
+        +float[] zones
+        +float mean
+        +float complexity
+        +bool dark
+    }
+    class ResolvedSurfaceState {
+        +string type
+        +string theme
+        +string bg
+        +string color
+        +ImageSpec image
+        +int clarity
+    }
+    class ExifReader {
+        +readJpegOrientation(filePath) int
+        +parseTiffOrientation(buf, t, n) int
+    }
+    class MainProcess {
+        +SkinConfig skin
+        +normalizeSkin(raw)
+        +normalizeImageSpec(img)
+        +applySkinSet(payload)
+        +resolvedSurfaceState(surface)
+        +importSkinImage(surface, srcPath)
+        +sampleImageStats(img) ImageStats
+    }
+    class RendererClarity {
+        +applyClarity(root, theme, clarity)
+        +layoutSkin(el, IW, IH, crop, zoom)
+        +realImageSize(file, cb)
+        +applySkinImage(image)
+        +applySkinState(state)
+    }
+    class SkinWindow {
+        +renderClarity()
+        +setClarity(value)
+    }
+
+    SkinConfig --> SurfaceConfig
+    SurfaceConfig --> ImageSpec
+    ImageSpec --> CropRect
+    MainProcess --> SkinConfig
+    MainProcess --> SurfaceConfig
+    MainProcess --> ExifReader
+    MainProcess --> ImageStats
+    MainProcess --> ResolvedSurfaceState
+    RendererClarity ..> ResolvedSurfaceState
+    SkinWindow ..> MainProcess

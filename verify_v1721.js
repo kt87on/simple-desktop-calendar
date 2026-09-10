@@ -41,7 +41,7 @@ const whenReadyBody = main.slice(main.indexOf('app.whenReady'), main.indexOf("ap
 // =====================================================================
 // 版本号
 // =====================================================================
-check('版本号=2.4.0', pkg.version === '2.4.0', 'package.json version=' + pkg.version);
+check('版本号=2.4.4', pkg.version === '2.4.4', 'package.json version=' + pkg.version);
 
 // =====================================================================
 // v2.3.0 Phase 3：设置窗口拖动 / 解除特别关注数量限制 / 安装后说明弹出
@@ -549,7 +549,7 @@ check('[v2.4.1 D] protocol.handle("skin") 改用 skinUrlToName 取文件名',
 check('[v2.4.2] dock.html 纯色/图片复用原生描边+阴影（不再单独 border-color: transparent）',
   !/\[data-skin="color"\] #card,/.test(dockCode) && !/border-color: transparent/.test(dockCode) &&
   /\[data-skin="color"\] #card \{ background: var\(--skin-bg-solid\); \}/.test(dockCode) &&
-  /\[data-skin="image"\] #card \{ background: transparent; \}/.test(dockCode));
+  /\[data-skin="image"\] #card \{ background: var\(--protect-mid\); \}/.test(dockCode));
 check('[v2.4.2] dock.html hover 锁住自选背景（body.hit + data-skin，不闪黑）',
   /body\.hit\[data-skin="color"\] #card:hover/.test(dockCode) &&
   /body\.hit\[data-skin="image"\] #card:hover/.test(dockCode));
@@ -701,8 +701,10 @@ check('[v2.4.3] applySkinSet image 分支 merge 保留 opacity',
   /opacity: \(value\.opacity !== undefined\) \? value\.opacity : prev\.opacity/.test(mainCode));
 
 /* ---- template.html：文字真描边 + 柔和阴影 + 按钮玻璃 ---- */
-check('[v2.4.3] template.html 声明 --stroke-color / --shadow-extra 默认值',
-  /--stroke-color:\s*transparent/.test(tmpl) && /--shadow-extra:\s*none/.test(tmpl));
+check('[v2.4.4] template.html 声明 --stroke-color / --ink-glow / --protect-* 默认值',
+  /--stroke-color:\s*transparent/.test(tmpl) && /--ink-glow:\s*0 0 0 transparent/.test(tmpl) &&
+  /--protect-top:\s*transparent/.test(tmpl) && /--protect-mid:\s*transparent/.test(tmpl) &&
+  /--protect-bot:\s*transparent/.test(tmpl) && /--protect-state:\s*transparent/.test(tmpl));
 check('[v2.4.3] template.html 文字真描边（-webkit-text-stroke 0.5px var(--stroke-color)）',
   /-webkit-text-stroke:\s*0\.5px var\(--stroke-color\)/.test(tmpl));
 check('[v2.4.3] template.html 描边选择器仅 data-skin 限定（原生皮肤不描边）',
@@ -710,30 +712,31 @@ check('[v2.4.3] template.html 描边选择器仅 data-skin 限定（原生皮肤
     var i = tmpl.indexOf('-webkit-text-stroke');
     return i >= 0 && /\[data-skin=/.test(tmpl.slice(Math.max(0, i - 600), i));
   })());
-check('[v2.4.3] template.html 柔和阴影 text-shadow: var(--shadow-extra)',
-  /text-shadow:\s*var\(--shadow-extra\)/.test(tmpl));
+check('[v2.4.4] template.html 柔和光晕 text-shadow: var(--ink-glow)',
+  /text-shadow:\s*var\(--ink-glow\)/.test(tmpl));
 check('[v2.4.3] template.html 功能栏按钮玻璃 0.10/0.16（对齐 v4 .fn-btn）',
   /\[data-skin="color"\] #dragBar \.sel,[\s\S]{0,400}background-color: rgba\(255, 255, 255, 0\.10\);[\s\S]{0,160}border-color: rgba\(255, 255, 255, 0\.16\);/.test(tmpl));
 
 /* ---- app.js：同步写描边/阴影 + 图片不透明度 ---- */
-check('[v2.4.3] app.js applySkinState 同步写 --stroke-color/--shadow-extra',
-  /applyTextStroke\(root, S\.theme\)/.test(codeOnly(appjs)) &&
+check('[v2.4.4] app.js applySkinState 调 applyClarity 写 --stroke-color/--ink-glow',
+  /applyClarity\(root, S\.theme, state\.clarity\)/.test(codeOnly(appjs)) &&
   /setProperty\('--stroke-color'/.test(codeOnly(appjs)) &&
-  /setProperty\('--shadow-extra'/.test(codeOnly(appjs)));
-check('[v2.4.3] app.js 原生皮肤清除描边变量（clearTextStroke）',
-  /clearTextStroke\(root\)/.test(codeOnly(appjs)) &&
+  /setProperty\('--ink-glow'/.test(codeOnly(appjs)));
+check('[v2.4.4] app.js 原生皮肤清除可读性变量（clearReadability）',
+  /clearReadability\(root\)/.test(codeOnly(appjs)) &&
   /removeProperty\('--stroke-color'\)/.test(codeOnly(appjs)));
 check('[v2.4.3] app.js applySkinImage 直接写元素 style.opacity',
   /el\.style\.opacity = \(typeof image\.opacity === 'number' && isFinite\(image\.opacity\)\) \? String\(image\.opacity\) : '1'/.test(codeOnly(appjs)));
 
 /* ---- dock.html：文字描边 + 图片不透明度 ---- */
-check('[v2.4.3] dock.html 声明 --stroke-color / --shadow-extra',
-  /--stroke-color:\s*transparent/.test(dock) && /--shadow-extra:\s*none/.test(dock));
+check('[v2.4.4] dock.html 声明 --stroke-color / --ink-glow / --protect-mid',
+  /--stroke-color:\s*transparent/.test(dock) && /--ink-glow:\s*0 0 0 transparent/.test(dock) &&
+  /--protect-mid:\s*transparent/.test(dock));
 check('[v2.4.3] dock.html 文字真描边（data-skin 限定）',
   /\[data-skin="color"\] #dockTime, \[data-skin="image"\] #dockTime/.test(dock) &&
   /-webkit-text-stroke:\s*0\.5px var\(--stroke-color\)/.test(dock));
-check('[v2.4.3] dock.html dockApplySkin 写/清描边变量',
-  /dockSetStroke\(root, theme\)/.test(dockCode) && /dockClearStroke\(root\)/.test(dockCode) &&
+check('[v2.4.4] dock.html dockApplyClarity 写/清可读性变量',
+  /dockApplyClarity\(root, theme, state\.clarity\)/.test(dockCode) && /dockClearReadability\(root\)/.test(dockCode) &&
   /setProperty\('--stroke-color'/.test(dockCode) && /removeProperty\('--stroke-color'\)/.test(dockCode));
 check('[v2.4.3] dock.html dockApplyImage 直接写元素 style.opacity',
   /el\.style\.opacity = \(typeof image\.opacity === 'number' && isFinite\(image\.opacity\)\) \? String\(image\.opacity\) : '1'/.test(dockCode));
@@ -746,6 +749,97 @@ check('[v2.4.3] skin.html 图片不透明度即时回写 file+opacity',
   /setField\(S\.surface, 'image', \{ file: img\.file, opacity: v \}\)/.test(skinHtml));
 check('[v2.4.3] skin.html renderCrop 回显 opacity 值',
   /imageOpacityRange'\)\.value = op/.test(skinHtml) && /imageOpacityVal'\)\.textContent = pct\(op\)/.test(skinHtml));
+
+/* =====================================================================
+ * v2.4.4：JPEG EXIF 方向修正 + 可读性三层结构（分区采样 / 局部保护 / 光晕 / clarity 滑杆）
+ * ===================================================================== */
+
+/* ---- 主进程：JPEG EXIF Orientation 解析 ---- */
+check('[v2.4.4] 主进程 readJpegOrientation 存在（SOI/APP1 段扫描）',
+  /function readJpegOrientation\(filePath\)/.test(mainCode) && /0xE1/.test(mainCode) &&
+  /marker === 0xD8/.test(mainCode) && /0xDA/.test(mainCode));
+check('[v2.4.4] 主进程 parseTiffOrientation 存在（II/MM 字节序 + tag 0x0112）',
+  /function parseTiffOrientation\(buf, t, n\)/.test(mainCode) && /0x0112/.test(mainCode) &&
+  /buf\[t\] === 0x49/.test(mainCode) && /buf\[t\] === 0x4D/.test(mainCode));
+check('[v2.4.4] importSkinImage JPEG 方向 5~8 → 交换记录宽高（修竖拍压扁）',
+  /orient >= 5 && orient <= 8/.test(mainCode) &&
+  /size = \{ width: size\.height, height: size\.width \}/.test(mainCode));
+
+/* ---- 主进程：分区采样 + 复杂度 ---- */
+check('[v2.4.4] 主进程 wcagLum 相对亮度函数存在（与 isDarkColor 同口径）',
+  /function wcagLum\(r, g, b\)/.test(mainCode) && /0\.2126 \* ch\(r\)/.test(mainCode));
+check('[v2.4.4] 主进程 decideDark 迟滞判定（±0.06 防抖）',
+  /function decideDark\(L, prevDark\)/.test(mainCode) && /L <= 0\.56/.test(mainCode) && /L < 0\.44/.test(mainCode));
+check('[v2.4.4] 主进程 sampleImageStats 分区采样 + complexity=std/0.30',
+  /function sampleImageStats\(img\)/.test(mainCode) && /std \/ 0\.30/.test(mainCode) &&
+  /bmp\[i \+ 3\] === 0/.test(mainCode));
+check('[v2.4.4] importSkinImage 三区权重 0.25/0.55/0.20 合成亮度',
+  /0\.25 \* stats\.zones\[0\] \+ 0\.55 \* stats\.zones\[1\] \+ 0\.20 \* stats\.zones\[2\]/.test(mainCode));
+check('[v2.4.4] importSkinImage 返回 image 含 complexity',
+  /complexity: complexity/.test(mainCode));
+check('[v2.4.4] normalizeImageSpec 输出 complexity 字段（clamp01）',
+  /complexity: \(typeof img\.complexity === 'number' && isFinite\(img\.complexity\)\) \? clamp01\(img\.complexity\) : 0/.test(mainCode));
+
+/* ---- 主进程：clarity 数据模型 ---- */
+check('[v2.4.4] 主进程 normalizeClarity 存在（auto | 0~100 整数）',
+  /function normalizeClarity\(v\)/.test(mainCode) &&
+  /Math\.max\(0, Math\.min\(100, Math\.round\(n\)\)\)/.test(mainCode));
+check('[v2.4.4] normalizeSkin surface 含 clarity: normalizeClarity(s.clarity)',
+  /clarity: normalizeClarity\(s\.clarity\)/.test(mainCode));
+check('[v2.4.4] 主进程 clarityForConfig 存在（image 按 complexity 推导 20~85）',
+  /function clarityForConfig\(c\)/.test(mainCode) &&
+  /Math\.max\(20, Math\.min\(85, Math\.round\(cx \* 100\)\)\)/.test(mainCode));
+check('[v2.4.4] resolvedSurfaceState 输出 clarity: clarityForConfig(c)',
+  /clarity: clarityForConfig\(c\)/.test(mainCode));
+check('[v2.4.4] applySkinSet 新增 field===clarity 分支',
+  /field === 'clarity'/.test(mainCode) && /c\.clarity = \(value === 'auto'\)/.test(mainCode));
+check('[v2.4.4] applySkinSet follow 取消时物化复制 clarity',
+  /c\.clarity = cal\.clarity/.test(mainCode));
+
+/* ---- template.html：第 2/3 层局部保护遮罩 ---- */
+check('[v2.4.4] template.html #infoBar 顶部保护渐变 var(--protect-top)',
+  /linear-gradient\(180deg, var\(--protect-top\)/.test(tmpl));
+check('[v2.4.4] template.html #calendar::before 网格遮罩 var(--protect-mid)',
+  /#calendar::before[\s\S]{0,120}background: var\(--protect-mid\)/.test(tmpl));
+check('[v2.4.4] template.html #dragBar 保护 var(--protect-bot)（html 前缀提特异性）',
+  /html\[data-skin="color"\] #dragBar, html\[data-skin="image"\] #dragBar[\s\S]{0,60}background: var\(--protect-bot\)/.test(tmpl));
+check('[v2.4.4] template.html 状态元素保护晕环 var(--protect-state)',
+  /box-shadow: 0 0 0 2px var\(--protect-state\), 0 1px 6px var\(--protect-state\)/.test(tmpl));
+
+/* ---- app.js：取景纯函数 + 尺寸兜底 + 三层可读性 ---- */
+check('[v2.4.4] app.js layoutSkin 纯函数（cover 基准 vp.w/iw, vp.h/ih）',
+  /function layoutSkin\(el, IW, IH, crop, zoom\)/.test(codeOnly(appjs)) &&
+  /Math\.max\(vp\.w \/ iw, vp\.h \/ ih\)/.test(codeOnly(appjs)));
+check('[v2.4.4] app.js realImageSize 运行时尺寸探测（Chromium 已应用 EXIF）',
+  /function realImageSize\(file, cb\)/.test(codeOnly(appjs)) && /naturalWidth/.test(codeOnly(appjs)));
+check('[v2.4.4] app.js applyClarity / clearReadability 三层可读性',
+  /function applyClarity\(root, theme, clarity\)/.test(codeOnly(appjs)) &&
+  /function clearReadability\(root\)/.test(codeOnly(appjs)) &&
+  /setProperty\('--protect-mid'/.test(codeOnly(appjs)));
+
+/* ---- dock.html：取景纯函数 + 尺寸兜底 + 三层可读性 ---- */
+check('[v2.4.4] dock.html dockLayoutSkin 纯函数（cover 基准）',
+  /function dockLayoutSkin\(el, IW, IH, crop, zoom\)/.test(dockCode) &&
+  /Math\.max\(vp\.w \/ iw, vp\.h \/ ih\)/.test(dockCode));
+check('[v2.4.4] dock.html dockRealImageSize 运行时尺寸探测',
+  /function dockRealImageSize\(file, cb\)/.test(dockCode) && /naturalWidth/.test(dockCode));
+check('[v2.4.4] dock.html dockApplyClarity / dockClearReadability 三层可读性',
+  /function dockApplyClarity\(root, theme, clarity\)/.test(dockCode) &&
+  /function dockClearReadability\(root\)/.test(dockCode) &&
+  /setProperty\('--protect-mid'/.test(dockCode));
+
+/* ---- skin.html：「UI 清晰度」滑杆 + 自动开关 + 联调回显 ---- */
+check('[v2.4.4] skin.html #claritySection（仅纯色/图片，与 textSection 同步显隐）',
+  /id="claritySection"/.test(skinHtml) &&
+  /claritySection'\)\.style\.display = \(isColor \|\| isImage\)/.test(skinHtml));
+check('[v2.4.4] skin.html 清晰度滑杆 #clarityRange 0~100 step5 + #clarityVal',
+  /id="clarityRange"/.test(skinHtml) && /min="0" max="100" step="5"/.test(skinHtml) && /id="clarityVal"/.test(skinHtml));
+check('[v2.4.4] skin.html 「自动」开关 #clarityAuto（切换 auto ⇄ 手动）',
+  /id="clarityAuto"/.test(skinHtml) && /setClarity\('auto'\)/.test(skinHtml));
+check('[v2.4.4] skin.html 清晰度即时回写 skin-set(\'clarity\')',
+  /setField\(S\.surface, 'clarity', val\)/.test(skinHtml));
+check('[v2.4.4] skin.html 回显 resolved.clarity + complexity 兜底',
+  /clarityResolved\(surface, effCfg\)/.test(skinHtml) && /complexity/.test(skinHtml));
 
 
 let pass = 0, fail = 0;

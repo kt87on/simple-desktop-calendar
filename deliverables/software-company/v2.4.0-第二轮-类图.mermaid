@@ -1,0 +1,87 @@
+classDiagram
+    class SkinConfig {
+        +int __v
+        +SurfaceMap surfaces
+        +OpacityMap opacity
+    }
+    class SurfaceConfig {
+        +string type
+        +string color
+        +ImageSpec image
+        +string text
+        +string follow
+    }
+    class ImageSpec {
+        +string file
+        +string snapshot
+        +int w
+        +int h
+        +CropRect crop
+        +float zoom
+        +bool dark
+    }
+    class CropRect {
+        +float x
+        +float y
+        +float w
+        +float h
+    }
+    class ResolvedSurfaceState {
+        +string type
+        +string theme
+        +string bg
+        +string color
+        +ImageSpec image
+    }
+    class MainProcess {
+        +SkinConfig skin
+        +resolveSurfaceConfig(surface)
+        +surfaceTheme(surface)
+        +surfaceBg(surface)
+        +baseTheme()
+        +resolvedSurfaceState(surface)
+        +migrateSkin(old)
+        +normalizeSkin(raw)
+        +importSkinImage(surface, srcPath)
+        +isDarkColor(hex)
+        +pushSkinToAll()
+    }
+    class PreloadAPI {
+        +skinSet(surface, field, value)
+        +skinAction(action, payload)
+        +skinImport(surface, filePath)
+        +onSkinState(cb)
+        +onSkinConfigState(cb)
+        +onWinHidden(cb)
+    }
+    class CalendarRenderer {
+        +applyTheme()
+        +applySkinState(state)
+        +applySkinImage(image)
+        +clearRange()
+    }
+    class DockRenderer {
+        +applySkinState(state)
+        +resetHit()
+    }
+    class SkinWindow {
+        +renderPicker()
+        +cropPreview()
+        +applyConfig(state)
+    }
+    class SettingsWindow {
+        +applyState(state)
+        +openSkin()
+    }
+
+    SkinConfig --> SurfaceMap
+    SkinConfig --> OpacityMap
+    SurfaceConfig --> ImageSpec
+    ImageSpec --> CropRect
+    MainProcess --> SkinConfig
+    MainProcess --> ResolvedSurfaceState
+    PreloadAPI --> ResolvedSurfaceState
+    CalendarRenderer ..> PreloadAPI
+    DockRenderer ..> PreloadAPI
+    SkinWindow ..> PreloadAPI
+    SettingsWindow ..> PreloadAPI

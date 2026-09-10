@@ -10,6 +10,9 @@ dist_prev_*/
 # 日志
 *.log
 
+# 测试残留（smoke-test.js 会在 cwd 建 _mock_userdata，失败/中断时可能残留）
+_mock_userdata/
+
 # WorkBuddy 本地数据
 .workbuddy/
 

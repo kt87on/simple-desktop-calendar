@@ -676,6 +676,46 @@ function confirmRemindInput() {
     if (IS_DESKTOP) return { w: 340, h: 370 };
     return (widgetEl && widgetEl.classList.contains('max')) ? { w: 760, h: 961 } : { w: 340, h: 430 };
   }
+  /* v2.4.4：取景布局纯函数（crop+zoom → background-size/position）。viewport 由 skinViewport()
+   * 给出（mini 340×430、max 760×961、桌面 340×370）。被 applySkinImage 与尺寸兜底回调复用。 */
+  function layoutSkin(el, IW, IH, crop, zoom) {
+    if (!el) return;
+    var vp = skinViewport();
+    var c = crop || { x: 0, y: 0, w: 1, h: 1 };
+    var z = (typeof zoom === 'number' && isFinite(zoom) && zoom > 0) ? zoom : 1;
+    var iw = (typeof IW === 'number' && IW > 0) ? IW : vp.w;
+    var ih = (typeof IH === 'number' && IH > 0) ? IH : vp.h;
+    var cx = (c.x || 0) * iw, cy = (c.y || 0) * ih;
+    var cw = (c.w || 0) * iw, ch = (c.h || 0) * ih;
+    if (cw < 1) cw = 1; if (ch < 1) ch = 1;
+    // 全图 cover 基准（crop.w/h 是 zoom 的派生冗余，不进基准；否则与反向 zoom=s/s0 不互逆）
+    var s0 = Math.max(vp.w / iw, vp.h / ih);
+    var s = s0 * z;
+    var centerX = cx + cw / 2, centerY = cy + ch / 2;
+    el.style.backgroundSize = (iw * s) + 'px ' + (ih * s) + 'px';
+    el.style.backgroundPosition = (vp.w / 2 - centerX * s) + 'px ' + (vp.h / 2 - centerY * s) + 'px';
+  }
+  /* v2.4.4：图片真实显示尺寸缓存/探测（Chromium 的 <img> 已应用 EXIF 旋转）。
+   * 只作为「主进程记录尺寸」的兜底：WebP/老数据/EXIF 解析失败时纠正取景比例。 */
+  var imgRealSize = {};   // file -> { w, h }
+  var imgProbing = {};    // file -> [cb]（同一文件并发探测合并）
+  function realImageSize(file, cb) {
+    if (imgRealSize[file]) { cb(imgRealSize[file]); return; }
+    if (imgProbing[file]) { imgProbing[file].push(cb); return; }
+    imgProbing[file] = [cb];
+    var probe = new Image();
+    probe.onload = function () {
+      var sz = { w: probe.naturalWidth || 0, h: probe.naturalHeight || 0 };
+      imgRealSize[file] = sz;
+      var list = imgProbing[file]; delete imgProbing[file];
+      for (var i = 0; i < list.length; i++) { try { list[i](sz); } catch (e) {} }
+    };
+    probe.onerror = function () {
+      var list = imgProbing[file]; delete imgProbing[file];
+      for (var i = 0; i < list.length; i++) { try { list[i](null); } catch (e) {} }
+    };
+    probe.src = 'skin://' + encodeURIComponent(file);
+  }
   function applySkinImage(image) {
     var el = document.getElementById('skinImg');
     if (!el) return;
@@ -684,20 +724,17 @@ function confirmRemindInput() {
     el.style.backgroundImage = 'url("skin://' + encodeURIComponent(file) + '")';
     // v2.4.3 图片不透明度：直接写元素 style.opacity（走 CSS 变量继承在 Electron 下可能不生效）。
     el.style.opacity = (typeof image.opacity === 'number' && isFinite(image.opacity)) ? String(image.opacity) : '1';
-    var vp = skinViewport();
-    var crop = image.crop || { x: 0, y: 0, w: 1, h: 1 };
-    var zoom = (typeof image.zoom === 'number' && isFinite(image.zoom) && image.zoom > 0) ? image.zoom : 1;
-    var IW = (typeof image.w === 'number' && image.w > 0) ? image.w : vp.w;
-    var IH = (typeof image.h === 'number' && image.h > 0) ? image.h : vp.h;
-    var cx = (crop.x || 0) * IW, cy = (crop.y || 0) * IH;
-    var cw = (crop.w || 0) * IW, ch = (crop.h || 0) * IH;
-    if (cw < 1) cw = 1; if (ch < 1) ch = 1;
-    // 全图 cover 基准（crop.w/h 是 zoom 的派生冗余，不进基准；否则与反向 zoom=s/s0 不互逆）
-    var s0 = Math.max(vp.w / IW, vp.h / IH);
-    var s = s0 * zoom;
-    var centerX = cx + cw / 2, centerY = cy + ch / 2;
-    el.style.backgroundSize = (IW * s) + 'px ' + (IH * s) + 'px';
-    el.style.backgroundPosition = (vp.w / 2 - centerX * s) + 'px ' + (vp.h / 2 - centerY * s) + 'px';
+    layoutSkin(el, image.w, image.h, image.crop, image.zoom);   // 先用已知尺寸立即铺底（防空白）
+    // v2.4.4：异步用 Chromium 的真实尺寸纠偏（EXIF 旋转已应用）；不一致才重排一次。
+    var probeFile = file;
+    var enc = encodeURIComponent(file);
+    realImageSize(file, function (sz) {
+      if (!sz || !sz.w || !sz.h) return;
+      if (String(el.style.backgroundImage).indexOf(enc) < 0) return;   // 背景已被替换 → 跳过
+      var IW = (typeof image.w === 'number' && image.w > 0) ? image.w : sz.w;
+      var IH = (typeof image.h === 'number' && image.h > 0) ? image.h : sz.h;
+      if (sz.w !== IW || sz.h !== IH) layoutSkin(el, sz.w, sz.h, image.crop, image.zoom);
+    });
   }
   function setSkinFrozen(frozen) {
     frozen = !!frozen;
@@ -706,22 +743,48 @@ function confirmRemindInput() {
     var img = activeSkinImage();
     if (img) applySkinImage(img);
   }
-  /* v2.4.3 自选纯色/图片皮肤：文字真描边 + 柔和阴影随文字明暗切换。
-   * dark（浅字深底）→ 深色描边；light（深字浅底）→ 浅色描边。原生皮肤不调用（无描边）。 */
-  function applyTextStroke(root, theme) {
+  /* v2.4.4 自选纯色/图片皮肤：三层可读性变量（局部保护遮罩 + 文字光晕 + 兜底描边）。
+   * 由 clarity(0~100) 线性联动；theme 决定主题向（深底浅字→黑光罩/描边，浅底深字→白光罩/描边）。 */
+  function applyClarity(root, theme, clarity) {
     if (!root) return;
-    if (theme === 'dark') {
-      root.style.setProperty('--stroke-color', 'rgba(0,0,0,0.55)');
-      root.style.setProperty('--shadow-extra', '0 1px 2px rgba(0,0,0,0.4)');
-    } else {
-      root.style.setProperty('--stroke-color', 'rgba(255,255,255,0.7)');
-      root.style.setProperty('--shadow-extra', '0 1px 2px rgba(0,0,0,0.08)');
+    // v2.4.4：非法 clarity（'auto' / undefined / NaN / ±Infinity）一律按 0 处理（保护层归零），
+    // 防止 NaN 落入 p>0 分支写出非法 CSS rgba(...,NaN)；合法数字输入零变化。
+    if (typeof clarity !== 'number' || !isFinite(clarity)) clarity = 0;
+    var p = Math.max(0, Math.min(1, (clarity || 0) / 100));
+    var ink = (theme === 'dark') ? '0,0,0' : '255,255,255';
+    // v2.4.4：clarity=0（纯色 auto 档）→ 保护层完全归零，不引入多余灰罩；
+    // image auto 档已被夹进 [20,85]（p≥0.2）保证基础保护，故 p=0 不再需要 base 偏移。
+    // 仅保留主题兜底描边 --stroke-color（与 p>0 公式在 p=0 处的极限值一致）。
+    if (p <= 0) {
+      root.style.setProperty('--protect-top',   'transparent');
+      root.style.setProperty('--protect-mid',   'transparent');
+      root.style.setProperty('--protect-bot',   'transparent');
+      root.style.setProperty('--protect-edge',  'transparent');
+      root.style.setProperty('--protect-state', 'transparent');
+      root.style.setProperty('--ink-glow', '0 0 0 transparent');
+      var sa0 = (theme === 'dark') ? 0.55 : 0.70;
+      root.style.setProperty('--stroke-color', 'rgba(' + ink + ',' + sa0.toFixed(3) + ')');
+      return;
     }
+    function a(base, k) { return (base + k * p).toFixed(3); }
+    root.style.setProperty('--protect-top',   'rgba(' + ink + ',' + a(0.06, 0.30) + ')');
+    root.style.setProperty('--protect-mid',   'rgba(' + ink + ',' + a(0.03, 0.20) + ')');
+    root.style.setProperty('--protect-bot',   'rgba(' + ink + ',' + a(0.06, 0.26) + ')');
+    root.style.setProperty('--protect-edge',  'rgba(' + ink + ',' + a(0.10, 0.22) + ')');
+    root.style.setProperty('--protect-state', 'rgba(' + ink + ',' + a(0.15, 0.35) + ')');
+    root.style.setProperty('--ink-glow', '0 0 ' + (1 + 3 * p).toFixed(1) + 'px rgba(' + ink + ',' + a(0.35, 0.35) + ')');
+    var sa = (theme === 'dark') ? (0.55 - 0.25 * p) : (0.70 - 0.30 * p);
+    root.style.setProperty('--stroke-color', 'rgba(' + ink + ',' + sa.toFixed(3) + ')');
   }
-  function clearTextStroke(root) {
+  function clearReadability(root) {
     if (!root) return;
+    root.style.removeProperty('--protect-top');
+    root.style.removeProperty('--protect-mid');
+    root.style.removeProperty('--protect-bot');
+    root.style.removeProperty('--protect-edge');
+    root.style.removeProperty('--protect-state');
+    root.style.removeProperty('--ink-glow');
     root.style.removeProperty('--stroke-color');
-    root.style.removeProperty('--shadow-extra');
   }
   function applySkinState(state) {
     if (!state) return;
@@ -731,18 +794,18 @@ function confirmRemindInput() {
     if (state.bg === 'color') {
       root.dataset.skin = 'color';
       root.style.setProperty('--skin-bg-solid', state.color || '#fcfbf9');
-      applyTextStroke(root, S.theme);
+      applyClarity(root, S.theme, state.clarity);
       var c0 = document.getElementById('skinImg');
       if (c0) { c0.style.backgroundImage = ''; c0.style.opacity = ''; }
     } else if (state.bg === 'image') {
       root.dataset.skin = 'image';
       root.style.removeProperty('--skin-bg-solid');
-      applyTextStroke(root, S.theme);
+      applyClarity(root, S.theme, state.clarity);
       applySkinImage(state.image);
     } else {
       delete root.dataset.skin;
       root.style.removeProperty('--skin-bg-solid');
-      clearTextStroke(root);
+      clearReadability(root);
       var i1 = document.getElementById('skinImg');
       if (i1) { i1.style.backgroundImage = ''; i1.style.opacity = ''; }
     }

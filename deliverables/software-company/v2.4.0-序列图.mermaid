@@ -1,0 +1,50 @@
+sequenceDiagram
+    autonumber
+    participant SET as settings.html
+    participant M as electron-main.js
+    participant CAL as calendar.html(app.js)
+    participant DOCK as dock.html
+    participant OS as 系统(nativeTheme/screen)
+
+    Note over M: 启动 init（whenReady）
+    M->>M: loadSettings() 读 skinMode/nativeSkin/skinColor/dockBoundsByDisplay
+    M->>M: recomputeTheme() 推导生效主题
+    M->>M: createWindow/createDock/createDesktopWidget
+    M-->>CAL: theme-changed(light|dark)
+    M-->>CAL: skin-state(ResolvedSkinState)
+    M-->>DOCK: theme-changed + skin-state
+    M->>OS: nativeTheme.on('updated') 注册一次
+
+    Note over SET,M: 皮肤应用（B1/B2/B3）
+    SET->>M: settings-set('skinMode','custom')
+    SET->>M: settings-set('skinColor',{surface:'calendar',hex:'#123456'})
+    M->>M: skinColor 更新 → resolveBg()/resolveSkinState()
+    M->>M: win.setBackgroundColor(hex)
+    M-->>CAL: skin-state({mode:'custom',bg:'#123456',ink:'#e8eaf0',...})
+    CAL->>CAL: applySkin() 设 data-skin=custom + setProperty(--skin-*)
+    M-->>DOCK: skin-state(...)  // dockFollowCalendar=true → 跟随日历 bg
+    DOCK->>DOCK: applySkin()
+    M->>M: saveSettings() + pushSettingsState()
+
+    Note over OS,M: 跟随系统实时深浅色（B4）
+    OS->>M: nativeTheme updated（系统切换深浅）
+    M->>M: nativeSkin==='system'? → recomputeTheme()
+    M-->>CAL: theme-changed(newTheme)
+    M-->>DOCK: theme-changed(newTheme)
+    M->>M: tray.setImage + pushSettingsState()
+
+    Note over DOCK,M: A3 多屏位置记忆
+    DOCK->>M: dock-drag-end（松手）
+    M->>M: id=screen.getDisplayMatching(rect).id
+    M->>M: dockBoundsByDisplay[id]=rect; dockDisplayId=id; saveSettings()
+    OS->>M: display-removed（外接屏断开）
+    M->>M: clampDockToWorkArea 回落到存活工作区
+    OS->>M: display-added（重新连接）
+    M->>M: 若 dockBoundsByDisplay[newId] 存在 → 还原到原屏原位
+
+    Note over M,CAL: A1/A2 blur 隐藏 + range 重置
+    CAL->>M: （用户点击日历窗口外部）
+    M->>M: win.on('blur')：Date.now()<blurGraceUntil? 或焦点仍在 app 内? → 跳过
+    M->>M: hideMain()：win.hide()
+    M-->>CAL: win-hidden
+    CAL->>CAL: clearRange()（清 rangeSel + 隐藏天数浮层 + 重绘）

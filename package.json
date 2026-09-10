@@ -1,6 +1,6 @@
 {
   "name": "simple-desktop-calendar",
-  "version": "2.4.0",
+  "version": "2.4.4",
   "description": "简洁桌面日历：极简 Windows 桌面日历，核心只做一件事——看日历、看放假、看上班。",
   "author": "YG",
   "homepage": "https://github.com/kt87on/simple-desktop-calendar",
@@ -16,8 +16,8 @@
     "smoke": "node smoke-test.js",
     "runtime": "node runtime-test_v1721.js",
     "asar": "node verify_asar_v1721.js",
-    "check": "node verify_v1721.js && node smoke-test.js && node runtime-test_v1721.js",
-    "prebuild": "node verify_v1721.js && node smoke-test.js && node runtime-test_v1721.js",
+    "check": "node verify_v1721.js && node smoke-test.js && node runtime-test_v1721.js && node tests/qa-v244.js",
+    "prebuild": "node verify_v1721.js && node smoke-test.js && node runtime-test_v1721.js && node tests/qa-v244.js",
     "build": "node make-icon.js && node build.js && electron-builder --win nsis"
   },
   "build": {

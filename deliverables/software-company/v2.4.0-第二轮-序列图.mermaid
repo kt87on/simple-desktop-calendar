@@ -1,0 +1,52 @@
+sequenceDiagram
+    autonumber
+    participant SET as settings.html
+    participant SKIN as skin.html
+    participant M as electron-main.js
+    participant CAL as calendar.html(app.js)
+    participant DOCK as dock.html
+    participant OS as 系统(nativeTheme/screen)
+
+    Note over M: 启动 + 旧数据迁移
+    M->>M: loadSettings() → o.skin.__v===2 ? normalizeSkin : migrateSkin
+    M->>M: baseTheme() = surfaceTheme('calendar')
+    M->>M: createWindow/createDock/createDesktopWidget
+    M-->>CAL: skin-state({calendar,expanded})
+    M-->>DOCK: skin-state({dock})
+    M->>OS: protocol.handle('skin') + nativeTheme.on('updated')
+
+    Note over SET,SKIN,M: 皮肤设置入口 + 独立窗口
+    SET->>M: settings-action('open-skin')
+    M->>M: create skinWin (loadFile skin.html?theme=baseTheme)
+    M-->>SKIN: skin-config-state(full skin + resolved + 比例表)
+
+    Note over SKIN,M: 切换类型 / 纯色 / 跟随 / 透明度
+    SKIN->>M: skin-set({surface,field,value})
+    M->>M: 更新 skin.surfaces → 取消跟随时 copy-on-write 物化
+    M->>M: saveSettings()（只写 skin.__v=2）
+    M-->>CAL: skin-state(新 resolved)
+    M-->>DOCK: skin-state(新 resolved)
+    M-->>SKIN: skin-config-state
+
+    Note over SKIN,M: 图片导入
+    SKIN->>M: skin-import(surface, srcPath) [invoke]
+    M->>M: 校验 ext/≤20MB/最长边≤4096 → 原子复制 userData/skins/
+    M->>M: nativeImage 读 w/h + 64px 缩略图亮度 → image.dark + GIF 首帧 snapshot
+    M-->>SKIN: {ok, image}
+    SKIN->>SKIN: 取景预览（拖拽/滚轮 1×~5×）→ 反向换算 crop/zoom
+    SKIN->>M: skin-set({surface, field:'image', value:{file,crop,zoom}})
+    M-->>CAL: skin-state({... image})
+
+    Note over OS,M: 跟随系统实时（per-surface）
+    OS->>M: nativeTheme updated
+    M->>M: 各 surface 独立 surfaceTheme()；system 表面重算
+    M-->>CAL: skin-state（theme 更新）
+    M-->>DOCK: skin-state（theme 更新）
+    M->>M: tray.setImage(baseTheme) + pushSettingsState
+
+    Note over M,CAL,DOCK: A-bug1 / A-bug2
+    M->>M: desktopWin.on('blur') → send 'win-hidden'（桌面插件清 range）
+    CAL->>M: （用户点日历窗口外部）
+    M->>M: win.on('blur')：blurGraceUntil? 或兄弟窗口 isFocused? → 跳过，否则 hideMain()
+    M-->>CAL: win-hidden
+    CAL->>CAL: clearRange()

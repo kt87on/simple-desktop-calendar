@@ -609,9 +609,10 @@ console.log('\n【v2.4.0 第二轮】resolveSurfaceConfig / surfaceTheme / surfa
 
 function makeSkinHub(skinState, nativeThemeMock) {
   const src = [
-    'sanitizeBasename', 'clamp01', 'clampZoom', 'clampImageOpacity', 'validHex', 'isDarkColor', 'clampOpacity',
+    'sanitizeBasename', 'clamp01', 'clampZoom', 'clampImageOpacity', 'normalizeClarity',
+    'validHex', 'isDarkColor', 'clampOpacity',
     'normalizeImageSpec', 'normalizeSkin', 'migrateSkin', 'resolveSurfaceConfig',
-    'surfaceTheme', 'solidFallbackFor', 'surfaceBg', 'baseTheme', 'resolvedSurfaceState'
+    'surfaceTheme', 'solidFallbackFor', 'surfaceBg', 'clarityForConfig', 'baseTheme', 'resolvedSurfaceState'
   ].map(function (n) { return extractFn(mainSrc, n); }).join('\n');
   return new Function('skin', 'nativeTheme', src +
     '; return { resolveSurfaceConfig: resolveSurfaceConfig, surfaceTheme: surfaceTheme, surfaceBg: surfaceBg, baseTheme: baseTheme, resolvedSurfaceState: resolvedSurfaceState, migrateSkin: migrateSkin, normalizeSkin: normalizeSkin };'
@@ -819,12 +820,13 @@ function cropReverse(image, center, s, vp) {
 })();
 
 // 静态复核：真实代码里用的就是同一套正向公式（全图 cover 基准 + background-size/position）
-ok('[关键] app.js applySkinImage 用全图 cover 基准 Math.max(vp.w/IW, vp.h/IH)',
-  /Math\.max\(vp\.w \/ IW, vp\.h \/ IH\)/.test(fs.readFileSync('app.js', 'utf8')));
+// v2.4.4：正公式已抽到 layoutSkin 纯函数（app.js）；dock 侧为 dockLayoutSkin。
+ok('[关键] app.js layoutSkin 用全图 cover 基准 Math.max(vp.w/iw, vp.h/ih)',
+  /function layoutSkin\(el, IW, IH, crop, zoom\)[\s\S]{0,600}Math\.max\(vp\.w \/ iw, vp\.h \/ ih\)/.test(fs.readFileSync('app.js', 'utf8')));
 ok('[关键] app.js 背景定位用取景中心对齐 (vp.w/2 - centerX*s)',
   /vp\.w \/ 2 - centerX \* s/.test(fs.readFileSync('app.js', 'utf8')));
-ok('[关键] dock.html 同样用全图 cover 基准公式',
-  /Math\.max\(vp\.w \/ IW, vp\.h \/ IH\)/.test(dockSrc));
+ok('[关键] dock.html dockLayoutSkin 同样用全图 cover 基准公式',
+  /function dockLayoutSkin\(el, IW, IH, crop, zoom\)[\s\S]{0,600}Math\.max\(vp\.w \/ iw, vp\.h \/ ih\)/.test(dockSrc));
 ok('[关键] skin.html 反向换算 crop/zoom 落盘（saveCrop）',
   /crop\.center\.x - vw \/ 2/.test(fs.readFileSync('skin.html', 'utf8')) &&
   /crop\.s \/ crop\.s0/.test(fs.readFileSync('skin.html', 'utf8')));
@@ -920,6 +922,135 @@ console.log('\n【v2.4.3】clampImageOpacity / normalizeImageSpec —— 图片�
   ok('normalizeImageSpec 缺省 opacity → 1', n2.opacity === 1, JSON.stringify(n2));
   const n3 = api.normalizeImageSpec({ file: 'x.png', opacity: 9 });
   ok('normalizeImageSpec 越界 opacity → 夹到 1', n3.opacity === 1, JSON.stringify(n3));
+})();
+
+/* ============ v2.4.4：normalizeClarity / clarityForConfig / decideDark / wcagLum ============ */
+console.log('\n【v2.4.4】normalizeClarity / clarityForConfig / decideDark —— UI 清晰度数据模型');
+(function () {
+  const src = [
+    extractFn(mainSrc, 'normalizeClarity'), extractFn(mainSrc, 'clarityForConfig'),
+    extractFn(mainSrc, 'decideDark'), extractFn(mainSrc, 'wcagLum')
+  ].join('\n');
+  const api = new Function(src +
+    '; return { normalizeClarity: normalizeClarity, clarityForConfig: clarityForConfig, decideDark: decideDark, wcagLum: wcagLum };')();
+
+  ok('normalizeClarity undefined → auto', api.normalizeClarity(undefined) === 'auto');
+  ok('normalizeClarity null → auto', api.normalizeClarity(null) === 'auto');
+  ok("normalizeClarity 'auto' → auto", api.normalizeClarity('auto') === 'auto');
+  ok('normalizeClarity 40 → 40', api.normalizeClarity(40) === 40);
+  ok('normalizeClarity 40.6 → 41（四舍五入）', api.normalizeClarity(40.6) === 41);
+  ok('normalizeClarity -5 → 0（下限）', api.normalizeClarity(-5) === 0);
+  ok('normalizeClarity 150 → 100（上限）', api.normalizeClarity(150) === 100);
+  ok('normalizeClarity "abc"（非法）→ auto', api.normalizeClarity('abc') === 'auto');
+
+  ok('clarityForConfig 手动 60 → 60', api.clarityForConfig({ clarity: 60 }) === 60);
+  ok('clarityForConfig auto + image complexity 0.5 → 50',
+    api.clarityForConfig({ clarity: 'auto', type: 'image', image: { complexity: 0.5 } }) === 50);
+  ok('clarityForConfig auto + image complexity 0.05 → 夹到 20（下限）',
+    api.clarityForConfig({ clarity: 'auto', type: 'image', image: { complexity: 0.05 } }) === 20);
+  ok('clarityForConfig auto + image complexity 0.99 → 夹到 85（上限）',
+    api.clarityForConfig({ clarity: 'auto', type: 'image', image: { complexity: 0.99 } }) === 85);
+  ok('clarityForConfig auto + color → 0', api.clarityForConfig({ clarity: 'auto', type: 'color' }) === 0);
+  ok('clarityForConfig null → 0', api.clarityForConfig(null) === 0);
+
+  ok('decideDark light 起点 L=0.44 → 仍 light（未越阈）', api.decideDark(0.44, false) === false);
+  ok('decideDark light 起点 L=0.40 → 切 dark', api.decideDark(0.40, false) === true);
+  ok('decideDark dark 起点 L=0.56 → 维持 dark（迟滞带内）', api.decideDark(0.56, true) === true);
+  ok('decideDark dark 起点 L=0.60 → 切 light', api.decideDark(0.60, true) === false);
+
+  const lw = api.wcagLum(1, 1, 1), lb = api.wcagLum(0, 0, 0);
+  ok('wcagLum 白 → 1', Math.abs(lw - 1) < 1e-6, 'lum=' + lw);
+  ok('wcagLum 黑 → 0', Math.abs(lb - 0) < 1e-6, 'lum=' + lb);
+})();
+
+/* ============ v2.4.4：readJpegOrientation —— JPEG EXIF 方向解析（II/MM, 1/3/6/8） ============ */
+console.log('\n【v2.4.4】readJpegOrientation —— JPEG EXIF Orientation 解析');
+(function () {
+  const api = new Function('fs',
+    extractFn(mainSrc, 'readJpegOrientation') + '\n' + extractFn(mainSrc, 'parseTiffOrientation') +
+    '; return { readJpegOrientation: readJpegOrientation };')(fs);
+
+  // 构造最小 JPEG：SOI + APP1(Exif\0\0 + TIFF[IFD0: tag 0x0112 Orientation]) + EOI
+  function buildJpeg(le, orient) {
+    const tiff = Buffer.alloc(8 + 2 + 12 + 4);
+    if (le) { tiff[0] = 0x49; tiff[1] = 0x49; } else { tiff[0] = 0x4D; tiff[1] = 0x4D; }
+    if (le) { tiff.writeUInt16LE(0x002A, 2); tiff.writeUInt32LE(8, 4); }
+    else { tiff.writeUInt16BE(0x002A, 2); tiff.writeUInt32BE(8, 4); }
+    if (le) tiff.writeUInt16LE(1, 8); else tiff.writeUInt16BE(1, 8);
+    const e = 10;
+    if (le) { tiff.writeUInt16LE(0x0112, e); tiff.writeUInt16LE(3, e + 2); tiff.writeUInt32LE(1, e + 4); tiff.writeUInt16LE(orient, e + 8); }
+    else { tiff.writeUInt16BE(0x0112, e); tiff.writeUInt16BE(3, e + 2); tiff.writeUInt32BE(1, e + 4); tiff.writeUInt16BE(orient, e + 8); }
+    const body = Buffer.concat([Buffer.from('Exif\u0000\u0000', 'latin1'), tiff]);
+    const len = Buffer.alloc(2); len.writeUInt16BE(body.length + 2, 0);
+    return Buffer.concat([Buffer.from([0xFF, 0xD8, 0xFF, 0xE1]), len, body, Buffer.from([0xFF, 0xD9])]);
+  }
+  const tmpDir = require('os').tmpdir();
+  function writeTmp(name, buf) { const p = require('path').join(tmpDir, name); fs.writeFileSync(p, buf); return p; }
+  const files = [];
+  function tf(le, orient, label) {
+    const p = writeTmp('r3_' + label + '.jpg', buildJpeg(le, orient));
+    files.push(p); return p;
+  }
+  try {
+    ok('II(小端) orient=1 → 1', api.readJpegOrientation(tf(true, 1, 'ii1')) === 1);
+    ok('II(小端) orient=3 → 3', api.readJpegOrientation(tf(true, 3, 'ii3')) === 3);
+    ok('II(小端) orient=6 → 6（竖拍）', api.readJpegOrientation(tf(true, 6, 'ii6')) === 6);
+    ok('II(小端) orient=8 → 8（竖拍）', api.readJpegOrientation(tf(true, 8, 'ii8')) === 8);
+    ok('MM(大端) orient=1 → 1', api.readJpegOrientation(tf(false, 1, 'mm1')) === 1);
+    ok('MM(大端) orient=3 → 3', api.readJpegOrientation(tf(false, 3, 'mm3')) === 3);
+    ok('MM(大端) orient=6 → 6', api.readJpegOrientation(tf(false, 6, 'mm6')) === 6);
+    ok('MM(大端) orient=8 → 8', api.readJpegOrientation(tf(false, 8, 'mm8')) === 8);
+    // 非 JPEG（PNG 头）→ 不旋转（返回 1）
+    const png = writeTmp('r3_notjpeg.png', Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0]));
+    files.push(png);
+    ok('非 JPEG（PNG）→ 1（不旋转）', api.readJpegOrientation(png) === 1);
+    ok('不存在的文件 → 1（不抛错）', api.readJpegOrientation(require('path').join(tmpDir, 'r3_nope_zzz.jpg')) === 1);
+  } finally {
+    for (let i = 0; i < files.length; i++) { try { fs.unlinkSync(files[i]); } catch (e) {} }
+  }
+})();
+
+/* ============ v2.4.4：applyClarity —— clarity 0/50/100 → CSS 变量值 ============ */
+console.log('\n【v2.4.4】applyClarity —— 三层可读性变量随 clarity 线性联动');
+(function () {
+  const appSrc = fs.readFileSync('app.js', 'utf8');
+  const applyClarity = new Function(extractFn(appSrc, 'applyClarity') + '; return applyClarity;')();
+  function mockRoot() {
+    const store = {};
+    return {
+      style: { setProperty: function (k, v) { store[k] = v; }, removeProperty: function (k) { delete store[k]; } },
+      _s: store
+    };
+  }
+
+  const r0 = mockRoot(); applyClarity(r0, 'dark', 0);
+  ok('dark clarity=0 --protect-top=transparent（归零）', r0._s['--protect-top'] === 'transparent', r0._s['--protect-top']);
+  ok('dark clarity=0 --protect-mid=transparent（归零）', r0._s['--protect-mid'] === 'transparent', r0._s['--protect-mid']);
+  ok('dark clarity=0 --protect-state=transparent（归零）', r0._s['--protect-state'] === 'transparent', r0._s['--protect-state']);
+  ok('dark clarity=0 --stroke-color=rgba(0,0,0,0.550)（保留兜底描边）', r0._s['--stroke-color'] === 'rgba(0,0,0,0.550)', r0._s['--stroke-color']);
+  ok('dark clarity=0 --ink-glow=0 0 0 transparent（归零）', r0._s['--ink-glow'] === '0 0 0 transparent', r0._s['--ink-glow']);
+
+  const r50 = mockRoot(); applyClarity(r50, 'dark', 50);
+  ok('dark clarity=50 --protect-mid=rgba(0,0,0,0.130)', r50._s['--protect-mid'] === 'rgba(0,0,0,0.130)', r50._s['--protect-mid']);
+
+  const r100 = mockRoot(); applyClarity(r100, 'dark', 100);
+  ok('dark clarity=100 --protect-mid=rgba(0,0,0,0.230)', r100._s['--protect-mid'] === 'rgba(0,0,0,0.230)', r100._s['--protect-mid']);
+  ok('dark clarity=100 --protect-top=rgba(0,0,0,0.360)', r100._s['--protect-top'] === 'rgba(0,0,0,0.360)', r100._s['--protect-top']);
+  ok('dark clarity=100 --stroke-color=rgba(0,0,0,0.300)（描边变淡）', r100._s['--stroke-color'] === 'rgba(0,0,0,0.300)', r100._s['--stroke-color']);
+  ok('dark clarity=100 --ink-glow=0 0 4.0px rgba(0,0,0,0.700)', r100._s['--ink-glow'] === '0 0 4.0px rgba(0,0,0,0.700)', r100._s['--ink-glow']);
+
+  const l0 = mockRoot(); applyClarity(l0, 'light', 0);
+  ok('light clarity=0 --protect-mid=transparent（归零）', l0._s['--protect-mid'] === 'transparent', l0._s['--protect-mid']);
+  ok('light clarity=0 --stroke-color=rgba(255,255,255,0.700)（保留兜底描边）', l0._s['--stroke-color'] === 'rgba(255,255,255,0.700)', l0._s['--stroke-color']);
+  // p>0 时保护层回归原公式（零回归）：clarity=50 应为 0.130（非 transparent）
+  ok('light clarity=50 --protect-mid=rgba(255,255,255,0.130)（p>0 原公式不变）', (function () { var r = mockRoot(); applyClarity(r, 'light', 50); return r._s['--protect-mid'] === 'rgba(255,255,255,0.130)'; })());
+  const l100 = mockRoot(); applyClarity(l100, 'light', 100);
+  ok('light clarity=100 --stroke-color=rgba(255,255,255,0.400)', l100._s['--stroke-color'] === 'rgba(255,255,255,0.400)', l100._s['--stroke-color']);
+
+  // 短路保护：root 为空不抛错
+  let threw = false;
+  try { applyClarity(null, 'dark', 50); } catch (e) { threw = true; }
+  ok('applyClarity null root → 不抛错', threw === false);
 })();
 
 console.log('\n==================================');

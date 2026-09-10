@@ -254,6 +254,12 @@
   /* 跟随时置灰（除透明度外） */
   .dimmed { opacity: 0.5; pointer-events: none; }
 
+  /* v2.4.4 UI 清晰度：auto 档下滑杆视觉置灰（沿用 .dimmed），但「拖动滑杆 = 切手动」
+   * 必须仍然可用 → 只把 range 本体重新开放指针事件。外层 #claritySection.dimmed
+   * （跟随时整块禁用）不在此列，故跟随时依旧完全不可操作。 */
+  #claritySection:not(.dimmed) #claritySlider.dimmed { opacity: 0.5; }
+  #claritySection:not(.dimmed) #claritySlider.dimmed input[type="range"] { pointer-events: auto; cursor: pointer; }
+
   /* 轻量提示条 */
   #toast {
     position: absolute; z-index: 70; left: 50%; bottom: var(--s-4);
@@ -347,6 +353,23 @@
         </div>
       </div>
 
+      <!-- v2.4.4 UI 清晰度：仅纯色 / 自选图片显示（与 textSection 同步显隐）。
+           一个 clarity 值联动保护层浓度 + 文字光晕；auto 由主进程按图片复杂度推导。 -->
+      <div id="claritySection" style="display:none">
+        <div class="group-title">UI 清晰度</div>
+        <div class="row">
+          <div class="txt">
+            <div class="label">自动</div>
+            <div class="hint">按背景复杂度推导（20–85）</div>
+          </div>
+          <div class="switch" id="clarityAuto" role="switch" tabindex="0"><span class="knob"></span></div>
+        </div>
+        <div class="slider" id="claritySlider">
+          <div class="slider-head"><span class="label">保护强度</span><span class="val" id="clarityVal">自动</span></div>
+          <input type="range" id="clarityRange" min="0" max="100" step="5" value="40">
+        </div>
+      </div>
+
       <div class="group-title">透明度</div>
       <div class="slider">
         <div class="slider-head"><span class="label">界面透明度</span><span class="val" id="opacityVal">100%</span></div>
@@ -398,6 +421,26 @@
         return (S.viewport && S.viewport[surface]) || { w: 340, h: 430 };
       }
 
+      /* ---- v2.4.4 UI 清晰度（clarity）----
+       * 原始值语义：'auto' | 0~100 数字。缺失 / 非法一律按 'auto' 处理（与主进程 normalizeSkin 一致）。 */
+      function clarityRaw(cfg) {
+        var c = cfg ? cfg.clarity : 'auto';
+        return (typeof c === 'number' && isFinite(c)) ? clamp(Math.round(c), 0, 100) : 'auto';
+      }
+      /* 主进程推导出的 clarity 数字（auto 时滑杆显示它）。
+       * 优先用 skin-config-state 的 resolved[surface].clarity；若主进程尚未下发该字段，
+       * 按设计 §3.2 契约自算兜底：image → clamp(round(complexity*100), 20, 85)；纯色/原生 → 0。 */
+      function clarityResolved(surface, effCfg) {
+        var r = (S.resolved && S.resolved[surface]) ? S.resolved[surface] : null;
+        if (r && typeof r.clarity === 'number' && isFinite(r.clarity)) {
+          return clamp(Math.round(r.clarity), 0, 100);
+        }
+        if (!effCfg || effCfg.type !== 'image') return 0;
+        var cp = (effCfg.image && typeof effCfg.image.complexity === 'number' && isFinite(effCfg.image.complexity))
+          ? effCfg.image.complexity : 0;
+        return clamp(Math.round(cp * 100), 20, 85);
+      }
+
       /* ---- toast ---- */
       var toastTimer = null;
       function toast(msg) {
@@ -424,6 +467,10 @@
       }
       function setOpacity(val) {
         setField(S.surface, 'opacity', val);
+      }
+      // 值 = 'auto' | 0~100 整数（复用既有 skin-set 通道，不新增 IPC）
+      function setClarity(val) {
+        setField(S.surface, 'clarity', val);
       }
 
       /* ---- 取景数学（正向：crop+zoom → CSS background；反向：拖/缩 → crop+zoom） ---- */
@@ -510,12 +557,15 @@
         followRow.style.display = showFollow ? 'flex' : 'none';
         $('followSwitch').classList.toggle('on', !!following);
 
-        // 类型（follow 时显示日历的实际类型，但控件置灰）
-        var effType = following ? getConfig('calendar').type : cfg.type;
+        // 生效配置：follow 时显示日历的实际值（但控件置灰）
+        var effCfg = following ? getConfig('calendar') : cfg;
+
+        // 类型
+        var effType = effCfg.type;
         setActive('typeGrid', 'data-type', effType);
 
         // 文字明暗
-        setActive('textGrid', 'data-text', following ? getConfig('calendar').text : cfg.text);
+        setActive('textGrid', 'data-text', effCfg.text);
 
         // 透明度（follow 不影响透明度）
         $('opacityRange').value = opacityFor(surface);
@@ -527,12 +577,24 @@
         $('colorSection').style.display = isColor ? 'block' : 'none';
         $('imageSection').style.display = isImage ? 'block' : 'none';
         $('textSection').style.display = (isColor || isImage) ? 'block' : 'none';
+        $('claritySection').style.display = (isColor || isImage) ? 'block' : 'none';
+
+        // UI 清晰度回显：auto → 滑杆置灰 + 显示主进程推导值；手动 → 显示手动值
+        var rawClarity = clarityRaw(effCfg);
+        var clarityAutoOn = (rawClarity === 'auto');
+        var resClarity = clarityResolved(surface, effCfg);
+        var shownClarity = clarityAutoOn ? resClarity : rawClarity;
+        $('clarityAuto').classList.toggle('on', clarityAutoOn);
+        $('clarityRange').value = shownClarity;
+        $('clarityVal').textContent = clarityAutoOn ? ('自动 ' + resClarity) : String(shownClarity);
+        $('claritySlider').classList.toggle('dimmed', clarityAutoOn);
 
         // follow 时除透明度外置灰
         $('typeGrid').classList.toggle('dimmed', following);
         $('colorSection').classList.toggle('dimmed', following);
         $('imageSection').classList.toggle('dimmed', following);
         $('textSection').classList.toggle('dimmed', following);
+        $('claritySection').classList.toggle('dimmed', following);
 
         // 色盘回显（纯色）
         $('colorInput').value = isColor ? (cfg.color || '#fcfbf9') : '#3b6fd4';
@@ -627,6 +689,28 @@
         var img = currentImage();
         if (!img || !img.file) return;
         setField(S.surface, 'image', { file: img.file, opacity: v });
+      });
+
+      // UI 清晰度：拖动滑杆 = 关掉「自动」并发送数字
+      $('clarityRange').addEventListener('input', function () {
+        var v = clamp(Math.round(parseFloat($('clarityRange').value) || 0), 0, 100);
+        $('clarityVal').textContent = String(v);
+        // 乐观反馈：立刻取消置灰与自动开关（主进程回推 skin-config-state 后会再校正一次）
+        $('clarityAuto').classList.remove('on');
+        $('claritySlider').classList.remove('dimmed');
+        setClarity(v);
+      });
+
+      // UI 清晰度：点「自动」开关 → auto ⇄ 手动 互切
+      $('clarityAuto').addEventListener('click', function () {
+        var following = isFollowing(S.surface);
+        var cfg = following ? getConfig('calendar') : getConfig(S.surface);
+        if (clarityRaw(cfg) === 'auto') {
+          // 关自动：以当前推导值为手动起点（避免切回久远的手动值造成困惑）
+          setClarity(clarityResolved(S.surface, cfg));
+        } else {
+          setClarity('auto');
+        }
       });
 
       // 图片导入：点选（主进程对话框） / 拖拽（invoke）

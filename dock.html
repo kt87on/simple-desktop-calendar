@@ -95,9 +95,10 @@
     --ink-soft: var(--ink-600);
     /* v2.4.0 第二轮 皮肤层（浮动插件独立 per-surface，不跟随日历） */
     --skin-bg-solid: transparent;
-    /* v2.4.3 自选纯色/图片皮肤：文字真描边 + 柔和阴影（由 dockApplySkin 按文字明暗写入） */
+    /* v2.4.4 自选纯色/图片皮肤：三层可读性变量（由 dockApplyClarity 按文字明暗 + clarity 写入） */
     --stroke-color: transparent;
-    --shadow-extra: none;
+    --ink-glow: 0 0 0 transparent;
+    --protect-mid: transparent;
     --accent: var(--blue-500);
     --accent-soft: rgba(59, 111, 212, 0.10);
     --hover: rgba(31, 35, 48, 0.055);
@@ -132,18 +133,16 @@
   /* v2.4.0 第二轮 自选纯色/图片皮肤：只覆盖卡片 #card（窗口外透明区保持穿透，不改 body）。
    * 皮肤只改背景层，文字明暗由 data-theme 全量驱动；状态色/强调色仍取生效主题 token。 */
   [data-skin="color"] #card { background: var(--skin-bg-solid); }
-  [data-skin="image"] #card { background: transparent; }
+  /* v2.4.4 图片皮肤：#card 铺局部保护遮罩（透明底 + --protect-mid 罩层，提升文字对比）。 */
+  [data-skin="image"] #card { background: var(--protect-mid); }
 
-  /* v2.4.3 自选纯色/图片皮肤：文字真描边（居中、无重影）+ 主时钟柔和阴影。
-   * 描边/阴影色由 dockApplySkin 按文字明暗写入 --stroke-color/--shadow-extra；
-   * 原生皮肤无 [data-skin]，不描边。 */
+  /* v2.4.4 自选纯色/图片皮肤：文字兜底极细描边 + 柔和光晕（由 dockApplyClarity 按明暗写入）。
+   * 原生皮肤无 [data-skin]，不触发。 */
   [data-skin="color"] #dockTime, [data-skin="image"] #dockTime,
   [data-skin="color"] #dockWeek, [data-skin="image"] #dockWeek,
   [data-skin="color"] #dockDateNum, [data-skin="image"] #dockDateNum {
     -webkit-text-stroke: 0.5px var(--stroke-color);
-  }
-  [data-skin="color"] #dockTime, [data-skin="image"] #dockTime {
-    text-shadow: var(--shadow-extra);
+    text-shadow: var(--ink-glow);
   }
 
   /* v2.4.2 修复「纯色/图片模式点击闪黑 + 方方正正 + 两层堆叠」：
@@ -154,7 +153,7 @@
    * 因此不再单独剥离描边/阴影：纯色/图片复用原生模式的 --edge 描边 + --shadow 阴影 + 顶部高光
    * （圆角随 #card 不变），仅在 hover 时锁住自选背景，其余点按反馈与原生一致。 */
   body.hit[data-skin="color"] #card:hover { background: var(--skin-bg-solid); }
-  body.hit[data-skin="image"] #card:hover { background: transparent; }
+  body.hit[data-skin="image"] #card:hover { background: var(--protect-mid); }
 
   /* ============================ L3 组件层 ============================ */
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -437,6 +436,44 @@
        * 主题由 skin-state.theme 驱动；背景层 color/image；GIF 隐藏时冻结切首帧快照。 */
       var dockSkin = null;
       var dockHidden = false;
+      /* v2.4.4：取景布局纯函数（插件视口固定 116×50）。 */
+      function dockLayoutSkin(el, IW, IH, crop, zoom) {
+        if (!el) return;
+        var vp = { w: 116, h: 50 };
+        var c = crop || { x: 0, y: 0, w: 1, h: 1 };
+        var z = (typeof zoom === 'number' && isFinite(zoom) && zoom > 0) ? zoom : 1;
+        var iw = (typeof IW === 'number' && IW > 0) ? IW : vp.w;
+        var ih = (typeof IH === 'number' && IH > 0) ? IH : vp.h;
+        var cx = (c.x || 0) * iw, cy = (c.y || 0) * ih;
+        var cw = (c.w || 0) * iw, ch = (c.h || 0) * ih;
+        if (cw < 1) cw = 1; if (ch < 1) ch = 1;
+        // 全图 cover 基准（crop.w/h 是 zoom 的派生冗余，不进基准；否则与反向 zoom=s/s0 不互逆）
+        var s0 = Math.max(vp.w / iw, vp.h / ih);
+        var s = s0 * z;
+        var centerX = cx + cw / 2, centerY = cy + ch / 2;
+        el.style.backgroundSize = (iw * s) + 'px ' + (ih * s) + 'px';
+        el.style.backgroundPosition = (vp.w / 2 - centerX * s) + 'px ' + (vp.h / 2 - centerY * s) + 'px';
+      }
+      /* v2.4.4：图片真实显示尺寸缓存/探测（兜底 EXIF/WebP/老数据）；键即文件名。 */
+      var dockImgRealSize = {};
+      var dockImgProbing = {};
+      function dockRealImageSize(file, cb) {
+        if (dockImgRealSize[file]) { cb(dockImgRealSize[file]); return; }
+        if (dockImgProbing[file]) { dockImgProbing[file].push(cb); return; }
+        dockImgProbing[file] = [cb];
+        var probe = new Image();
+        probe.onload = function () {
+          var sz = { w: probe.naturalWidth || 0, h: probe.naturalHeight || 0 };
+          dockImgRealSize[file] = sz;
+          var list = dockImgProbing[file]; delete dockImgProbing[file];
+          for (var i = 0; i < list.length; i++) { try { list[i](sz); } catch (e) {} }
+        };
+        probe.onerror = function () {
+          var list = dockImgProbing[file]; delete dockImgProbing[file];
+          for (var i = 0; i < list.length; i++) { try { list[i](null); } catch (e) {} }
+        };
+        probe.src = 'skin://' + encodeURIComponent(file);
+      }
       function dockApplyImage(image) {
         var el = document.getElementById('skinImg');
         if (!el) return;
@@ -445,20 +482,16 @@
         el.style.backgroundImage = 'url("skin://' + encodeURIComponent(file) + '")';
         // v2.4.3 图片不透明度：直接写元素 style.opacity（走 CSS 变量继承在 Electron 下可能不生效）。
         el.style.opacity = (typeof image.opacity === 'number' && isFinite(image.opacity)) ? String(image.opacity) : '1';
-        var vp = { w: 116, h: 50 };
-        var crop = image.crop || { x: 0, y: 0, w: 1, h: 1 };
-        var zoom = (typeof image.zoom === 'number' && isFinite(image.zoom) && image.zoom > 0) ? image.zoom : 1;
-        var IW = (typeof image.w === 'number' && image.w > 0) ? image.w : vp.w;
-        var IH = (typeof image.h === 'number' && image.h > 0) ? image.h : vp.h;
-        var cx = (crop.x || 0) * IW, cy = (crop.y || 0) * IH;
-        var cw = (crop.w || 0) * IW, ch = (crop.h || 0) * IH;
-        if (cw < 1) cw = 1; if (ch < 1) ch = 1;
-        // 全图 cover 基准（crop.w/h 是 zoom 的派生冗余，不进基准；否则与反向 zoom=s/s0 不互逆）
-        var s0 = Math.max(vp.w / IW, vp.h / IH);
-        var s = s0 * zoom;
-        var centerX = cx + cw / 2, centerY = cy + ch / 2;
-        el.style.backgroundSize = (IW * s) + 'px ' + (IH * s) + 'px';
-        el.style.backgroundPosition = (vp.w / 2 - centerX * s) + 'px ' + (vp.h / 2 - centerY * s) + 'px';
+        dockLayoutSkin(el, image.w, image.h, image.crop, image.zoom);   // 先用已知尺寸铺底
+        // v2.4.4：异步用 Chromium 真实尺寸纠偏；不一致才重排一次。
+        var enc = encodeURIComponent(file);
+        dockRealImageSize(file, function (sz) {
+          if (!sz || !sz.w || !sz.h) return;
+          if (String(el.style.backgroundImage).indexOf(enc) < 0) return;
+          var IW = (typeof image.w === 'number' && image.w > 0) ? image.w : sz.w;
+          var IH = (typeof image.h === 'number' && image.h > 0) ? image.h : sz.h;
+          if (sz.w !== IW || sz.h !== IH) dockLayoutSkin(el, sz.w, sz.h, image.crop, image.zoom);
+        });
       }
       function dockApplySkin(state) {
         if (!state) return;
@@ -468,35 +501,49 @@
         if (state.bg === 'color') {
           root.dataset.skin = 'color';
           root.style.setProperty('--skin-bg-solid', state.color || '#fafafc');
-          dockSetStroke(root, theme);
+          dockApplyClarity(root, theme, state.clarity);
           var c0 = document.getElementById('skinImg');
           if (c0) { c0.style.backgroundImage = ''; c0.style.opacity = ''; }
         } else if (state.bg === 'image') {
           root.dataset.skin = 'image';
           root.style.removeProperty('--skin-bg-solid');
-          dockSetStroke(root, theme);
+          dockApplyClarity(root, theme, state.clarity);
           dockApplyImage(state.image);
         } else {
           delete root.dataset.skin;
           root.style.removeProperty('--skin-bg-solid');
-          dockClearStroke(root);
+          dockClearReadability(root);
           var i1 = document.getElementById('skinImg');
           if (i1) { i1.style.backgroundImage = ''; i1.style.opacity = ''; }
         }
       }
-      /* v2.4.3 自选皮肤：文字描边/阴影随文字明暗切换（dark→深描边 / light→浅描边）。 */
-      function dockSetStroke(root, theme) {
-        if (theme === 'dark') {
-          root.style.setProperty('--stroke-color', 'rgba(0,0,0,0.55)');
-          root.style.setProperty('--shadow-extra', '0 1px 2px rgba(0,0,0,0.4)');
-        } else {
-          root.style.setProperty('--stroke-color', 'rgba(255,255,255,0.7)');
-          root.style.setProperty('--shadow-extra', '0 1px 2px rgba(0,0,0,0.08)');
+      /* v2.4.4 自选皮肤：三层可读性变量（#card 保护遮罩 + 文字光晕 + 兜底描边），由 clarity 联动。 */
+      function dockApplyClarity(root, theme, clarity) {
+        if (!root) return;
+        // v2.4.4：非法 clarity（'auto' / undefined / NaN / ±Infinity）一律按 0 处理（保护层归零），
+        // 防止 NaN 落入 p>0 分支写出非法 CSS；合法数字输入零变化。
+        if (typeof clarity !== 'number' || !isFinite(clarity)) clarity = 0;
+        var p = Math.max(0, Math.min(1, (clarity || 0) / 100));
+        var ink = (theme === 'dark') ? '0,0,0' : '255,255,255';
+        // v2.4.4：clarity=0 → 保护层归零（不引入多余灰罩）；仅留主题兜底描边。
+        if (p <= 0) {
+          root.style.setProperty('--protect-mid', 'transparent');
+          root.style.setProperty('--ink-glow', '0 0 0 transparent');
+          var sa0 = (theme === 'dark') ? 0.55 : 0.70;
+          root.style.setProperty('--stroke-color', 'rgba(' + ink + ',' + sa0.toFixed(3) + ')');
+          return;
         }
+        function a(base, k) { return (base + k * p).toFixed(3); }
+        root.style.setProperty('--protect-mid', 'rgba(' + ink + ',' + a(0.03, 0.20) + ')');
+        root.style.setProperty('--ink-glow', '0 0 ' + (1 + 3 * p).toFixed(1) + 'px rgba(' + ink + ',' + a(0.35, 0.35) + ')');
+        var sa = (theme === 'dark') ? (0.55 - 0.25 * p) : (0.70 - 0.30 * p);
+        root.style.setProperty('--stroke-color', 'rgba(' + ink + ',' + sa.toFixed(3) + ')');
       }
-      function dockClearStroke(root) {
+      function dockClearReadability(root) {
+        if (!root) return;
+        root.style.removeProperty('--protect-mid');
+        root.style.removeProperty('--ink-glow');
         root.style.removeProperty('--stroke-color');
-        root.style.removeProperty('--shadow-extra');
       }
       function dockSetFrozen(frozen) {
         frozen = !!frozen;

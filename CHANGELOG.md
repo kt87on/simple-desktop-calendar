@@ -4,6 +4,23 @@
 
 ---
 
+## [2.4.4] - 2026-09-07
+
+### 新增
+- **可读性三层结构（自选纯色/图片皮肤）**：单值 `clarity`（`skin.surfaces[].clarity`，`'auto'`|0~100）联动三层——① 文字柔和光晕（`--ink-glow`）+ 兜底极细描边（`--stroke-color`，随 clarity 增大而**变淡**）；② 局部背景保护遮罩（顶部信息栏 `--protect-top` 渐变 / 日历网格 `#calendar::before` `--protect-mid` / 底部工具栏 `--protect-bot`）；③ 状态元素轻微保护晕环（`--protect-state`，今日/节假日/选中/区间/提醒外环），保证图片背景上边界清晰。原生皮肤不介入。
+- **「UI 清晰度」滑杆（skin.html）**：仅在纯色/图片界面显示（与「文字明暗」同步显隐）；默认「自动」（按背景复杂度推导 20~85），拖动滑杆实时生效并切手动，`auto` 档下滑杆置灰但拖动即可切手动；值持久化到 `settings.json` 的 `skin.surfaces[x].clarity`，重启复现。
+- **自动明暗：分区采样 + 迟滞**：图片导入改用上/中/下三区（权重 0.25/0.55/0.20）合成亮度 + `decideDark` 迟滞（±0.06 防抖），临界图反复重导入不再抖动；样张逐像素相对亮度标准差归一（`std/0.30`）得 `complexity`(0~1)，缓存于 `skin.surfaces[].image.complexity`。
+
+### 修复
+- **手机竖拍 JPEG 被上下压扁（EXIF 方向）**：`importSkinImage` 新增纯本地零依赖的 JPEG EXIF 解析（`readJpegOrientation`：SOI/APP1 段扫描 + `parseTiffOrientation`：II/MM 字节序 + tag `0x0112`），`Orientation ∈ {5,6,7,8}`（含 90°/270° 旋转）时交换记录宽高，使记录尺寸与 Chromium 渲染尺寸一致，取景基准不再横竖倒置。
+- **图片尺寸兜底**：渲染层新增 `layoutSkin`/`dockLayoutSkin` 纯函数 + `realImageSize`（`HTMLImageElement.naturalWidth/naturalHeight`，Chromium 已应用 EXIF）运行时纠偏，命中缓存即用、不一致才重排一次；覆盖 WebP EXIF / EXIF 解析失败 / 老数据（bug 前导入）场景，重启后首帧自动纠正。
+
+### 变更
+- **clarity=0 保护层归零**：纯色 auto 档 `clarity=0` → `--protect-*` 与 `--ink-glow` 全部置 `transparent`（不引入多余灰罩），仅保留 `--stroke-color` 主题兜底描边；image auto 档已被夹进 [20,85]（p≥0.2）自带基础保护，故不再需要 base 偏移。
+- **文字描边由重影改为真描边 + 光晕**：v2.4.3 的 `--shadow-extra` 柔和阴影升级为 `--ink-glow` 光晕；`app.js`/`dock.html` 的 `applyTextStroke`/`clearTextStroke`（`dockSetStroke`/`dockClearStroke`）重构为随 clarity 联动的 `applyClarity`/`clearReadability`（`dockApplyClarity`/`dockClearReadability`）。
+
+---
+
 ## [2.4.0] - 2026-09-07
 
 ### 新增

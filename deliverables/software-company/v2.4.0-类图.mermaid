@@ -1,0 +1,87 @@
+classDiagram
+    class SettingsJson {
+        +string theme
+        +string skinMode
+        +string nativeSkin
+        +SkinColorMap skinColor
+        +bool desktopFollowCalendar
+        +bool dockFollowCalendar
+        +DockBoundsMap dockBoundsByDisplay
+        +number dockDisplayId
+        +bool pinned
+        +bool autoLaunch
+        +bool dockOn
+        +string dockMode
+        +bool dockPinned
+        +bool desktopOn
+        +bool desktopLocked
+        +number dockOpacity
+        +number mainOpacity
+        +number desktopOpacity
+    }
+    class SkinColorMap {
+        +string calendar
+        +string desktop
+        +string dock
+    }
+    class DockBoundsMap {
+        +DockRect perDisplay()
+    }
+    class DockRect {
+        +number x
+        +number y
+        +number width
+        +number height
+    }
+    class ResolvedSkinState {
+        +string mode
+        +string bg
+        +string ink
+        +string inkSoft
+        +string inkFaint
+        +string effectiveTheme
+    }
+    class MainProcess {
+        +string themeMode
+        +SkinColorMap skinColor
+        +DockBoundsMap dockBoundsByDisplay
+        +recomputeTheme()
+        +resolveSkinState(surface)
+        +resolveBg(surface)
+        +isDarkColor(hex)
+        +pushThemeToAll()
+        +pushSkinToAll()
+        +guardBlur(ms)
+        +hideMain()
+        +saveDockPosition(displayId)
+    }
+    class PreloadAPI {
+        +onThemeChanged(cb)
+        +onSkinState(cb)
+        +onWinHidden(cb)
+        +settingsSet(key, value)
+        +onSettingsState(cb)
+    }
+    class CalendarRenderer {
+        +applyTheme()
+        +applySkin(state)
+        +clearRange()
+    }
+    class DockRenderer {
+        +applySkin(state)
+        +resetHit()
+    }
+    class SettingsWindow {
+        +applyState(state)
+        +renderSkinPicker()
+    }
+
+    SettingsJson --> SkinColorMap
+    SettingsJson --> DockBoundsMap
+    DockBoundsMap --> DockRect
+    MainProcess --> SettingsJson
+    MainProcess --> ResolvedSkinState
+    PreloadAPI --> ResolvedSkinState
+    CalendarRenderer ..> PreloadAPI
+    DockRenderer ..> PreloadAPI
+    SettingsWindow ..> PreloadAPI

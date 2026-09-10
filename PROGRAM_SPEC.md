@@ -1,7 +1,7 @@
 # 简洁桌面日历 · 程序规格书（可复制级 / AI 可直接复刻）
 
 > **用途**：本文件是为「让 AI 在零上下文情况下重建该程序」而写。任何 AI 拿到本文件，都能完整还原软件的功能、视觉、行为与打包方式。修改或升级时，直接把本文件 + 源码目录交给 AI 即可。
-> **版本**：2.4.0 　**作者**：YG　**协议**：MIT　**平台**：Windows
+> **版本**：2.4.4 　**作者**：YG　**协议**：MIT　**平台**：Windows
 
 ---
 
@@ -143,18 +143,20 @@ v2.4.0 第二轮把「主题 + 皮肤」重构为 **per-surface 皮肤配置树*
 skin = {
   __v: 2,                                    // 迁移版本门（旧字段一次性迁移后只写本结构）
   surfaces: {
-    calendar: { type, color, image, text },  // type ∈ light|dark|system|color|image
-    expanded: { follow, type, color, image, text },  // follow='calendar'|null
-    desktop:  { follow, type, color, image, text },
-    dock:     { type, color, image, text }   // dock 独立，不跟随
+    calendar: { type, color, image, text, clarity },  // type ∈ light|dark|system|color|image
+    expanded: { follow, type, color, image, text, clarity },  // follow='calendar'|null
+    desktop:  { follow, type, color, image, text, clarity },
+    dock:     { type, color, image, text, clarity }   // dock 独立，不跟随
   },
   opacity: { calendar: 1, desktop: 1, dock: 1 }  // 窗口级透明度；calendar 同时作用于 mini/max
 }
 ```
 
-- `follow='calendar'`（仅 expanded/desktop）：跟随日历表面；取消跟随 = **copy-on-write** 快照（深拷贝日历当前配置，之后独立编辑）。
-- `text` ∈ `auto|light|dark`：决定 color/image 表面的生效文字明暗（`auto` 用 `isDarkColor` / 图片平均亮度自动判定）。
-- 迁移：`skin.__v===2 && skin.surfaces` 直接 `normalizeSkin`；否则 `migrateSkin` 从旧字段（theme/skinMode/nativeSkin/skinColor/desktopFollowCalendar/dockFollowCalendar/mainOpacity/desktopOpacity/dockOpacity）一次性迁移。迁移后 `saveSettings` **只写 `skin`**，停写旧键。
+- `follow='calendar'`（仅 expanded/desktop）：跟随日历表面；取消跟随 = **copy-on-write** 快照（深拷贝日历当前配置含 `clarity`，之后独立编辑）。
+- `text` ∈ `auto|light|dark`：决定 color/image 表面的生效文字明暗（`auto` 用 `isDarkColor` / 图片亮度自动判定）。
+- `clarity`（**v2.4.4 新增**）∈ `'auto'|0~100`：UI 清晰度，联动三层可读性（见下「可读性三层结构」）。`auto` 时由 `clarityForConfig` 按图片复杂度推导 `clamp(round(complexity*100),20,85)`，纯色/原生 → 0。
+- `image.complexity`（**v2.4.4 新增**）0~1：缩略图逐像素相对亮度标准差 / 0.30；导入时主进程计算并缓存（`normalizeImageSpec` 输出，`clamp01`）。
+- 迁移：`skin.__v===2 && skin.surfaces` 直接 `normalizeSkin`；否则 `migrateSkin` 从旧字段（theme/skinMode/nativeSkin/skinColor/desktopFollowCalendar/dockFollowCalendar/mainOpacity/desktopOpacity/dockOpacity）一次性迁移。迁移后 `saveSettings` **只写 `skin`**，停写旧键。`normalizeSkin` 对缺 `clarity` 的旧数据补 `'auto'`（`__v` 保持 2）。
 
 **解析链路（主进程唯一入口）**
 
@@ -162,26 +164,39 @@ skin = {
 2. `surfaceTheme(surface)`：推导每表面生效明暗——`light/dark` 直接、`system` 读 `nativeTheme.shouldUseDarkColors`、`color/image` 由 `text` 字段决定（`auto` 时用色值 / 图片亮度判定）。
 3. `surfaceBg(surface)`：背景层三态 `native | color | image`。
 4. `baseTheme()` = `surfaceTheme('calendar')`：托盘、关注列表、提醒、设置等非表面窗口跟随日历表面明暗。
-5. `resolvedSurfaceState(surface)`：下发 `{type,theme,bg,color,image}`。主窗发 `{calendar,expanded}`、桌面发 `{desktop}`、浮动发 `{dock}`；非表面窗口仍走 `theme-changed(baseTheme)`。
+5. `resolvedSurfaceState(surface)`：下发 `{type,theme,bg,color,image,clarity}`（**v2.4.4 增加 `clarity`** = `clarityForConfig(resolved)`）。主窗发 `{calendar,expanded}`、桌面发 `{desktop}`、浮动发 `{dock}`；非表面窗口仍走 `theme-changed(baseTheme)`。
 
 **图片皮肤（完整实现）**
 
-- 导入：拖入/点选，主进程 `importSkinImage` 校验扩展名 png/jpg/jpeg/gif/webp、≤20MB、最长边≤4096，不合法拒绝；合法则 `copyFileSync→renameSync` **原子复制**到 `userData/skins/`（文件名 `{surface}_{ts}.{ext}`），只存文件名（`image.file`），删原文件不影响。
+- 导入：拖入/点选，主进程 `importSkinImage` 校验扩展名 png/jpg/jpeg/gif/webp（**v2.4.1 起取消大小/像素上限**），不合法拒绝；合法则 `copyFileSync→renameSync` **原子复制**到 `userData/skins/`（文件名 `{surface}_{ts}.{ext}`），只存文件名（`image.file`），删原文件不影响。
 - 加载：`skin://` 特权协议——模块顶层 `protocol.registerSchemesAsPrivileged`（standard+secure+supportFetchAPI+stream，须在 app ready 前），`whenReady` 里 `protocol.handle('skin', ...)` 把 `skin://{basename}` 映射到 `userData/skins/`（`sanitizeBasename` 防路径穿越 + `net.fetch(pathToFileURL(file))`）。
-- 亮度：`nativeImage.resize({width:64}).toBitmap()`（BGRA）采样平均亮度 → WCAG 相对亮度 < 0.5 判深色 → `image.dark`，自动配文字明暗。
-- GIF：`background-image` 走 Chromium 原生动画；隐藏/失焦时切 `image.snapshot`（导入时 `toPNG` 存的首帧 `_frame.png`）冻结，`visibilitychange`/`focus` 恢复，避免隐藏窗口持续解码 GIF 耗 CPU。
+- 明暗采样（**v2.4.4 升级**）：`sampleImageStats` 把 `nativeImage.resize({width:64})` 的 BGRA 按行分上/中/下三区各算 WCAG 平均亮度（`wcagLum`），`L = 0.25*top + 0.55*mid + 0.20*bot`，经 `decideDark` 迟滞（±0.06 防抖）判深色 → `image.dark`；跳过 alpha=0 透明像素；样张逐像素相对亮度标准差归一（`std/0.30`）得 `complexity`。采样失败兜底 `dark=false`+`complexity=0`（浅色，绝不硬切黑夜）。
+- JPEG 方向（**v2.4.4 新增**）：`readJpegOrientation`（纯本地零依赖，SOI/APP1 段扫描 + `parseTiffOrientation`：II/MM 字节序 + tag `0x0112`）解析 EXIF Orientation；`∈{5,6,7,8}`（含 90°/270° 旋转）时 `importSkinImage` 交换记录 `w/h`，使记录尺寸与 Chromium 渲染尺寸一致。非 JPEG / 解析失败 → 不动，由渲染层自然尺寸兜底。
+- GIF：`background-image` 走 Chromium 原生动画；**v2.4.2 起**跳过 nativeImage 解码/亮度采样/首帧快照，尺寸从文件头 `readGifSize` 读取，`dark` 兜底 `false`，动画由渲染层保持。（历史：v2.4.0 曾用 `image.snapshot` 首帧冻结，已废弃。）
 
 **取景数学（crop + zoom ↔ CSS background）**
 
 - 存储 `image.crop{x,y,w,h}`（0~1）与 `image.zoom`（1~5）；权威参数为「取景中心 `crop.x+crop.w/2`」+ `zoom`，`crop.w/h` 是 zoom 的派生冗余。
-- 正向（渲染层 `applySkinImage`）：全图 cover 基准 `s0 = max(VW/IW, VH/IH)` → `s = s0*zoom`；`background-size=(IW*s)px (IH*s)px`；`background-position=(VW/2 - centerX*s)px (VH/2 - centerY*s)px`（`centerX=(crop.x+crop.w/2)*IW`）。
+- 正向（渲染层 `layoutSkin`/`dockLayoutSkin` 纯函数，由 `applySkinImage`/`dockApplyImage` 调用）：全图 cover 基准 `s0 = max(VW/IW, VH/IH)` → `s = s0*zoom`；`background-size=(IW*s)px (IH*s)px`；`background-position=(VW/2 - centerX*s)px (VH/2 - centerY*s)px`（`centerX=(crop.x+crop.w/2)*IW`）。
+- 尺寸兜底（**v2.4.4 新增**）：`realImageSize`/`dockRealImageSize` 用 `HTMLImageElement.naturalWidth/naturalHeight`（Chromium 已应用 EXIF）异步纠偏——命中缓存即用，与记录尺寸不一致才用真实尺寸重排一次；兜底 WebP EXIF / EXIF 解析失败 / 老数据（BUG 前导入），首帧后 ~1 帧内完成。
 - 反向（皮肤窗 `saveCrop`）：`vw=VW/s, vh=VH/s` → `crop.w=vw/IW, crop.h=vh/IH`，`crop.x=(center.x-vw/2)/IW`，`zoom=s/s0`。重启后任意分辨率复现一致。
+
+**可读性三层结构（v2.4.4，仅自选纯色/图片皮肤）**
+
+单值 `clarity`（0~100）线性联动三层；`clarity=0` 时保护层**全部归零**（不引入多余灰罩，仅保留文字兜底描边）；原生皮肤不介入（变量清空）：
+
+1. **文字层**：`--ink-glow`（柔和光晕，`0 0 (1+3p)px`）+ `--stroke-color`（兜底极细描边 `0.5px`，随 clarity 增大**变淡** `dark: 0.55-0.25p / light: 0.70-0.30p`）。
+2. **局部背景保护层**：`--protect-top`（`#infoBar` 渐变）/ `--protect-mid`（`#calendar::before` / dock `#card`）/ `--protect-bot`（`#dragBar`，`html[data-skin]` 前缀压 `[data-theme=dark]` 特异性）。
+3. **状态元素保护晕环**：`--protect-state`（今日/节假日/选中/区间/提醒的 `::after` 外环 + 柔光）。
+
+- 主题向：`dark` 底 → 深罩/深描边（ink=`0,0,0`）；`light` 底 → 浅罩/浅描边（ink=`255,255,255`）；由 `applyClarity`/`clearReadability`（dock 侧 `dockApplyClarity`/`dockClearReadability`）写/清 CSS 变量。
+- **UI 清晰度滑杆（`skin.html`）**：仅在纯色/图片界面显示（`#claritySection` 与 `#textSection` 同步显隐）；「自动」开关（默认开，`#clarityAuto`）→ `'auto'`；强度滑杆 `#clarityRange`（0~100 step5）拖动即切手动；`auto` 档下滑杆置灰但拖动仍可用（拖动=切手动）。回显读 `skin.surfaces[x].clarity` 原始值 + `resolved[x].clarity` 推导值；回写走 `skin-set`（`field='clarity'`），主进程处理后推 `skin-state` + `skin-config-state`。跟随时整块置灰。
 
 **渲染层落地**
 
-- `template.html` / `dock.html` 增加 `#skinImg` 背景层（`position:absolute; inset:0; z-index:-1`）+ `[data-skin="color"]` / `[data-skin="image"]` 规则；`app.js` / `dock.html` 收到 `skin-state` 后 `applySkinState`（设 `data-theme` + `data-skin` + `--skin-bg-solid`）+ `applySkinImage`（crop/zoom → CSS）。
+- `template.html` / `dock.html` 增加 `#skinImg` 背景层（`position:absolute; inset:0; z-index:-1`）+ `[data-skin="color"]` / `[data-skin="image"]` 规则；`app.js` / `dock.html` 收到 `skin-state` 后 `applySkinState`（设 `data-theme` + `data-skin` + `--skin-bg-solid` + `applyClarity(root,theme,state.clarity)`）+ `applySkinImage`（crop/zoom → CSS，`layoutSkin`+`realImageSize`）；原生皮肤走 `clearReadability(root)` 清空变量。
 - **状态色不变**：今日雅蓝 / 节假日朱砂红 / 选中深绿维持原 token，不随皮肤改变。
-- **独立皮肤窗 `skin.html`**：设置页只留「皮肤设置」入口（`settings-action('open-skin')`）；皮肤窗 4 界面分段（日历/放大/桌面/浮动）+ 5 类型（浅/深/跟随系统/纯色/图片）+ 色盘 + 图片取景预览（拖入/平移/滚轮 1×~5×）+ 文字明暗 + 透明度 + 跟随开关；经 `skin-set` / `skin-action` / `skin-import` IPC 即时回写。
+- **独立皮肤窗 `skin.html`**：设置页只留「皮肤设置」入口（`settings-action('open-skin')`）；皮肤窗 4 界面分段（日历/放大/桌面/浮动）+ 5 类型（浅/深/跟随系统/纯色/图片）+ 色盘 + 图片取景预览（拖入/平移/滚轮 1×~5×）+ 文字明暗 + **UI 清晰度（v2.4.4：`#claritySection` 自动开关 + 0~100 滑杆）** + 图片不透明度 + 透明度 + 跟随开关；经 `skin-set` / `skin-action` / `skin-import` IPC 即时回写。
 
 ---
 
@@ -317,8 +332,8 @@ var HOLIDAYS_2026 = {
 
 ## 8. 版本信息与作者（集中维护点）
 - 软件名：`简洁桌面日历`　显示名 `productName` / exe 名 `SimpleCalendar`
-- 版本号：`2.4.0`（package.json `version`；同步体现在 exe 文件版本、安装包属性、控制面板）
-- **运行时文件**：`userData/reminders.json`（特别关注）、`userData/settings.json`（v1.7.11 新增：theme/pinned/autoLaunch/dockOn；v2.4.0 新增：skin{__v,surfaces{calendar,expanded,desktop,dock},opacity{calendar,desktop,dock}}/dockBoundsByDisplay/dockDisplayId；一次性迁移后旧键 skinMode/nativeSkin/skinColor 等停写）、`userData/calendar.log`（v1.7.11 新增：诊断日志，超 200KB 自动清空；打包后 stderr 不可见，**日志是唯一排查手段**）
+- 版本号：`2.4.4`（package.json `version`；同步体现在 exe 文件版本、安装包属性、控制面板）
+- **运行时文件**：`userData/reminders.json`（特别关注）、`userData/settings.json`（v1.7.11 新增：theme/pinned/autoLaunch/dockOn；v2.4.0 新增：skin{__v,surfaces{calendar,expanded,desktop,dock}（每表面含 type/color/image/text + **v2.4.4 clarity**，expanded/desktop 另含 follow），opacity{calendar,desktop,dock}}/dockBoundsByDisplay/dockDisplayId；一次性迁移后旧键 skinMode/nativeSkin/skinColor 等停写）、`userData/calendar.log`（v1.7.11 新增：诊断日志，超 200KB 自动清空；打包后 stderr 不可见，**日志是唯一排查手段**）
 - 作者：`YG`（`author` 字段；版本信息中的公司/版权靠根级 `copyright` 写入 exe 文件属性）
 - 版权：`Copyright © 2026 YG`
 - 仓库/主页：`https://github.com/kt87on/simple-desktop-calendar`（GitHub 用，可改）

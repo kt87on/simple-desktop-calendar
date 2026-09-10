@@ -1,0 +1,48 @@
+sequenceDiagram
+    autonumber
+    participant SKIN as skin.html
+    participant M as electron-main.js
+    participant CAL as calendar.html(app.js)
+    participant DOCK as dock.html
+    participant OS as Chromium 图片解码
+
+    Note over M,OS: 问题2 · EXIF 取向修复（导入）
+    SKIN->>M: skin-import(surface, srcPath) [invoke]
+    M->>OS: nativeImage.createFromPath(srcPath).getSize()
+    alt JPEG(.jpg/.jpeg)
+        M->>M: readJpegOrientation(srcPath) -> parseTiffOrientation
+        alt orient 5..8 (90/270 deg)
+            M->>M: size = {w:h, h:w} swap
+        end
+    end
+    M->>M: sampleImageStats(img) -> dark + complexity
+    M-->>SKIN: { ok, image{w,h,dark,complexity} }
+    SKIN->>M: skin-set(surface,'image',{file,crop,zoom})
+    M-->>CAL: skin-state(calendar/expanded 含 image)
+    M-->>DOCK: skin-state(dock)
+
+    Note over CAL,OS: 问题2 · 兜底（渲染层自然尺寸比对）
+    CAL->>CAL: applySkinImage(image) 用 image.w/h 先铺
+    CAL->>OS: new Image().src = skin://file (Chromium 已应用 EXIF)
+    OS-->>CAL: onload -> naturalWidth/naturalHeight
+    alt natural != image.w/h
+        CAL->>CAL: layoutSkin(el, naturalW, naturalH, crop, zoom) 重算一次
+        opt P1 回写
+            CAL->>M: skin-set(surface,'image',{file,w,h})
+        end
+    end
+
+    Note over SKIN,CAL: 问题1 · UI 清晰度 联动
+    SKIN->>M: skin-set(surface,'clarity', 'auto'|0..100)
+    M->>M: applySkinSet -> saveSettings() (settings.json)
+    M->>M: resolvedSurfaceState -> clarity = auto? clamp(complexity*100,20,85) : value
+    M-->>CAL: skin-state(含 clarity)
+    M-->>DOCK: skin-state(含 clarity)
+    M-->>SKIN: skin-config-state(含 surfaces.*.clarity + resolved.clarity)
+    CAL->>CAL: applySkinState -> applyClarity(root, theme, clarity)
+    CAL->>CAL: 写 --protect-top/mid/bot/edge/state、--ink-glow、--stroke-color
+    DOCK->>DOCK: dockApplyClarity 同上
+    SKIN->>SKIN: render() 回显滑杆 + auto 开关
+
+    Note over CAL: 自动明暗（分区采样 + 迟滞）
+    M->>M: sampleImageStats -> zones[3] 权重合成 + 迟滞(+-0.06) -> image.dark

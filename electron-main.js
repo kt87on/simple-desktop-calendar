@@ -216,6 +216,20 @@ function baseTheme() {
   return surfaceTheme('calendar');
 }
 
+/* v2.4.4：UI 清晰度生效值。手动值直接用；'auto' → image 类型按 complexity 推导
+ * （clamp 20~85，保证总有基础保护），非 image（原生/纯色/无图兜底）→ 0（不引入多余灰罩）。 */
+function clarityForConfig(c) {
+  if (!c) return 0;
+  if (typeof c.clarity === 'number' && isFinite(c.clarity)) {
+    return Math.max(0, Math.min(100, Math.round(c.clarity)));
+  }
+  if (c.type === 'image') {
+    var cx = (c.image && typeof c.image.complexity === 'number' && isFinite(c.image.complexity)) ? c.image.complexity : 0;
+    return Math.max(20, Math.min(85, Math.round(cx * 100)));
+  }
+  return 0;
+}
+
 function resolvedSurfaceState(surface) {
   var c = resolveSurfaceConfig(surface);
   var bg = surfaceBg(surface);
@@ -224,7 +238,8 @@ function resolvedSurfaceState(surface) {
     theme: surfaceTheme(surface),
     bg: bg.kind,
     color: (bg.kind === 'color') ? bg.color : null,
-    image: (bg.kind === 'image') ? bg.image : null
+    image: (bg.kind === 'image') ? bg.image : null,
+    clarity: clarityForConfig(c)
   };
 }
 
@@ -286,6 +301,13 @@ function clampImageOpacity(v) {
   if (!isFinite(n)) return 1;
   return Math.max(0.2, Math.min(1, n));
 }
+/* v2.4.4：UI 清晰度归一化 —— 'auto' | 0~100 整数；缺省/非法 → 'auto' */
+function normalizeClarity(v) {
+  if (v === undefined || v === null || v === 'auto') return 'auto';
+  var n = Number(v);
+  if (!isFinite(n)) return 'auto';
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
 function normalizeImageSpec(img) {
   if (!img || typeof img !== 'object') return null;
   var file = sanitizeBasename(img.file);
@@ -305,7 +327,8 @@ function normalizeImageSpec(img) {
     crop: crop,
     zoom: clampZoom(img.zoom),
     opacity: clampImageOpacity(img.opacity),
-    dark: !!img.dark
+    dark: !!img.dark,
+    complexity: (typeof img.complexity === 'number' && isFinite(img.complexity)) ? clamp01(img.complexity) : 0
   };
 }
 function normalizeSkin(raw) {
@@ -318,7 +341,8 @@ function normalizeSkin(raw) {
       type: (s.type === 'dark' || s.type === 'system' || s.type === 'color' || s.type === 'image') ? s.type : 'light',
       color: (s.type === 'color') ? validHex(s.color) : null,
       image: (s.type === 'image') ? normalizeImageSpec(s.image) : null,
-      text: (s.text === 'light' || s.text === 'dark') ? s.text : 'auto'
+      text: (s.text === 'light' || s.text === 'dark') ? s.text : 'auto',
+      clarity: normalizeClarity(s.clarity)
     };
     if (n === 'expanded' || n === 'desktop') {
       c.follow = (s.follow === 'calendar') ? 'calendar' : null;
@@ -451,6 +475,120 @@ function readGifSize(filePath) {
   } catch (e) { return null; }
 }
 
+/* ===== v2.4.4：JPEG EXIF Orientation 解析（纯本地、零依赖、只读前 64KB） =====
+ * 手机竖拍 JPEG 常用 EXIF Orientation=6/8 表达"需旋转 90°/270° 观看"。nativeImage.getSize()
+ * 读到的是未旋转的物理尺寸，而 Chromium 渲染 background-image 会自动应用 EXIF 旋转 →
+ * 记录尺寸与显示尺寸横竖倒置 → 取景基准 s0 算错 → 竖拍图被上下压扁。
+ * 这里只解析 JPEG 头部 APP1 段（Orientation 通常在此），值 ∈ {5,6,7,8} 含 90/270 旋转，
+ * 调用方据此交换记录宽高；{1..4} / 缺失 / 非 JPEG / 解析失败 → 返回 1（不旋转）。 */
+
+/* 读文件头 APP1 → TIFF → tag 0x0112(Orientation)，返回 1..8（失败→1） */
+function readJpegOrientation(filePath) {
+  try {
+    var fd = fs.openSync(filePath, 'r');
+    try {
+      var buf = Buffer.alloc(65536);
+      var n = fs.readSync(fd, buf, 0, 65536, 0);
+      // 1) SOI：FF D8
+      if (n < 4 || buf[0] !== 0xFF || buf[1] !== 0xD8) return 1;
+      var off = 2;
+      // 2) 逐段扫描找 APP1（FF E1）
+      while (off + 4 <= n) {
+        if (buf[off] !== 0xFF) { off++; continue; }
+        var marker = buf[off + 1];
+        if (marker === 0xD8 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { off += 2; continue; }
+        if (marker === 0xDA || marker === 0xD9) break;              // SOS/EOI：不再有 EXIF
+        var segLen = buf.readUInt16BE(off + 2);
+        if (segLen < 2) break;
+        if (marker === 0xE1) {                                       // APP1
+          var p = off + 4;
+          if (p + 6 <= n && buf.toString('ascii', p, p + 6) === 'Exif\u0000\u0000') {
+            return parseTiffOrientation(buf, p + 6, n);              // TIFF header 起点
+          }
+        }
+        off += 2 + segLen;
+      }
+      return 1;
+    } finally { fs.closeSync(fd); }
+  } catch (e) { return 1; }
+}
+
+/* TIFF header → IFD0 → 找 tag 0x0112(Orientation) 的 16-bit 值（II/MM 字节序均支持） */
+function parseTiffOrientation(buf, t, n) {
+  try {
+    if (t + 8 > n) return 1;
+    var le;                                                          // 小端？
+    if (buf[t] === 0x49 && buf[t + 1] === 0x49) le = true;           // 'II'
+    else if (buf[t] === 0x4D && buf[t + 1] === 0x4D) le = false;     // 'MM'
+    else return 1;
+    var magic = le ? buf.readUInt16LE(t + 2) : buf.readUInt16BE(t + 2);
+    if (magic !== 0x002A) return 1;
+    var ifdOff = (le ? buf.readUInt32LE(t + 4) : buf.readUInt32BE(t + 4)) + t;
+    if (ifdOff + 2 > n) return 1;
+    var count = le ? buf.readUInt16LE(ifdOff) : buf.readUInt16BE(ifdOff);
+    var e = ifdOff + 2;
+    for (var i = 0; i < count && e + 12 <= n; i++, e += 12) {
+      var tag = le ? buf.readUInt16LE(e) : buf.readUInt16BE(e);
+      if (tag === 0x0112) {                                          // Orientation
+        var val = le ? buf.readUInt16LE(e + 8) : buf.readUInt16BE(e + 8);
+        return (val >= 1 && val <= 8) ? val : 1;
+      }
+    }
+    return 1;
+  } catch (e) { return 1; }
+}
+
+/* v2.4.4：WCAG 相对亮度（入参 r/g/b 归一到 0~1），与 isDarkColor 同口径 */
+function wcagLum(r, g, b) {
+  function ch(x) { x = (x <= 0.03928) ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); return x; }
+  return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
+}
+
+/* v2.4.4：迟滞明暗判定（±0.06 带宽防抖，临界图重导入/重采样不抖动）。
+ * 若上一态为 dark：L<=0.56 维持 dark，L>0.56 才切 light；
+ * 若上一态为 light：L>=0.44 维持 light，L<0.44 才切 dark。 */
+function decideDark(L, prevDark) {
+  if (prevDark) return L <= 0.56;
+  return L < 0.44;
+}
+
+/* v2.4.4：分区采样 —— 把 64px 缩略图按行分上/中/下三区（各算 WCAG 平均亮度），
+ * 另算逐像素相对亮度标准差 → complexity（局部亮度不均程度，0~1，满量程 0.30）。
+ * 跳过 alpha=0 透明像素（PNG 透明区 BGRA 是黑，计入会误判深色 → 误切黑夜）。 */
+function sampleImageStats(img) {
+  var thumb = img.resize({ width: 64 });
+  var bmp = thumb.toBitmap();                 // BGRA
+  var sz = thumb.getSize();
+  var W = (sz && sz.width) || 64;
+  var H = (sz && sz.height) || 1;
+  var zoneSum = [{ r: 0, g: 0, b: 0, n: 0 }, { r: 0, g: 0, b: 0, n: 0 }, { r: 0, g: 0, b: 0, n: 0 }]; // 上/中/下
+  var lumSum = 0, lumSq = 0, cnt = 0;
+  for (var i = 0; i < bmp.length; i += 4) {
+    if (bmp[i + 3] === 0) continue;           // 透明像素不计
+    var idx = i / 4;
+    var py = Math.floor(idx / W);
+    var zi = (py < H / 3) ? 0 : (py < 2 * H / 3 ? 1 : 2);
+    var z = zoneSum[zi];
+    z.b += bmp[i]; z.g += bmp[i + 1]; z.r += bmp[i + 2]; z.n++;
+    // 逐像素相对亮度（线性加权近似）用于方差
+    var l = (0.2126 * bmp[i + 2] + 0.7152 * bmp[i + 1] + 0.0722 * bmp[i]) / 255;
+    lumSum += l; lumSq += l * l; cnt++;
+  }
+  var zoneY = [0, 0, 0];
+  for (var k = 0; k < 3; k++) {
+    var zz = zoneSum[k];
+    if (zz.n > 0) zoneY[k] = wcagLum(zz.r / zz.n / 255, zz.g / zz.n / 255, zz.b / zz.n / 255);
+  }
+  var mean = cnt > 0 ? lumSum / cnt : 0;
+  var variance = cnt > 0 ? Math.max(0, lumSq / cnt - mean * mean) : 0;
+  var std = Math.sqrt(variance);                              // 局部亮度标准差
+  return {
+    zones: zoneY,
+    mean: mean,
+    complexity: Math.max(0, Math.min(1, std / 0.30))          // 0~1，0.30 为满量程常数
+  };
+}
+
 /* v2.4.0 第二轮：图片皮肤导入。
  * 校验（扩展名白名单：png/jpg/jpeg/gif/webp，不设大小/像素上限，交由用户自行取景裁剪）→
  * 原子复制到 userData/skins/ → 采样亮度（跳过透明像素，采样失败兜底浅色）。
@@ -476,6 +614,13 @@ function importSkinImage(surface, srcPath) {
       img = nativeImage.createFromPath(srcPath);
       if (!img || img.isEmpty()) return { ok: false, error: '图片解码失败' };
       size = img.getSize();
+      // v2.4.4：JPEG 竖拍/旋转修正 —— EXIF Orientation ∈ {5,6,7,8} 含 90°/270° 旋转，
+      // nativeImage.getSize() 读到的是未旋转物理尺寸，而 Chromium 渲染 background-image 会自动
+      // 应用 EXIF 旋转 → 记录尺寸与显示尺寸横竖倒置 → 取景基准 s0 算错导致压扁。交换记录宽高对齐。
+      if (ext === '.jpg' || ext === '.jpeg') {
+        var orient = readJpegOrientation(srcPath);
+        if (orient >= 5 && orient <= 8) size = { width: size.height, height: size.width };
+      }
     }
 
     var ts = Date.now();
@@ -487,26 +632,25 @@ function importSkinImage(surface, srcPath) {
     fs.copyFileSync(srcPath, tmp);
     fs.renameSync(tmp, dest);
 
+    // v2.4.4：分区采样（上/中/下三区）+ 权重合成 + 迟滞，输出 dark 与 complexity（局部亮度方差）。
+    // 旧「整图均值 lum<0.5」扛不住局部亮暗不均；中区（日期网格）权重最高，临界图重导入不抖动。
     var dark = false;
+    var complexity = 0;
     if (!isGif && img) {
       try {
-        var thumb = img.resize({ width: 64 });
-        var bmp = thumb.toBitmap();   // BGRA
-        var n = 0, sr = 0, sg = 0, sb = 0;
-        for (var i = 0; i < bmp.length; i += 4) {
-          // 透明像素（alpha=0）不计入亮度：PNG 透明区在 BGRA 里是 (0,0,0,0)，
-          // 若纳入会把看不见的黑色也算进均值，把浅色图误判成深色 → auto 误切黑夜。
-          if (bmp[i + 3] === 0) continue;
-          sb += bmp[i]; sg += bmp[i + 1]; sr += bmp[i + 2];
-          n++;
+        var stats = sampleImageStats(img);
+        if (stats) {
+          // 中区权重最高（0.55），上/下区 0.25/0.20；迟滞 ±0.06 防抖
+          var L = 0.25 * stats.zones[0] + 0.55 * stats.zones[1] + 0.20 * stats.zones[2];
+          var prevDark = false;
+          try {
+            var pc = skin.surfaces[surface];
+            if (pc && pc.image && typeof pc.image.dark === 'boolean') prevDark = pc.image.dark;
+          } catch (e2) {}
+          dark = decideDark(L, prevDark);
+          complexity = stats.complexity;
         }
-        if (n > 0) {
-          var rr = (sr / n) / 255, gg = (sg / n) / 255, bb = (sb / n) / 255;
-          function ch(x) { x = (x <= 0.03928) ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); return x; }
-          var lum = 0.2126 * ch(rr) + 0.7152 * ch(gg) + 0.0722 * ch(bb);
-          dark = lum < 0.5;
-        }
-        // n===0（全透明/解码异常）→ dark 保持 false（浅色兜底，绝不硬切黑夜）
+        // stats 为空（解码/采样异常）→ dark=false + complexity=0（浅色兜底，绝不硬切黑夜）
       } catch (e) {}
     }
 
@@ -522,7 +666,8 @@ function importSkinImage(surface, srcPath) {
       crop: { x: 0, y: 0, w: 1, h: 1 },
       zoom: 1,
       opacity: 1,
-      dark: dark
+      dark: dark,
+      complexity: complexity
     };
     return { ok: true, image: image, error: null };
   } catch (e) {
@@ -564,8 +709,13 @@ function applySkinSet(payload) {
         c.color = cal.color;
         c.image = cal.image ? JSON.parse(JSON.stringify(cal.image)) : null;
         c.text = cal.text;
+        c.clarity = cal.clarity;   // v2.4.4：清晰度一并物化快照
       }
     }
+  } else if (field === 'clarity') {
+    // v2.4.4：UI 清晰度（'auto' | 0~100）。写入后推 skin-state（resolved.clarity 供渲染层）。
+    c.clarity = (value === 'auto') ? 'auto'
+      : Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
   } else if (field === 'opacity') {
     var key = (surface === 'calendar' || surface === 'expanded') ? 'calendar' : surface;
     if (key === 'desktop' || key === 'dock' || key === 'calendar') {
@@ -672,10 +822,10 @@ let autoLaunch = true;         // 开机自启
 let skin = {
   __v: 2,
   surfaces: {
-    calendar: { type: 'light', color: null, image: null, text: 'auto' },
-    expanded: { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto' },
-    desktop:  { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto' },
-    dock:     { type: 'light', color: null, image: null, text: 'auto' }
+    calendar: { type: 'light', color: null, image: null, text: 'auto', clarity: 'auto' },
+    expanded: { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto', clarity: 'auto' },
+    desktop:  { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto', clarity: 'auto' },
+    dock:     { type: 'light', color: null, image: null, text: 'auto', clarity: 'auto' }
   },
   opacity: { calendar: 1, desktop: 1, dock: 1 }
 };
