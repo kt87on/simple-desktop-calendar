@@ -16,6 +16,13 @@ _mock_userdata/
 # WorkBuddy 本地数据
 .workbuddy/
 
+# 本地诊断产物（截图 / 探针脚本 / 中间 JSON，仅本机使用，不入库）
+.tmp-diag/
+
+# 临时脚本与清点输出（形如 _build_log.txt / .filelist.txt）
+_*.txt
+.filelist*.txt
+
 # 系统/编辑器
 .DS_Store
 Thumbs.db

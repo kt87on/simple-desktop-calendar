@@ -178,7 +178,9 @@ function validHex(v) {
 function resolveSurfaceConfig(surface) {
   var c = skin.surfaces[surface];
   if (!c) c = skin.surfaces.calendar;
-  if ((surface === 'expanded' || surface === 'desktop') && c.follow === 'calendar') {
+  /* v3.1.0 C1：把 dock（浮动插件）纳入跟随名单 —— 这就是"换了原生风格但浮动插件没跟着变"的根因修复。
+   * 现在 expanded / desktop / dock 三者只要 follow==='calendar' 就返回日历配置，四处外观默认统一。 */
+  if ((surface === 'expanded' || surface === 'desktop' || surface === 'dock') && c.follow === 'calendar') {
     return skin.surfaces.calendar;
   }
   return c;
@@ -442,8 +444,15 @@ function normBg(v) {
 function normTone(v) {
   return (v === 'light' || v === 'dark' || v === 'system') ? v : 'auto';
 }
-/* v3 单面归一化。核心防白屏：bg='image' 但图缺失/非法 → 回落 bg='native'。 */
-function normalizeSurfaceV3(s, isFollowable) {
+/* v3 单面归一化。核心防白屏：bg='image' 但图缺失/非法 → 回落 bg='native'。
+ * isFollowable：该面是否带 follow 字段（v3.1.0 起 expanded/desktop/dock 均带）。
+ * followDefault：follow 字段**缺失**时的候选默认值（区分『缺失』与『显式 null』）：
+ *   - expanded/desktop → null（沿用 v3.0.0 语义：缺失=独立，不改变既有行为）；
+ *   - dock            → 'calendar'，但**仅当该面 pristine（六项全出厂默认）时才真正采用**，
+ *                       否则回落 null（见下）—— 避免把「v3.0.0 已自定过浮动插件、但数据里没有
+ *                       follow 字段」的用户的既有配置静默覆盖掉（v3.1.0 C1 迁移回归修复）。
+ * 用户显式取消跟随会写入 follow:null，故显式 null 一律保留为 null。 */
+function normalizeSurfaceV3(s, isFollowable, followDefault) {
   s = s || {};
   var bg = normBg(s.bg);
   var image = (bg === 'image') ? normalizeImageSpec(s.image) : null;
@@ -457,7 +466,18 @@ function normalizeSurfaceV3(s, isFollowable) {
     tone: normTone(s.tone)
   };
   if (isFollowable) {
-    c.follow = (s.follow === 'calendar') ? 'calendar' : null;
+    if (s.follow === 'calendar') c.follow = 'calendar';        // 显式跟随
+    else if (s.follow === null) c.follow = null;               // 显式取消跟随（用户改过）
+    else {
+      /* v3.1.0 C1 修正（迁移回归！）：dock 是 v3.1.0 新增的跟随者，v3.0.0 数据里它没有 follow 字段。
+       * 若该面六项全为出厂默认（pristine）→ 视为「未手动调整过」→ 默认统一（'calendar'）；
+       * 否则说明用户早已独立配置过浮动插件（如单独设过风格/图片），必须保留其独立性（null）——
+       * 否则那份配置数据虽在，却会被 resolveSurfaceConfig 静默忽略（浮动插件突然变成日历的样子）。
+       * 口径与调用点解耦：pristine 只在此处判定（该函数被 x-extract 孤立测试，故内联而非顶层）。 */
+      var pristine = (c.style === 'default') && (c.bg === 'native') && !c.image &&
+        (c.text === 'auto') && (c.clarity === 'auto') && (c.tone === 'auto');
+      c.follow = (followDefault === 'calendar' && pristine) ? 'calendar' : null;
+    }
   }
   return c;
 }
@@ -468,7 +488,8 @@ function normalizeSkinV3(raw) {
   for (var i = 0; i < names.length; i++) {
     var n = names[i];
     var s = (raw && raw.surfaces && raw.surfaces[n]) || {};
-    out.surfaces[n] = normalizeSurfaceV3(s, (n === 'expanded' || n === 'desktop'));
+    // v3.1.0 C1：dock 也带 follow，默认 'calendar'（旧 v3.0.0 数据无此字段 → 默认统一）
+    out.surfaces[n] = normalizeSurfaceV3(s, (n === 'expanded' || n === 'desktop' || n === 'dock'), (n === 'dock') ? 'calendar' : null);
   }
   if (raw && raw.opacity && typeof raw.opacity === 'object') {
     out.opacity.calendar = clampOpacity(raw.opacity.calendar, 1);
@@ -514,6 +535,18 @@ function migrateSkinV2toV3(v2) {
     };
     if (n === 'expanded' || n === 'desktop') {
       c.follow = (s.follow === 'calendar') ? 'calendar' : null;            // 原样保留
+    } else if (n === 'dock') {
+      /* v3.1.0 C1：dock 纳入跟随名单。
+       * 为什么这里**不看六项 pristine**、改看 oldType（与 normalizeSurfaceV3 的口径**刻意不同**）：
+       *   v2 的 dock.type 绝大多数是 migrateSkin() 把全局 baseType 复制过来的（见 :408-421），
+       *   从数据上无法与「用户单独给 dock 设过」区分；若按 pristine 判，全局设了深色的 v2 用户会得到
+       *   follow=null → 之后在皮肤窗换日历风格时浮动插件不跟随，违背「默认统一，除非用户自己手动调整」。
+       *   唯一能确认用户自己动过的强信号是 type==='image'（有独立图片文件留在磁盘），故仅此保留独立。
+       *   —— 注意：normalizeSurfaceV3（服务 __v===3 的 v3.0.0→v3.1.0 路径）仍用 pristine 判定，
+       *      那条路径上 dock 能力真实反映"用户是否动过浮动插件"，两者口径不同是**刻意的**，勿统一。 */
+      if (s.follow === 'calendar') c.follow = 'calendar';
+      else if (s.follow === null) c.follow = null;
+      else c.follow = (oldType === 'image') ? null : 'calendar';
     }
     out.surfaces[n] = c;
   }
@@ -820,6 +853,34 @@ function applySkinSet(payload) {
   var c = skin.surfaces[surface];
   if (!c) return;
 
+  /* v3.1.0 C2：取消跟随 / 手动调整的 copy-on-write 物化（本函数内部小工具，供两处复用，避免逻辑漂移）。
+   * 以日历当前配置为初始快照（6 项：style/bg/image/text/clarity/tone），并把当前面 c 的 follow 置为 null。
+   * image 深拷贝，避免跟随者的图片对象与日历共享引用（改一处动两处）。闭包引用本函数的 c。
+   * 说明：刻意定义为 applySkinSet 的内部函数（而非顶层）—— 既满足「复用同一段物化逻辑」，
+   *       又让其保持自洽可整体抽取（如 tests/qa-v244.js 会孤立 eval applySkinSet 源码）。 */
+  function materializeFromCalendar() {
+    var cal = skin.surfaces.calendar;
+    c.follow = null;
+    c.style = cal.style;
+    c.bg = cal.bg;
+    c.image = cal.image ? JSON.parse(JSON.stringify(cal.image)) : null;
+    c.text = cal.text;
+    c.clarity = cal.clarity;   // v2.4.4：清晰度一并物化快照
+    c.tone = cal.tone;         // v3.0.0 R5：明暗轴一并物化快照（漏复制会丢明暗设置）
+  }
+
+  /* v3.1.0 C2：手调即豁免跟随（修复隐藏缺陷）。
+   * 当某个「跟随中」的界面（expanded/desktop/dock，follow==='calendar'）被手动改任一实质字段
+   * （style/bg/image/text/clarity/tone）时，**先**取消跟随（物化日历快照 + follow=null）再写入本次值。
+   * 否则 resolveSurfaceConfig 仍返回日历配置 → 用户这次的手动设置被静默忽略。
+   * - field==='follow' 不在本名单：显式取消/恢复跟随由下方分支专管（行为保持不变）。
+   * - 写 calendar 永远不进入本分支：写日历绝不影响任何界面的 follow。 */
+  var followableFields = { style: 1, bg: 1, image: 1, text: 1, clarity: 1, tone: 1 };
+  if ((surface === 'expanded' || surface === 'desktop' || surface === 'dock') &&
+      followableFields[field] && c.follow === 'calendar') {
+    materializeFromCalendar();
+  }
+
   if (field === 'style') {
     // v3.0.0：风格材质（6 选一）。与 bg/tone 正交，不改背景来源与明暗轴。
     c.style = normStyle(value);
@@ -833,19 +894,13 @@ function applySkinSet(payload) {
   } else if (field === 'text') {
     c.text = (value === 'light' || value === 'dark') ? value : 'auto';
   } else if (field === 'follow') {
-    if (surface === 'expanded' || surface === 'desktop') {
+    // v3.1.0 C1：dock 也纳入（与 resolveSurfaceConfig 的跟随名单保持一致）
+    if (surface === 'expanded' || surface === 'desktop' || surface === 'dock') {
       if (value === 'calendar') {
         c.follow = 'calendar';
       } else {
-        // 取消跟随 = copy-on-write：以日历当前配置为初始快照（6 项：style/bg/image/text/clarity/tone）
-        var cal = skin.surfaces.calendar;
-        c.follow = null;
-        c.style = cal.style;
-        c.bg = cal.bg;
-        c.image = cal.image ? JSON.parse(JSON.stringify(cal.image)) : null;
-        c.text = cal.text;
-        c.clarity = cal.clarity;   // v2.4.4：清晰度一并物化快照
-        c.tone = cal.tone;         // v3.0.0 R5：明暗轴一并物化快照（漏复制会丢明暗设置）
+        // 显式取消跟随 = copy-on-write：物化日历 6 项快照并置 follow=null（与 C2 复用同一内部函数）
+        materializeFromCalendar();
       }
     }
   } else if (field === 'clarity') {
@@ -954,7 +1009,8 @@ let autoLaunch = true;         // 开机自启
 /* ===== v3.0.0 皮肤（per-surface 配置树，主进程唯一真相；style × bg 双维度 + tone 明暗轴） =====
  * skin.surfaces{calendar,expanded,desktop,dock}：每界面独立 style（风格材质）
  *   + bg（背景来源 native|image）+ tone（明暗 auto|light|dark|system）
- *   + image/text(auto|light|dark)/clarity；expanded/desktop 带 follow('calendar'|null)。
+ *   + image/text(auto|light|dark)/clarity；expanded/desktop/dock 带 follow('calendar'|null)。
+ *   v3.1.0 C1：dock 也纳入跟随名单（默认 'calendar'）→ 原生风格后四处界面默认统一。
  * skin.opacity{calendar,desktop,dock}：透明度（opacity.calendar 同时作用于 mini/max 同一窗口）。 */
 let skin = {
   __v: 3,
@@ -962,7 +1018,7 @@ let skin = {
     calendar: { style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
     expanded: { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
     desktop:  { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
-    dock:     { style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' }
+    dock:     { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' }
   },
   opacity: { calendar: 1, desktop: 1, dock: 1 }
 };
@@ -2961,13 +3017,11 @@ ipcMain.on('skin-action', function (evt, action, payload) {
         if (r && !r.canceled && r.filePaths && r.filePaths[0]) {
           var res = importSkinImage(surface, r.filePaths[0]);
           if (res && res.ok) {
-            skin.surfaces[surface].bg = 'image';        // v3：背景来源＝自选图片
-            skin.surfaces[surface].image = res.image;    // 图片原样保留（file/snapshot/w/h/crop/zoom/opacity/dark/complexity）
-            recomputeTheme();
-            saveSettings();
-            pushThemeToAll();     // baseTheme 可能变化：托盘/关注列表/设置窗主题跟随
-            pushSkinToAll();
-            refreshTrayMenu();
+            /* v3.1.0 C2（同类缺陷补齐）：点选导入图片也是一次「手动调整」，改走统一的 applySkinSet 写入口
+             * —— 复用其 C2「手调即豁免跟随」逻辑（若该界面正跟随日历，先取消跟随再落图，否则图片会被
+             * resolveSurfaceConfig 忽略），并复用其收尾副作用（recomputeTheme/save/下发/托盘），避免两处漂移。
+             * 对应验收：单独给浮动插件设一张图片 → 只有浮动插件变。 */
+            applySkinSet({ surface: surface, field: 'image', value: res.image });
           }
           if (skinWin && !skinWin.isDestroyed()) {
             try { skinWin.webContents.send('skin-import-result', res); } catch (e) {}
@@ -3130,7 +3184,16 @@ function checkReminders() {
 function showReminderWindow(r) {
   reminderFor = r.id;
   if (reminderWin) {
-    try { reminderWin.focus(); } catch (e) {}
+    /* v3.1.0 C8：弹窗置顶修复。原实现复用分支只 focus() —— 但复用时窗口可能
+     * 「已存在却尚未 ready-to-show / 被隐藏 / 被置顶主窗压在下面」，加上 Windows 前台
+     * 窗口窃取限制，只 focus() 既不改层级也不显隐，于是弹窗"存在却看不到"。
+     * 这里逐项重断言：重设 alwaysOnTop 层级 → 需要时补 show() → moveTop() 抬到同层最前 → focus()。 */
+    try {
+      reminderWin.setAlwaysOnTop(true, 'screen-saver');
+      if (!reminderWin.isVisible()) reminderWin.show();
+      reminderWin.moveTop();
+      reminderWin.focus();
+    } catch (e) {}
     return;
   }
   const wa = screen.getPrimaryDisplay().workAreaSize;
@@ -3161,7 +3224,15 @@ function showReminderWindow(r) {
       theme: themeMode
     }
   });
-  reminderWin.once('ready-to-show', function () { try { reminderWin.show(); } catch (e) {} });
+  reminderWin.once('ready-to-show', function () {
+    try {
+      reminderWin.show();
+      /* v3.1.0 C8：部分环境下 show() 会重置窗口层级 → show 之后再断言一次置顶 + 抬到最前，
+       * 确保提醒弹窗盖在（置顶的）主窗之上。 */
+      reminderWin.setAlwaysOnTop(true, 'screen-saver');
+      reminderWin.moveTop();
+    } catch (e) {}
+  });
   reminderWin.on('closed', function () {
     reminderWin = null;
     reminderFor = null;

@@ -41,7 +41,7 @@ const whenReadyBody = main.slice(main.indexOf('app.whenReady'), main.indexOf("ap
 // =====================================================================
 // 版本号
 // =====================================================================
-check('版本号=3.0.0', pkg.version === '3.0.0', 'package.json version=' + pkg.version);
+check('版本号=3.1.0', pkg.version === '3.1.0', 'package.json version=' + pkg.version);
 
 /* 护栏：使用说明.html 随安装包发给用户（build.extraFiles → 安装完成页「查看说明文档」），
  * 其声明的版本必须与 package.json 一致，防止文档版本漂移（历史遗留 v2.4.4）。 */

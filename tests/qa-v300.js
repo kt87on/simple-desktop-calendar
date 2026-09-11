@@ -1,6 +1,6 @@
 'use strict';
 /* ============================================================
- * tests/qa-v300.js —— v3.0.0 独立对抗性验证（皮肤模型 v3 / 迁移 / 明暗优先级 / dev 隔离）
+ * tests/qa-v300.js —— v3.0.0 皮肤模型 v3 独立对抗性验证（+ v3.1.0 C1 follow 语义）
  * ------------------------------------------------------------
  * 设计原则（与 tests/qa-v244.js 同源）：
  *   1) 只读 electron-main.js 源码，绝不修改 verify_v1721.js / smoke-test.js /
@@ -10,7 +10,8 @@
  *      —— 断言「源码里那几行真实逻辑」，而非在测试里复刻一份实现。
  *   4) 全程不读写任何文件/目录（纯内存）。
  *
- * v3.0.0 模型：每面 { style, bg, image, text, clarity, tone }（expanded/desktop 另带 follow）
+ * v3.0.0 模型：每面 { style, bg, image, text, clarity, tone }
+ *   （**v3.1.0 C1 起 dock 亦为可跟随面**，expanded/desktop/dock 均带 follow）
  *   style ∈ {default,minimal,glass,neu,tech,warm}；bg ∈ {native,image}；
  *   text ∈ {auto,light,dark}（仅文字轴）；tone ∈ {auto,light,dark,system}（明暗轴）。
  *
@@ -25,6 +26,10 @@
  *   §8 resolvedSurfaceState 下发结构 + warn 真值表 + clarity 联动
  *   §9 clarityForConfig 的 v3 判据（bg=image 按 complexity 推导，其余归零）
  *   §10 cleanupStaleInstances：dev 短路 / self 不在候选即放弃 / 只杀子孙外的 stale
+ *   §11【v3.1.0 C1】normalizeSurfaceV3 的 follow 语义（pristine→calendar / 非 pristine→null / 幂等）
+ *   §12【v3.1.0 C1】migrateSkinV2toV3 的 dock follow 口径（oldType 判定）+ 两条路径刻意不同守护
+ *   §13【v3.1.0 回归护栏】真实用户 v3.0.0 遗留 dock 形态（无 follow 且非 pristine）→ 端到端
+ *       resolveSurfaceConfig('dock') 必须解析回 dock 自身（minimal），绝不被 calendar 覆盖
  * ============================================================ */
 
 const fs = require('fs');
@@ -228,13 +233,15 @@ function imgSpec(over) {
   eq(c1.clarity, 60, '§2 单面 clarity 保留');
   eq(c1.tone, 'dark', '§2 单面 tone 保留');
   eq(c1.image, null, '§2 bg=native 时 image 强制 null');
-  ok(!('follow' in c1), '§2 不可跟随面（calendar/dock）不带 follow 字段');
+  /* 注意：本调用的第 2 参显式传 isFollowable=false，故无 follow 字段（与「dock 是否可跟随」无关）。
+   * v3.1.0 C1 起 dock 已是可跟随面，见 §11。 */
+  ok(!('follow' in c1), '§2 isFollowable=false 的面不带 follow 字段');
 
-  // 可跟随面带 follow
+  // 可跟随面带 follow（v3.1.0 起 expanded/desktop/dock 均为可跟随面）
   const c2 = A.normalizeSurfaceV3({ follow: 'calendar' }, true);
   eq(c2.follow, 'calendar', '§2 可跟随面 follow=calendar 保留');
   const c3 = A.normalizeSurfaceV3({ follow: 'x' }, true);
-  eq(c3.follow, null, '§2 follow 非 calendar → null');
+  eq(c3.follow, null, '§2 follow 非法值 + followDefault 非 calendar → null');
 
   // 脏值一律回落
   const c4 = A.normalizeSurfaceV3({ style: 'bogus', bg: 'color', text: 'weird', clarity: -9, tone: 'nope' }, false);
@@ -611,6 +618,167 @@ function imgSpec(over) {
   ok(code.indexOf('SimpleCalendar.exe') < 0, '§10【关键】清理逻辑不再硬编码 SimpleCalendar.exe');
   ok(/path\.basename\(process\.execPath\)/.test(code), '§10 进程名改用 path.basename(process.execPath)');
   ok(/app\.isPackaged/.test(code), '§10 源码含 app.isPackaged 形态判断');
+})();
+
+/* ============================================================
+ * §11 C1 · normalizeSurfaceV3 的 follow 语义（v3.1.0：dock 纳入跟随）
+ * ------------------------------------------------------------
+ * 签名 (s, isFollowable, followDefault)。follow 规则：
+ *   显式 'calendar' → 'calendar'；显式 null（用户取消过）→ null；
+ *   缺失/其它非法 → 仅当 followDefault==='calendar' 且该面 pristine（六项全出厂默认）→ 'calendar'，否则 null。
+ * ============================================================ */
+(function () {
+  const A = api();
+  const pristine = { style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' };
+
+  // ① pristine dock + 缺失 follow → 默认统一
+  eq(A.normalizeSurfaceV3(Object.assign({}, pristine), true, 'calendar').follow, 'calendar',
+    '§11 pristine dock（无 follow）→ 默认统一 calendar');
+
+  // ② 任一实质字段非默认 → 视为已手动调整 → null（逐一验证）
+  [
+    ['style', 'tech'], ['bg', 'image'], ['text', 'dark'], ['clarity', 50], ['tone', 'dark']
+  ].forEach(function (pair) {
+    const s = Object.assign({}, pristine); s[pair[0]] = pair[1];
+    if (pair[0] === 'bg') s.image = imgSpec({ file: 'p.jpg' });   // 单改 bg=image 需带图才算非 pristine
+    eq(A.normalizeSurfaceV3(s, true, 'calendar').follow, null,
+      '§11 dock 单项非默认（' + pair[0] + '=' + pair[1] + '）→ null（保留独立）');
+  });
+  eq(A.normalizeSurfaceV3(Object.assign({}, pristine, { bg: 'image', image: imgSpec({ file: 'p.jpg' }) }), true, 'calendar').follow,
+    null, '§11 dock 单独设过图片 → null（保留独立）');
+
+  // ③ 显式 follow 优先于 pristine 判定
+  eq(A.normalizeSurfaceV3(Object.assign({}, pristine, { follow: 'calendar' }), true, 'calendar').follow, 'calendar',
+    '§11 显式 follow=calendar → calendar');
+  eq(A.normalizeSurfaceV3(Object.assign({}, pristine, { follow: null }), true, 'calendar').follow, null,
+    '§11 显式 follow=null（即使 pristine）→ 仍 null（用户取消过）');
+  eq(A.normalizeSurfaceV3({ style: 'tech', follow: 'calendar' }, true, 'calendar').follow, 'calendar',
+    '§11 显式 follow=calendar 压过「非 pristine」→ calendar');
+
+  // ④ follow='x'（非法）等同「缺失」→ 走 pristine 判定
+  eq(A.normalizeSurfaceV3(Object.assign({}, pristine, { follow: 'x' }), true, 'calendar').follow, 'calendar',
+    "§11 follow='x' 视同缺失 → pristine → calendar");
+  eq(A.normalizeSurfaceV3(Object.assign({}, pristine, { follow: 'x' }), true, null).follow, null,
+    "§11 follow='x' 视同缺失 → followDefault=null → null");
+
+  // ⑤ followDefault=null（expanded/desktop）：pristine 也不默认跟随
+  eq(A.normalizeSurfaceV3(Object.assign({}, pristine), true, null).follow, null,
+    '§11 expanded/desktop 缺失 follow（pristine）→ null（不默认跟随）');
+
+  // ⑥ 不可跟随面（isFollowable=false）→ 无 follow 字段
+  ok(!('follow' in A.normalizeSurfaceV3(Object.assign({}, pristine), false, 'calendar')),
+    '§11 isFollowable=false → 无 follow 字段');
+
+  // ⑦ 幂等：连续两次归一化结果一致（loadSettings 每次启动都会跑）
+  const once = A.normalizeSurfaceV3(Object.assign({}, pristine), true, 'calendar');
+  const twice = A.normalizeSurfaceV3(JSON.parse(JSON.stringify(once)), true, 'calendar');
+  deepEq(twice, once, '§11 normalizeSurfaceV3 幂等（连续两次结果一致）');
+  const skinOnce = A.normalizeSkinV3(v3skin());
+  const skinTwice = A.normalizeSkinV3(JSON.parse(JSON.stringify(skinOnce)));
+  deepEq(skinTwice, skinOnce, '§11 normalizeSkinV3 整树幂等');
+})();
+
+/* ============================================================
+ * §12 C1 · migrateSkinV2toV3 的 dock follow 口径（与 __v3 路径刻意不同）
+ * ------------------------------------------------------------
+ * v2→v3 用 oldType 判定（不看 pristine）：type==='image' → null（唯一带磁盘 artifact 的强信号），
+ * 其余（light/dark/system/color）→ 'calendar'。
+ * 依据：migrateSkin() 把全局 baseType 复制给全部四面，v2 的 dock.type 无法区分「全局复制」与「单独自定」。
+ * ============================================================ */
+(function () {
+  const A = api();
+  function migDockFace(dock) { return A.migrateSkinV2toV3(v2skin({ dock: dock })).surfaces.dock; }
+
+  ['light', 'dark', 'system', 'color'].forEach(function (t) {
+    eq(migDockFace({ type: t }).follow, 'calendar', '§12 v2 dock type=' + t + ' → follow calendar');
+  });
+  const imgDock = migDockFace({ type: 'image', image: imgSpec({ file: 'd.jpg' }) });
+  eq(imgDock.follow, null, '§12 v2 dock type=image（有图）→ follow null（保留独立）');
+  ok(imgDock.image && imgDock.image.file === 'd.jpg', '§12 v2 dock image 原样保留');
+
+  // 显式 follow 优先
+  eq(migDockFace({ type: 'light', follow: null }).follow, null, '§12 v2 dock 显式 follow=null 保留 null');
+  eq(migDockFace({ type: 'image', follow: 'calendar', image: imgSpec({ file: 'd.jpg' }) }).follow, 'calendar',
+    '§12 v2 dock 显式 follow=calendar 压过 image → calendar');
+
+  // expanded/desktop 仍只看显式 follow（缺失 → null，不默认跟随）
+  // 用裸 v2 对象（不经过 v2skin，避免夹具给 expanded 预置 follow）构造「follow 字段缺失」。
+  const rawV2NoFollow = {
+    __v: 2,
+    surfaces: { expanded: { type: 'light', color: null, image: null, text: 'auto' } },
+    opacity: {}
+  };
+  eq(A.migrateSkinV2toV3(rawV2NoFollow).surfaces.expanded.follow, null,
+    '§12 v2 expanded 缺失 follow → null（不默认跟随）');
+  eq(A.migrateSkinV2toV3({ __v: 2, surfaces: { desktop: { type: 'dark', color: null, image: null, text: 'auto' } }, opacity: {} }).surfaces.desktop.follow,
+    null, '§12 v2 desktop 缺失 follow → null（不默认跟随）');
+
+  // 守护用例：两条口径**确实不同**（防后人以「看起来不一致」为由统一掉 → 重新引入回归）
+  const v3DirtyDock = A.normalizeSkinV3({ __v: 3, surfaces: { calendar: {}, dock: { style: 'tech' } } }).surfaces.dock;
+  const v2LightDock = migDockFace({ type: 'light' });
+  eq(v3DirtyDock.follow, null, '§12【守护】v3 已自定 dock（style=tech）→ follow null');
+  eq(v2LightDock.follow, 'calendar', '§12【守护】v2 light dock → follow calendar');
+  ok(v3DirtyDock.follow !== v2LightDock.follow,
+    '§12【守护】两条路径口径刻意不同（v3 pristine 判定 vs v2 oldType 判定），勿统一');
+
+  // 反证：pristine dock 两条路径一致
+  const v3Pristine = A.normalizeSkinV3({ __v: 3, surfaces: { calendar: {}, dock: {} } }).surfaces.dock;
+  eq(v3Pristine.follow, 'calendar', '§12 v3 pristine dock → calendar');
+  eq(v3Pristine.follow, v2LightDock.follow, '§12 pristine 时两条路径一致（calendar）');
+})();
+
+/* ============================================================
+ * §13【v3.1.0 回归护栏】真实用户 v3.0.0 遗留 dock 形态（端到端）
+ * ------------------------------------------------------------
+ * 夹具逐字取自用户真实 settings.json 的 dock 段（团队实测，本机真实数据）：
+ *   { style:'minimal', bg:'native', image:null, text:'auto', clarity:'auto', tone:'system' }   // 无 follow
+ * 这是标准 v3.0.0 遗留形态（dock 无 follow），且**非 pristine**（style/tone 均非默认）。
+ *
+ * 若按 W-D 最初那版「dock 缺失 follow 一律赋 'calendar'」，则 resolveSurfaceConfig('dock')
+ * 会返回日历配置（default/auto）→ **该用户的浮动插件会从 minimal 静默变成 default**。
+ * 本用例锁死修复后口径：follow=null，端到端解析回 dock 自身（style 仍 minimal），永不被 calendar 覆盖。
+ * ============================================================ */
+(function () {
+  const A = api();
+
+  // 真实用户遗留 dock（原样照抄 settings.json，无 follow）
+  const realLegacyDock = {
+    style: 'minimal', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'system'
+  };
+
+  // ① 单面归一：缺失 follow + 非 pristine → null（不默认跟随）
+  const normFace = A.normalizeSurfaceV3(Object.assign({}, realLegacyDock), true, 'calendar');
+  eq(normFace.follow, null, '§13 真实遗留 dock（minimal/system，无 follow）→ follow null');
+  eq(normFace.style, 'minimal', '§13 归一化不改写用户风格（仍 minimal，非 default）');
+
+  // ② 整树归一：dock.follow 仍 null（模拟 loadSettings → normalizeSkinV3 的启动路径）
+  const normSkin = A.normalizeSkinV3({
+    __v: 3,
+    surfaces: {
+      calendar: {},                                       // 出厂默认
+      dock: Object.assign({}, realLegacyDock)             // 真实遗留形态
+    }
+  });
+  eq(normSkin.surfaces.dock.follow, null, '§13 启动归一化后 dock.follow 仍 null');
+
+  // ③ 端到端：resolveSurfaceConfig('dock') 必须解析回 dock 自身（关键回归护栏）。
+  //    resolveSurfaceConfig 闭包读 skin → 用归一化后的皮肤重建 api 实例。
+  const A2 = api(normSkin);
+  const resolvedDock = A2.resolveSurfaceConfig('dock');
+  eq(resolvedDock.style, 'minimal', "§13 resolveSurfaceConfig('dock').style === minimal（未被 calendar 覆盖）");
+  eq(resolvedDock, normSkin.surfaces.dock, "§13 resolveSurfaceConfig('dock') 返回 dock 自身对象引用");
+  eq(resolvedDock.tone, 'system', "§13 resolveSurfaceConfig('dock').tone 保留 system");
+
+  // ④ 反证：若误赋 follow='calendar'，解析结果必变为 calendar 的 default —— 证明本护栏确实在守真实风险
+  const badSkin = A.normalizeSkinV3({
+    __v: 3,
+    surfaces: { calendar: {}, dock: Object.assign({}, realLegacyDock, { follow: 'calendar' }) }
+  });
+  const B = api(badSkin);
+  eq(B.resolveSurfaceConfig('dock').style, 'default',
+    "§13【反证】误赋 follow=calendar → resolveSurfaceConfig('dock') 变 default（正是要防的回归）");
+  ok(B.resolveSurfaceConfig('dock') === badSkin.surfaces.calendar,
+    "§13【反证】误赋 follow=calendar → 解析结果就是 calendar 配置对象");
 })();
 
 /* ================= 收尾 ================= */

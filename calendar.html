@@ -273,73 +273,75 @@
 
   /* ---------- ① 默认（融合）：轻玻璃 18px + 中性双色强调 ---------- */
   [data-theme="light"][data-style="default"] {
-    --paper: rgba(252, 251, 249, 0.84);
+    --paper: rgba(252, 251, 249, 0.88);
     --paper-solid: #fcfbf9;
-    --paper-edge: rgba(31, 35, 48, 0.14);
-    --paper-hi: rgba(255, 255, 255, 0.70);
+    --paper-edge: rgba(31, 35, 48, 0.12);
+    --paper-hi: rgba(255, 255, 255, 0.74);
     --ink: #1f2430; --ink-soft: #4b5563; --ink-faint: #9aa1ad;
     --accent: #3b6fd4; --accent-strong: #1976d2;
     --accent-soft: rgba(59, 111, 212, 0.10); --accent-ink: #155ba6;
     --accent-line: rgba(59, 111, 212, 0.42); --accent-glow: rgba(59, 111, 212, 0.26);
     --weekend: #d6453f; --holiday-fg: #bf3330; --cinnabar: #d6453f;
     --workday: #3b6fd4; --focus-amber: #f59e0b;
-    --r-lg: 14px; --blur-card: 18px;
-    --e-4: 0 18px 44px rgba(31, 35, 48, 0.16), 0 4px 12px rgba(31, 35, 48, 0.07),
-           inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    /* v3.1.0：中性融合档——把层级做干净（顶部高光 + 中景投影 + 远景环境影三层） */
+    --r-lg: 16px; --blur-card: 20px;
+    --e-4: 0 1px 0 rgba(255, 255, 255, 0.72) inset,
+           0 14px 34px rgba(31, 35, 48, 0.14), 0 3px 10px rgba(31, 35, 48, 0.06);
     --shadow-soft: var(--e-4);
   }
   [data-theme="dark"][data-style="default"] {
-    --paper: rgba(28, 32, 44, 0.88);
+    --paper: rgba(28, 32, 44, 0.90);
     --paper-solid: #1c202c;
-    --paper-edge: rgba(255, 255, 255, 0.08);
-    --paper-hi: rgba(255, 255, 255, 0.06);
+    --paper-edge: rgba(255, 255, 255, 0.09);
+    --paper-hi: rgba(255, 255, 255, 0.07);
     --ink: #e8eaf0; --ink-soft: #9aa3b3; --ink-faint: #6a7283;
     --accent: #6b9bff; --accent-strong: #4a86ef;
     --accent-soft: rgba(107, 155, 255, 0.16); --accent-ink: #a8c4ff;
     --accent-line: rgba(107, 155, 255, 0.52); --accent-glow: rgba(107, 155, 255, 0.30);
     --weekend: #f08b86; --holiday-fg: #f08b86; --cinnabar: #ef6b65;
     --workday: #6b9bff; --focus-amber: #ffc857;
-    --r-lg: 14px; --blur-card: 18px;
-    --e-4: 0 18px 44px rgba(31, 35, 48, 0.16), 0 4px 12px rgba(31, 35, 48, 0.07),
-           inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    --r-lg: 16px; --blur-card: 20px;
+    --e-4: 0 1px 0 rgba(255, 255, 255, 0.06) inset,
+           0 18px 44px rgba(0, 0, 0, 0.58), 0 4px 14px rgba(0, 0, 0, 0.34);
     --shadow-soft: var(--e-4);
   }
 
   /* ---------- ② 极简：大量留白 + 极细线 + 近黑强调（无模糊） ---------- */
   [data-theme="light"][data-style="minimal"] {
     --paper: #ffffff; --paper-solid: #ffffff;
-    --paper-edge: #e8e8ea; --paper-hi: rgba(255, 255, 255, 0.90);
-    --ink: #18181b; --ink-soft: #3f3f46; --ink-faint: #a1a1aa;
-    --accent: #18181b; --accent-strong: #18181b;
-    --accent-soft: rgba(24, 24, 27, 0.08); --accent-ink: #18181b;
-    --accent-line: rgba(24, 24, 27, 0.30); --accent-glow: rgba(24, 24, 27, 0.16);
+    --paper-edge: #ececef; --paper-hi: rgba(255, 255, 255, 0.90);
+    --ink: #16171a; --ink-soft: #3f4046; --ink-faint: #a1a1aa;
+    --accent: #16171a; --accent-strong: #16171a;
+    --accent-soft: rgba(22, 23, 26, 0.08); --accent-ink: #16171a;
+    --accent-line: rgba(22, 23, 26, 0.30); --accent-glow: rgba(22, 23, 26, 0.16);
     --weekend: #ef4444; --holiday-fg: #ef4444; --cinnabar: #ef4444;
     --workday: #15803d; --focus-amber: #f59e0b;
-    --r-lg: 16px; --blur-card: 0px;
+    /* v3.1.0：极致克制——更大的圆角留白 + 只有一层极细的环境影 */
+    --r-lg: 18px; --blur-card: 0px;
     --dur-fast: 120ms; --dur-normal: 200ms; --dur-slow: 300ms;
-    --e-4: 0 10px 28px rgba(16, 24, 40, 0.06);
+    --e-4: 0 1px 2px rgba(16, 24, 40, 0.05), 0 14px 32px rgba(16, 24, 40, 0.07);
     --shadow-soft: var(--e-4);
   }
   [data-theme="dark"][data-style="minimal"] {
-    --paper: #18181b; --paper-solid: #18181b;
-    --paper-edge: rgba(255, 255, 255, 0.14); --paper-hi: rgba(255, 255, 255, 0.05);
+    --paper: #161619; --paper-solid: #161619;
+    --paper-edge: rgba(255, 255, 255, 0.12); --paper-hi: rgba(255, 255, 255, 0.05);
     --ink: #f4f4f5; --ink-soft: #c4c4c8; --ink-faint: #8a8a90;
     --accent: #f4f4f5; --accent-strong: #f4f4f5;
     --accent-soft: rgba(244, 244, 245, 0.10); --accent-ink: #ffffff;
     --accent-line: rgba(244, 244, 245, 0.34); --accent-glow: rgba(244, 244, 245, 0.18);
     --weekend: #f87171; --holiday-fg: #f87171; --cinnabar: #f87171;
     --workday: #4ade80; --focus-amber: #fbbf24;
-    --r-lg: 16px; --blur-card: 0px;
+    --r-lg: 18px; --blur-card: 0px;
     --dur-fast: 120ms; --dur-normal: 200ms; --dur-slow: 300ms;
-    --e-4: 0 20px 50px rgba(0, 0, 0, 0.55);
+    --e-4: 0 1px 2px rgba(0, 0, 0, 0.40), 0 20px 48px rgba(0, 0, 0, 0.55);
     --shadow-soft: var(--e-4);
   }
 
   /* ---------- ③ 玻璃拟态：磨砂 + 强模糊 + 高光描边 + 彩色光斑 ---------- */
   [data-theme="light"][data-style="glass"] {
-    --paper: rgba(255, 255, 255, 0.55); --paper-solid: #ffffff;
-    --paper-edge: rgba(255, 255, 255, 0.70); --paper-hi: rgba(255, 255, 255, 0.85);
-    --ink: #1f2430; --ink-soft: #3d4658; --ink-faint: #6a7385;
+    --paper: rgba(255, 255, 255, 0.42); --paper-solid: #ffffff;
+    --paper-edge: rgba(255, 255, 255, 0.80); --paper-hi: rgba(255, 255, 255, 0.88);
+    --ink: #21263a; --ink-soft: #3d4658; --ink-faint: #6a7385;
     --accent: #7c6bff; --accent-strong: #7c6bff;
     --accent-soft: rgba(124, 107, 255, 0.16); --accent-ink: #5a4be0;
     --accent-line: rgba(124, 107, 255, 0.46); --accent-glow: rgba(124, 107, 255, 0.32);
@@ -347,13 +349,25 @@
     --workday: #3fd6a0; --focus-amber: #ffc24b;
     --r-lg: 24px; --blur-card: 26px;
     --dur-fast: 160ms; --dur-normal: 240ms; --dur-slow: 360ms;
-    --e-4: 0 20px 54px rgba(18, 8, 58, 0.28);
+    --e-4: inset 0 1px 0 rgba(255, 255, 255, 0.85), inset 0 -1px 0 rgba(255, 255, 255, 0.22),
+          0 22px 56px rgba(18, 8, 58, 0.26);
+    --e-5: inset 0 1px 0 rgba(255, 255, 255, 0.90), 0 34px 84px rgba(18, 8, 58, 0.34);
     --shadow-soft: var(--e-4);
+    /* C10：无桌面像素可糊 → 页面自绘光斑 + 分层假磨砂（浅色档=明亮通透的彩色光斑） */
+    /* v3.1.0 返工(缺陷3)：白洗 .62→.34 让光泽带有对比对象；光斑"远"（半径放大、alpha 降低）不再盖过玻璃味 */
+    --glass-sheen-a: rgba(255, 255, 255, 0.34);
+    --glass-sheen-b: rgba(255, 255, 255, 0.14);
+    --glass-edge: rgba(255, 255, 255, 0.85);
+    --glass-veil:
+      radial-gradient(300px 300px at 14% 16%, rgba(255, 150, 214, 0.55), transparent 72%),
+      radial-gradient(360px 360px at 88% 12%, rgba(140, 124, 255, 0.46), transparent 74%),
+      radial-gradient(420px 420px at 68% 100%, rgba(80, 200, 255, 0.42), transparent 72%),
+      linear-gradient(150deg, #eef0ff, #e7ecff 58%, #f2ecff);
   }
   [data-theme="dark"][data-style="glass"] {
-    --paper: rgba(30, 20, 60, 0.42); --paper-solid: #1e143c;
-    --paper-edge: rgba(255, 255, 255, 0.45); --paper-hi: rgba(255, 255, 255, 0.16);
-    --ink: #ffffff; --ink-soft: rgba(255, 255, 255, 0.72); --ink-faint: rgba(255, 255, 255, 0.50);
+    --paper: rgba(30, 20, 60, 0.38); --paper-solid: #1e143c;
+    --paper-edge: rgba(255, 255, 255, 0.42); --paper-hi: rgba(255, 255, 255, 0.16);
+    --ink: #ffffff; --ink-soft: rgba(255, 255, 255, 0.74); --ink-faint: rgba(255, 255, 255, 0.52);
     --accent: #9d8cff; --accent-strong: #9d8cff;
     --accent-soft: rgba(157, 140, 255, 0.22); --accent-ink: #c6bcff;
     --accent-line: rgba(157, 140, 255, 0.52); --accent-glow: rgba(157, 140, 255, 0.34);
@@ -361,28 +375,44 @@
     --workday: #57e0b0; --focus-amber: #ffc24b;
     --r-lg: 24px; --blur-card: 26px;
     --dur-fast: 160ms; --dur-normal: 240ms; --dur-slow: 360ms;
-    --e-4: 0 24px 64px rgba(0, 0, 0, 0.60);
+    --e-4: inset 0 1px 0 rgba(255, 255, 255, 0.50), inset 0 -1px 0 rgba(255, 255, 255, 0.14),
+          0 26px 66px rgba(0, 0, 0, 0.55);
+    --e-5: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 38px 96px rgba(0, 0, 0, 0.62);
     --shadow-soft: var(--e-4);
+    /* C10：无桌面像素可糊 → 页面自绘光斑 + 分层假磨砂（深色档=彩色光斑从暗紫底透出） */
+    /* v3.1.0 返工(缺陷3)：白洗 .30→.20；光斑"远"（半径放大、alpha 降低） */
+    --glass-sheen-a: rgba(255, 255, 255, 0.20);
+    --glass-sheen-b: rgba(255, 255, 255, 0.05);
+    --glass-edge: rgba(255, 255, 255, 0.48);
+    --glass-veil:
+      radial-gradient(300px 300px at 14% 16%, rgba(255, 122, 200, 0.60), transparent 72%),
+      radial-gradient(360px 360px at 88% 12%, rgba(124, 107, 255, 0.62), transparent 74%),
+      radial-gradient(420px 420px at 68% 100%, rgba(47, 198, 255, 0.56), transparent 72%),
+      linear-gradient(150deg, #2a1d52, #0e1132 58%, #1d1546);
   }
-  /* glass 专属：更强饱和度（#widget 基础规则特异性 (1,0,0)，这里用 html[data-style] 提升到 (1,1,1) 覆盖为磨砂玻璃质感） */
+  /* glass 专属：保留 backdrop-filter（对窗口内元素仍有真实作用），仅提升饱和度。
+   * 注意：这**不是**主要手段——真正"像玻璃"靠上面的自绘光斑 + 分层假磨砂（C10）。 */
   html[data-style="glass"] #widget {
-    -webkit-backdrop-filter: blur(26px) saturate(2.1);
-    backdrop-filter: blur(26px) saturate(2.1);
+    -webkit-backdrop-filter: blur(26px) saturate(2.2);
+    backdrop-filter: blur(26px) saturate(2.2);
   }
 
   /* ---------- ④ 新拟态：同色系双向阴影，柔和低对比（配 clarity 兜底） ---------- */
   [data-theme="light"][data-style="neu"] {
-    --paper: #dde4ee; --paper-solid: #dde4ee;
-    --paper-edge: #ffffff; --paper-hi: rgba(255, 255, 255, 0.70);
-    --ink: #414b5c; --ink-soft: #54606f; --ink-faint: #8f98a8;
+    --paper: #dfe6f0; --paper-solid: #dfe6f0;
+    --paper-edge: #ffffff; --paper-hi: rgba(255, 255, 255, 0.72);
+    --ink: #3a4453; --ink-soft: #4f5a6a; --ink-faint: #93a0b2;
     --accent: #3f6ea8; --accent-strong: #3f6ea8;
-    --accent-soft: rgba(63, 110, 168, 0.14); --accent-ink: #3f6ea8;
+    --accent-soft: rgba(63, 110, 168, 0.14); --accent-ink: #35608f;
     --accent-line: rgba(63, 110, 168, 0.42); --accent-glow: rgba(63, 110, 168, 0.26);
-    --weekend: #c96a63; --holiday-fg: #c96a63; --cinnabar: #c96a63;
+    --weekend: #c05b55; --holiday-fg: #c05b55; --cinnabar: #c05b55;
     --workday: #3f8a6a; --focus-amber: #d89a3f;
-    --r-lg: 26px; --blur-card: 0px;
+    /* v3.1.0 返工(缺陷2)：双向阴影明暗差拉大（#b9c4d6 vs #fff ≈45 级明度），并抽出内嵌控件用的双向色 */
+    --r-lg: 28px; --blur-card: 0px;
     --dur-fast: 180ms; --dur-normal: 260ms; --dur-slow: 380ms;
-    --e-4: 20px 20px 40px #b0b9c9, -20px -20px 40px #ffffff;
+    --neu-dark: #b9c4d6; --neu-light: #ffffff;
+    --e-4: 15px 15px 32px var(--neu-dark), -15px -15px 32px var(--neu-light);
+    --e-5: 22px 22px 46px var(--neu-dark), -22px -22px 46px var(--neu-light);
     --shadow-soft: var(--e-4);
   }
   [data-theme="dark"][data-style="neu"] {
@@ -394,42 +424,67 @@
     --accent-line: rgba(111, 176, 216, 0.46); --accent-glow: rgba(111, 176, 216, 0.30);
     --weekend: #e08983; --holiday-fg: #e08983; --cinnabar: #e08983;
     --workday: #6fb79a; --focus-amber: #e0a856;
-    --r-lg: 26px; --blur-card: 0px;
+    --r-lg: 28px; --blur-card: 0px;
     --dur-fast: 180ms; --dur-normal: 260ms; --dur-slow: 380ms;
-    --e-4: 20px 20px 40px #151a22, -20px -20px 40px #313a4a;
+    /* 深档：亮侧 #323c4c→#3a4658 拉开层次（暗侧 #141920 已够） */
+    --neu-dark: #141920; --neu-light: #3a4658;
+    --e-4: 15px 15px 32px var(--neu-dark), -15px -15px 32px var(--neu-light);
+    --e-5: 22px 22px 46px var(--neu-dark), -22px -22px 46px var(--neu-light);
     --shadow-soft: var(--e-4);
   }
 
   /* ---------- ⑤ 科技感：深底 + 青蓝霓虹 + 网格 + 等宽字（nativeTheme=dark） ---------- */
   [data-theme="light"][data-style="tech"] {
-    --paper: #f2f8fb; --paper-solid: #f2f8fb;
-    --paper-edge: rgba(34, 211, 238, 0.40); --paper-hi: rgba(255, 255, 255, 0.70);
-    --ink: #0b4351; --ink-soft: #14657a; --ink-faint: #5e93a3;
-    --accent: #0891b2; --accent-strong: #0891b2;
-    --accent-soft: rgba(8, 145, 178, 0.14); --accent-ink: #0e7490;
-    --accent-line: rgba(8, 145, 178, 0.44); --accent-glow: rgba(8, 145, 178, 0.28);
-    --weekend: #ffb454; --holiday-fg: #ffb454; --cinnabar: #ffb454;
-    --workday: #34d399; --focus-amber: #ffce5c;
-    --r-lg: 12px; --blur-card: 0px;
+    /* v3.1.0：日间 HUD —— 浅青渐变底 + 青色网格 + 深青文字 + 同样的切角语言 */
+    /* v3.1.0 返工(缺陷1)：浅档强度对齐深档——网格/双霓虹/文字光/描边全部加强，不再"退化成白卡" */
+    --paper: #eef7fb; --paper-solid: #eef7fb;
+    --paper-edge: rgba(8, 145, 178, 0.55); --paper-hi: rgba(255, 255, 255, 0.72);
+    --ink: #06333d; --ink-soft: #0d5a6b; --ink-faint: #4a8595;
+    --accent: #06b6d4; --accent-strong: #06b6d4;
+    --accent-soft: rgba(6, 182, 212, 0.16); --accent-ink: #0e7490;
+    --accent-line: rgba(6, 182, 212, 0.50); --accent-glow: rgba(6, 182, 212, 0.34);
+    /* 状态色相守恒：周末/节假日=红、上班=绿/青、特别关注=琥珀（只调明度饱和度） */
+    --weekend: #d92b45; --holiday-fg: #c81e3a; --cinnabar: #d92b45;
+    --workday: #0e9f6e; --focus-amber: #c98a12;
+    --r-lg: 10px; --blur-card: 0px;
     --dur-fast: 100ms; --dur-normal: 180ms; --dur-slow: 260ms;
     --font-sans: "Cascadia Code", "Consolas", ui-monospace, "JetBrains Mono", monospace;
-    --e-4: 0 0 34px rgba(34, 211, 238, 0.12);
+    --e-4: 0 0 28px rgba(6, 182, 212, 0.30), inset 0 0 32px rgba(6, 182, 212, 0.14);
+    --e-5: 0 0 44px rgba(6, 182, 212, 0.34), inset 0 0 42px rgba(6, 182, 212, 0.16);
     --shadow-soft: var(--e-4);
+    /* tech 专属：青色网格（.24，浅底需更高 alpha 才可见）+ 双霓虹光晕（品红仅装饰）+ 文字微发光 + 渐变态底 */
+    --tech-grid: rgba(8, 145, 178, 0.24);
+    --tech-glow-a: rgba(8, 145, 178, 0.48);
+    --tech-glow-b: rgba(217, 43, 110, 0.34);
+    --tech-ink-glow: 0 0 10px rgba(8, 145, 178, 0.55);
+    --tech-veil:
+      radial-gradient(90% 70% at 12% 6%, rgba(255, 255, 255, 0.55), transparent 60%),
+      linear-gradient(160deg, #e8f7fe, #d8ecf7 58%, #cfe6f4);
   }
   [data-theme="dark"][data-style="tech"] {
-    --paper: #0e1622; --paper-solid: #0a1017;
-    --paper-edge: rgba(34, 211, 238, 0.30); --paper-hi: rgba(34, 211, 238, 0.08);
-    --ink: #8ff0ff; --ink-soft: rgba(143, 240, 255, 0.62); --ink-faint: rgba(143, 240, 255, 0.35);
+    /* v3.1.0：赛博朋克 —— 近黑蓝底 + 青(#22d3ee)与品红(#f0f)双霓虹（品红仅装饰） */
+    --paper: #060a12; --paper-solid: #04070d;
+    --paper-edge: rgba(34, 211, 238, 0.55); --paper-hi: rgba(34, 211, 238, 0.10);
+    --ink: #b8f7ff; --ink-soft: rgba(150, 240, 255, 0.74); --ink-faint: rgba(120, 220, 245, 0.42);
     --accent: #22d3ee; --accent-strong: #22d3ee;
-    --accent-soft: rgba(34, 211, 238, 0.18); --accent-ink: #5ff0ff;
-    --accent-line: rgba(34, 211, 238, 0.50); --accent-glow: rgba(34, 211, 238, 0.34);
-    --weekend: #ffb454; --holiday-fg: #ffb454; --cinnabar: #ffb454;
-    --workday: #2ee6a6; --focus-amber: #ffce5c;
-    --r-lg: 12px; --blur-card: 0px;
+    --accent-soft: rgba(34, 211, 238, 0.20); --accent-ink: #6ff4ff;
+    --accent-line: rgba(34, 211, 238, 0.60); --accent-glow: rgba(34, 211, 238, 0.48);
+    /* 状态色相守恒：周末/节假日=霓虹红（色相不换），上班=青绿，特别关注=琥珀 */
+    --weekend: #ff5c6c; --holiday-fg: #ff5c6c; --cinnabar: #ff5c6c;
+    --workday: #2ee6a6; --focus-amber: #ffcf5c;
+    --r-lg: 10px; --blur-card: 0px;
     --dur-fast: 100ms; --dur-normal: 180ms; --dur-slow: 260ms;
     --font-sans: "Cascadia Code", "Consolas", ui-monospace, "JetBrains Mono", monospace;
-    --e-4: 0 0 40px rgba(34, 211, 238, 0.14);
+    --e-4: 0 0 30px rgba(34, 211, 238, 0.26), inset 0 0 34px rgba(34, 211, 238, 0.12);
+    --e-5: 0 0 48px rgba(34, 211, 238, 0.32), inset 0 0 44px rgba(34, 211, 238, 0.14);
     --shadow-soft: var(--e-4);
+    --tech-grid: rgba(34, 211, 238, 0.14);
+    --tech-glow-a: rgba(34, 211, 238, 0.42);
+    --tech-glow-b: rgba(255, 43, 214, 0.34);
+    --tech-ink-glow: 0 0 10px rgba(34, 211, 238, 0.55);
+    --tech-veil:
+      radial-gradient(90% 70% at 12% 6%, rgba(34, 211, 238, 0.10), transparent 60%),
+      linear-gradient(160deg, #0a1220, #060a12 58%, #04070d);
   }
 
   /* ---------- ⑥ 温润拟物：纸感 + 暖棕 + 衬线字 + 柔和立体 ---------- */
@@ -445,8 +500,14 @@
     --r-lg: 14px; --blur-card: 0px;
     --dur-fast: 160ms; --dur-normal: 240ms; --dur-slow: 360ms;
     --font-sans: "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
-    --e-4: 0 14px 30px rgba(120, 90, 50, 0.20);
+    --e-4: inset 0 1px 0 #fff, 0 1px 0 #fff, 0 16px 32px rgba(120, 90, 50, 0.22),
+          0 3px 7px rgba(120, 90, 50, 0.14);
+    --e-5: inset 0 1px 0 #fff, 0 26px 56px rgba(120, 90, 50, 0.28);
     --shadow-soft: var(--e-4);
+    /* v3.1.0：纸感——细纤维斜纹 + 暖羊皮纸渐变 */
+    --warm-veil:
+      repeating-linear-gradient(45deg, rgba(120, 90, 50, 0.045) 0 2px, transparent 2px 6px),
+      linear-gradient(150deg, #fffdf7, #faf1e0 55%, #f6ecda);
   }
   [data-theme="dark"][data-style="warm"] {
     --paper: #2c2419; --paper-solid: #241c12;
@@ -460,8 +521,91 @@
     --r-lg: 14px; --blur-card: 0px;
     --dur-fast: 160ms; --dur-normal: 240ms; --dur-slow: 360ms;
     --font-sans: "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
-    --e-4: 0 16px 34px rgba(0, 0, 0, 0.45);
+    --e-4: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 38px rgba(0, 0, 0, 0.50);
+    --e-5: 0 30px 64px rgba(0, 0, 0, 0.58);
     --shadow-soft: var(--e-4);
+    --warm-veil:
+      repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.018) 0 2px, transparent 2px 6px),
+      linear-gradient(150deg, #2e2618, #241c12 58%, #1e170e);
+  }
+
+  /* ==========================================================================
+   * v3.1.0 §3 六风格视觉重做 · 装饰层（仅在原生模式下；选了自选背景时让位给皮肤层）
+   * --------------------------------------------------------------------------
+   * tech  → 赛博朋克：青/品红双霓虹光晕 + 网格底 + 四角切角(clip-path) + 文字微发光
+   * glass → 磨砂玻璃：页面自绘彩色光斑 + 半透明卡面 + 斜向高光带（C10：不靠 blur 糊桌面）
+   * neu   → 新拟态：外壳双向阴影由 token 的 --e-4/--e-5 承载；内嵌控件/日期格见本段末尾
+   * warm  → 纸感：细纤维斜纹 + 暖羊皮纸渐变（--warm-veil）
+   * default/minimal：只调层级/圆角，保持中性克制
+   *
+   * 用 :not([data-skin]) 限定：用户选「纯色/图片」皮肤时，背景由皮肤层
+   * （[data-skin="color|image"] #widget）接管，风格只保留材质变量，避免抢背景。
+   * 选择器 html[data-style="X"]:not([data-skin]) #widget 特异度 (1,2,1)，恒压过基础 #widget(1,0,0)。
+   * ========================================================================== */
+  html[data-style="tech"]:not([data-skin]) #widget {
+    background:
+      repeating-linear-gradient(0deg, var(--tech-grid) 0 1px, transparent 1px 22px),
+      repeating-linear-gradient(90deg, var(--tech-grid) 0 1px, transparent 1px 22px),
+      radial-gradient(130% 90% at 100% 0%, var(--tech-glow-a) 0%, transparent 56%),
+      radial-gradient(130% 90% at 0% 100%, var(--tech-glow-b) 0%, transparent 58%),
+      var(--tech-veil);
+    border: 1px solid var(--paper-edge);
+    clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px),
+                       calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px);
+  }
+  /* 赛博朋克：主文字加霓虹微发光（状态色不加，保持色相守恒） */
+  html[data-style="tech"]:not([data-skin]) #clkTime,
+  html[data-style="tech"]:not([data-skin]) #infoDate,
+  html[data-style="tech"]:not([data-skin]) #infoLunar,
+  html[data-style="tech"]:not([data-skin]) #weekHeader .wcell,
+  html[data-style="tech"]:not([data-skin]) .sel,
+  html[data-style="tech"]:not([data-skin]) .today-btn,
+  html[data-style="tech"]:not([data-skin]) #dayCount {
+    text-shadow: var(--tech-ink-glow);
+  }
+
+  html[data-style="glass"]:not([data-skin]) #widget {
+    background:
+      linear-gradient(145deg, var(--glass-sheen-a), var(--glass-sheen-b)),
+      var(--glass-veil);
+    border: 1px solid var(--glass-edge);
+  }
+  /* 磨砂玻璃：一条边界可辨的斜向光泽带（有峰值 .58 有回落，不是均匀提亮）—— 用户点名要「光泽亮化」 */
+  html[data-style="glass"]:not([data-skin]) #widget::after {
+    content: ''; position: absolute; inset: 0; z-index: 2; border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(115deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.58) 16%,
+      rgba(255, 255, 255, 0.10) 34%,
+      rgba(255, 255, 255, 0) 52%);
+  }
+
+  html[data-style="warm"]:not([data-skin]) #widget {
+    background: var(--warm-veil);
+    border: 1px solid var(--paper-edge);
+  }
+
+  /* 新拟态（缺陷2 灵魂）：把"凹/凸"语言做进内嵌控件与日期格，不再只有外壳是拟态。
+   * 控件（工具栏按钮/下拉/星期切换/放大键）= 内凹(inset)；日期格常态=微凸，今日/选中=内凹。
+   * 用 :not(:hover) 让常态保持微凸、hover 交回给共用 .cell:hover 的高亮环，兼顾拟态与可用性。 */
+  html[data-style="neu"]:not([data-skin]) .nav-btn,
+  html[data-style="neu"]:not([data-skin]) .today-btn,
+  html[data-style="neu"]:not([data-skin]) .sel,
+  html[data-style="neu"]:not([data-skin]) .wk-toggle,
+  html[data-style="neu"]:not([data-skin]) .zoom-btn {
+    box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
+  }
+  html[data-style="neu"]:not([data-skin]) .cell:not(:hover) {
+    box-shadow: 2px 2px 4px var(--neu-dark), -2px -2px 4px var(--neu-light);
+  }
+  html[data-style="neu"]:not([data-skin]) .cell.today,
+  html[data-style="neu"]:not([data-skin]) .cell.selected {
+    box-shadow: inset 3px 3px 7px var(--neu-dark), inset -3px -3px 7px var(--neu-light);
+  }
+  /* 键盘可达性：focus 描边压过上面的拟态阴影 */
+  html[data-style="neu"]:not([data-skin]) .cell:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--accent-line);
   }
 
   /* ==========================================================================
@@ -818,6 +962,15 @@
   .cell.other.holiday { opacity: 0.65; }
   /* 跨月区间选中的 other 格提高透明度，否则浅绿被 opacity 压得不可见 */
   .cell.other.range, .cell.other.range-between { opacity: 0.6; }
+  /* v3.1.0 返工(缺陷)：深色档「上下月日期」双重减淡 → 近乎不可见。
+   * 本档 --ink-faint 已承担「次级文字」语义（tech/glass 深档还自带 alpha，如 .42/.52），
+   * 再乘 .cell.other 的 .40 会二次衰减（tech: .42 × .40 ≈ 17% 有效 alpha）→ 深底上等于没画。
+   * 故深色档改用较轻的额外衰减；.holiday / .range 按同比例上调，避免制造新的不一致。
+   * 浅色档（上方 4 行）一行不动——浅档实测可辨，动了反而回归。 */
+  [data-theme="dark"] .cell.other { opacity: 0.80; }
+  [data-theme="dark"] .cell.other.holiday { opacity: 0.92; }
+  [data-theme="dark"] .cell.other.range,
+  [data-theme="dark"] .cell.other.range-between { opacity: 0.88; }
 
   .cell.weekend:not(.other):not(.workday):not(.holiday) .d { color: var(--weekend); }
   .cell.weekend:not(.other) .sub { color: var(--weekend); }
@@ -927,8 +1080,10 @@
   #remindInput .time-row { display: flex; align-items: center; gap: 4px; }
   #remindInput .time-row .time-label { font-size: var(--fs-xs); color: var(--ink-soft); }
   #remindInput .time-row .time-colon { color: var(--ink-faint); }
-  #remindInput .time-row .time-hint { font-size: var(--fs-2xs); color: var(--ink-faint); margin-left: 2px; }
   #remindInput .time-row input { width: 38px; text-align: center; padding: 0 var(--s-1); flex: 0 0 auto; }
+  /* ===== v3.1.0 C5：定时提示行（内容输入框下方）—— 实时反映「定时提醒：H时M分」/「全天提醒」 ===== */
+  #remindTimeHint { font-size: var(--fs-2xs); color: var(--ink-faint); letter-spacing: 0.02em; }
+  #remindTimeHint.has-time { color: var(--accent-ink); font-weight: var(--fw-semibold); }
   /* 隐藏 number 输入框的上下微调箭头（Chromium） */
   #remindInput .time-row input::-webkit-outer-spin-button,
   #remindInput .time-row input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
@@ -1084,6 +1239,7 @@
   #widget.max #remindInput { padding: var(--s-4); border-radius: var(--r-lg); width: 260px; gap: var(--s-2); }
   #widget.max #remindInput .label { font-size: var(--fs-md); }
   #widget.max #remindInput .hint { font-size: var(--fs-sm); }
+  #widget.max #remindInput #remindTimeHint { font-size: var(--fs-sm); }
   #widget.max #remindInput input { height: 34px; font-size: var(--fs-4xl); padding: 0 var(--s-3); border-radius: var(--r-sm); }
   #widget.max #remindInput button { height: 34px; padding: 0 var(--s-5); font-size: var(--fs-md); border-radius: var(--r-sm); }
   #widget.max #remindInput .actions { gap: var(--s-2); }
@@ -1203,14 +1359,15 @@
       <div class="hint" data-page-node-id="SSTpFxpHdvLBrma1meqAwN">（到日期会弹窗提醒）</div>
       <!-- v1.7.11 需求 1：最多 15 字，placeholder 里直接说明 -->
       <input id="remindText" type="text" maxlength="15" placeholder="请输入：（15字以内）" data-page-node-id="gvzaGfFA51iyRAnjlNUn0m" />
-      <!-- v3.0.0 定时（可选）：留空=全天提醒；两栏都填才生效 -->
+      <!-- v3.0.0 定时（可选）：两栏都填才生效；v3.1.0 起「留空=全天」提示统一交给下方 #remindTimeHint -->
       <div class="time-row" data-page-node-id="Vq7Rd2mYpK1xWcTj8tLfAe">
         <span class="time-label" data-page-node-id="Zb3NtXk9mP2rQwVh5cLfJa">时间</span>
         <input id="remindHour" type="number" min="0" max="23" step="1" inputmode="numeric" placeholder="时" data-page-node-id="Hn4Ub2mCpX7yQwRt1vLfKe" />
         <span class="time-colon" data-page-node-id="Cw8Mn2kTpY5rQxVb3cLfJa">:</span>
         <input id="remindMinute" type="number" min="0" max="59" step="1" inputmode="numeric" placeholder="分" data-page-node-id="Mk6Tb2nVpY9rQwXc4tLfJa" />
-        <span class="time-hint" data-page-node-id="Th1Nt2mKpY7rQwVb9cLfJa">留空=全天</span>
       </div>
+      <!-- v3.1.0 C5：定时提示行（内容输入框下方）—— 实时显示「定时提醒：H时M分」/「全天提醒」 -->
+      <div id="remindTimeHint" class="remind-time-hint" data-page-node-id="Rh1Tm2Hn7xV8kQb4cLfAe">全天提醒</div>
       <div class="actions" data-page-node-id="6SwwtIsyXDef9fcP8faqAo">
         <button class="btn-cancel" id="remindCancel" data-page-node-id="PDv6j7BLc3qGFcI0f07yLt">取消</button>
         <button class="btn-ok" id="remindOk" data-page-node-id="RiC4zBEzrVQ4wtwUUE5Uz6">确定</button>
@@ -1477,6 +1634,7 @@ var gridEl, headerEl, yearSel, monthSel, wkSwitchEl, widgetEl, lastLit = -1, bgM
 var lastTipKey = '';   // R3：上次推送 tooltip 的日期键，跨午夜才重新推送
 var remindInputEl, remindDateLabelEl, remindTextEl, remindOkEl, remindCancelEl, toastEl;
 var remindHourEl, remindMinuteEl;   // v3.0.0：定时（时/分）输入框，留空=全天
+var remindTimeHintEl;               // v3.1.0：定时提示行（内容输入框下方，实时刷新）
 // v1.7.12：关注列表已改为独立窗口（remindlist.html），主窗口内不再有弹窗 DOM
 var bookBtnEl;
 
@@ -1755,6 +1913,8 @@ function openRemindInput(y, m, d) {
   // v3.0.0：每次打开清空时/分（留空即全天提醒）
   if (remindHourEl) remindHourEl.value = '';
   if (remindMinuteEl) remindMinuteEl.value = '';
+  // v3.1.0 C5：清空后立即初始化提示行（否则上次残留值会让提示不同步）
+  updateRemindTimeHint();
   if (remindInputEl) {
     remindInputEl.classList.add('show');
     var cell = findCellEl(y, m, d);
@@ -1828,6 +1988,20 @@ function readRemindTime() {
   }
   if ((hh === null) !== (mm === null)) { hh = null; mm = null; }   // 只填一个 → 全天
   return { hh: hh, mm: mm };
+}
+/* v3.1.0 C5：刷新「定时提示」行 —— 与 readRemindTime 同源，保证提示 = 实际将要保存的语义。
+ * 为什么用 readRemindTime 而不是直接读输入框：只有「时」「分」两栏都合法才算定时，
+ * 否则（含只填一栏）实际会按全天保存，提示必须与之一致，避免误导用户。 */
+function updateRemindTimeHint() {
+  if (!remindTimeHintEl) return;
+  var t = readRemindTime();
+  if (t.hh === null || t.mm === null) {
+    remindTimeHintEl.textContent = '全天提醒';
+    remindTimeHintEl.classList.remove('has-time');
+  } else {
+    remindTimeHintEl.textContent = '定时提醒：' + t.hh + '时' + t.mm + '分';
+    remindTimeHintEl.classList.add('has-time');
+  }
 }
 function confirmRemindInput() {
   if (!pendingRemind) return;
@@ -2419,6 +2593,9 @@ function confirmRemindInput() {
     // v3.0.0：时/分输入框同样支持回车提交 / Esc 取消
     if (remindHourEl) remindHourEl.addEventListener('keydown', onKey);
     if (remindMinuteEl) remindMinuteEl.addEventListener('keydown', onKey);
+    // v3.1.0 C5：时/分变化即时刷新「定时提示」行（input 覆盖键入/退格/粘贴/微调）
+    if (remindHourEl) remindHourEl.addEventListener('input', updateRemindTimeHint);
+    if (remindMinuteEl) remindMinuteEl.addEventListener('input', updateRemindTimeHint);
   }
 
   /* ===== v2.2.0 需求4：桌面插件模式 =====
@@ -2496,6 +2673,7 @@ function confirmRemindInput() {
     remindTextEl = $('remindText');
     remindHourEl = $('remindHour');          // v3.0.0：定时（时）
     remindMinuteEl = $('remindMinute');      // v3.0.0：定时（分）
+    remindTimeHintEl = $('remindTimeHint');  // v3.1.0：定时提示行
     remindOkEl = $('remindOk');
     remindCancelEl = $('remindCancel');
     // v1.7.12 关注列表已改独立窗口，主窗口内仅保留书按钮

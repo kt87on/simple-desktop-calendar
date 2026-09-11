@@ -6,13 +6,13 @@
 <title>皮肤设置</title>
 <style>
   /* ==========================================================================
-   * 皮肤设置窗口 · 设计系统 v3.0（风格 × 背景 双维度）
+   * 皮肤设置窗口 · v3.1.0 瘦身版（原生风格列表 + 自选图片浮层）
    * --------------------------------------------------------------------------
-   * 语义定位：独立的皮肤调校台。4 界面分段 + 6 风格材质卡 + 明暗（tone）+ 背景来源
-   * （原生/自选图片）+ 图片取景 + 文字明暗 + UI 清晰度 + 透明度 + 跟随开关。
-   * 三轴正交可叠加：风格（style）× 明暗（tone）× 背景（bg），如「玻璃拟态 + 深色 + 我的照片」。
+   * 语义定位：主视图只做「选原生风格」这一件事 —— 6 行圆角长方形列表，名字居中，
+   * 点击即全局生效（只写 calendar，其余界面靠 follow 自动跟随，见契约 C1）。
+   * 一切「细调」能力（界面选择器 / 背景来源 / 明暗 / 图片导入 / 深浅字 / 清晰度 /
+   * 跟随开关 / 透明度）整体收进窗内「自选图片」浮层（契约 C4），不新开 BrowserWindow。
    * 主进程是唯一真相，所有编辑走 skin-set 即时回写，无保存按钮。
-   * 视觉复用 settings.html 的 Token 体系（暖纸 + 雅蓝 + 圆角卡）。
    * 自身不应用皮肤背景，只跟随基准主题 baseTheme() → data-theme。
    * ========================================================================== */
 
@@ -113,6 +113,7 @@
     flex: 0 0 48px; display: flex; align-items: center; justify-content: space-between;
     padding: 0 var(--s-3) 0 var(--s-4);
     background: var(--head-bg); border-bottom: 1px solid var(--head-line);
+    /* 保留原窗口拖动机制：标题栏整块可拖拽，交互控件用 no-drag 排除 */
     -webkit-app-region: drag; user-select: none; -webkit-user-select: none; cursor: move;
   }
   #head:active { cursor: grabbing; }
@@ -127,9 +128,71 @@
   }
   #btnClose:hover { background: var(--accent-soft); color: var(--ink); }
 
-  #body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--s-2) 0 var(--s-3); }
+  #body { position: relative; flex: 1; min-height: 0; }
 
-  /* 4 界面分段 */
+  .group-title {
+    padding: var(--s-3) var(--s-4) var(--s-1);
+    font-size: var(--fs-2xs); font-weight: var(--fw-bold); color: var(--ink-faint);
+    letter-spacing: 1.4px;
+  }
+
+  /* ===== 主视图：6 行原生风格列表（圆角长方形 · 名字居中）=====
+   * 为什么用纵向列表而非网格：用户明确要求「呈现一个列表，每一行都是一种皮肤风格，
+   * 圆角，长方形，皮肤名字居中显示」，横排一行更易点、辨识更直接。 */
+  #mainView { padding: var(--s-1) 0 var(--s-3); }
+  .style-list {
+    display: flex; flex-direction: column; gap: var(--s-2);
+    padding: 0 var(--s-4);
+  }
+  .style-row {
+    display: block; width: 100%;
+    padding: 12px 0; border-radius: var(--r-md);
+    border: 1px solid var(--ctl-edge); background: var(--ctl-bg); color: var(--ink);
+    font-family: inherit; font-size: var(--fs-md); font-weight: var(--fw-semibold);
+    letter-spacing: 0.4px; text-align: center; cursor: pointer;
+    transition: border-color var(--dur-fast) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out),
+                background-color var(--dur-fast) var(--ease-out),
+                color var(--dur-fast) var(--ease-out);
+  }
+  .style-row:hover { border-color: var(--accent); }
+  /* 选中态：加粗描边 + 轻微外发光，让「当前生效风格」一眼可见 */
+  .style-row.active {
+    border-color: var(--accent); color: var(--accent-ink);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+    background: var(--accent-soft);
+  }
+  /* 「自选图片」入口行：与 6 个原生风格行视觉区分（虚线描边），语义上不是风格、不参与高亮 */
+  .style-row.entry { border-style: dashed; color: var(--ink-soft); }
+  .style-row.entry:hover { color: var(--accent-ink); }
+  .style-row.entry .style-name { display: inline-flex; align-items: center; gap: var(--s-2); }
+  .style-row .entry-icon { width: 15px; height: 15px; flex: 0 0 auto; }
+
+  /* ===== 自选图片浮层（窗内 overlay，不新开窗口）=====
+   * 为什么覆盖范围是 #body（top:48px）而不是整张卡：留出顶部标题栏，
+   * 浮层打开时用户仍能拖动窗口（-webkit-app-region: drag 区域不被遮盖）。 */
+  .overlay {
+    position: absolute; left: 0; right: 0; top: 48px; bottom: 0; z-index: 50;
+    display: none; flex-direction: column;
+    background: var(--paper); border-top: 1px solid var(--head-line);
+  }
+  .overlay-head {
+    flex: 0 0 42px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 var(--s-3) 0 var(--s-4);
+    background: var(--head-bg); border-bottom: 1px solid var(--head-line);
+  }
+  .overlay-title { display: flex; align-items: center; gap: var(--s-2); color: var(--accent-ink); font-size: var(--fs-md); font-weight: var(--fw-bold); letter-spacing: 0.3px; }
+  .overlay-title .icon { width: 16px; height: 16px; flex: 0 0 auto; color: var(--accent); }
+  #overlayClose {
+    width: 26px; height: 26px; border: none; border-radius: var(--r-sm);
+    background: transparent; color: var(--ink-faint); cursor: pointer;
+    font-size: var(--fs-lg); line-height: 1; display: flex; align-items: center; justify-content: center;
+    transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  }
+  #overlayClose:hover { background: var(--accent-soft); color: var(--ink); }
+  .overlay-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--s-2) 0 var(--s-3); }
+
+  /* 4 界面分段（从主视图移入浮层） */
   .surface-tabs {
     display: flex; gap: var(--s-1); padding: var(--s-1) var(--s-4) var(--s-2);
   }
@@ -149,12 +212,6 @@
     letter-spacing: 1.2px;
   }
 
-  .group-title {
-    padding: var(--s-3) var(--s-4) var(--s-1);
-    font-size: var(--fs-2xs); font-weight: var(--fw-bold); color: var(--ink-faint);
-    letter-spacing: 1.4px;
-  }
-
   /* 分段按钮网格（背景来源 / 文字明暗） */
   .type-grid {
     display: flex; flex-wrap: wrap; gap: var(--s-1); padding: 0 var(--s-4);
@@ -172,102 +229,11 @@
   .type-grid.text { padding: 0 var(--s-4); }
   .type-grid.text button { flex: 1; }
 
-  /* v3 明暗段（tone）：bg=image 时明暗由图片亮度自动判定 → 该段置灰并给一句提示 */
+  /* 明暗段（tone）：bg=image 时明暗由图片亮度自动判定 → 该段置灰并给一句提示 */
   .tone-tip {
     padding: 6px var(--s-4) 0; text-align: center;
     font-size: var(--fs-2xs); color: var(--ink-faint); line-height: 1.45;
   }
-
-  /* 风格网格（6 风格材质卡 + 预览小样） */
-  .style-grid {
-    display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--s-2);
-    padding: 0 var(--s-4);
-  }
-  .style-card {
-    position: relative; display: flex; flex-direction: column; gap: 6px;
-    padding: 8px 8px 7px; cursor: pointer; font-family: inherit;
-    border: 1px solid var(--ctl-edge); border-radius: var(--r-md);
-    background: var(--ctl-bg);
-    transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
-  }
-  .style-card:hover { border-color: var(--accent); }
-  .style-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-  .style-card .style-name {
-    font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--ink);
-    text-align: center; letter-spacing: 0.2px;
-  }
-  .style-card .badge {
-    position: absolute; top: 5px; right: 5px; z-index: 3;
-    font-size: var(--fs-2xs); font-weight: var(--fw-bold); line-height: 1;
-    padding: 2px 5px; border-radius: var(--r-pill);
-    color: #fff; background: var(--accent);
-  }
-
-  /* 预览小样：用内联 CSS 画出该风格的代表性表面（底色 + 圆角 + 阴影/模糊/边框） */
-  .swatch {
-    position: relative; height: 44px; border-radius: 9px;
-    display: flex; align-items: center; justify-content: center; gap: 6px;
-    overflow: hidden;
-  }
-  .swatch .dot { width: 16px; height: 16px; border-radius: 50%; flex: 0 0 auto; }
-  .swatch .bar { width: 26px; height: 4px; border-radius: var(--r-pill); flex: 0 0 auto; }
-
-  /* ① 默认（融合：现代极简排版 + 柔和玻璃质感/柔影） */
-  .sw-default {
-    background: linear-gradient(180deg, #ffffff, #fafbfc);
-    border: 1px solid rgba(31, 35, 48, 0.10);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 4px 10px rgba(16, 24, 40, 0.08);
-  }
-  .sw-default .dot { background: #3b6fd4; }
-  .sw-default .bar { background: rgba(31, 35, 48, 0.14); }
-
-  /* ② 极简（大量留白 + 极细线 + 近黑强调） */
-  .sw-minimal { background: #ffffff; border: 1px solid #e8e8ea; }
-  .sw-minimal .dot { background: #18181b; }
-  .sw-minimal .bar { background: #e4e4e7; }
-
-  /* ③ 玻璃拟态（磨砂玻璃 + 强模糊 + 高光描边 + 彩色光斑） */
-  .sw-glass {
-    background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.12)),
-      linear-gradient(155deg, #7c6bff, #2fc6ff 70%, #ff6fc4);
-    border: 1px solid rgba(255, 255, 255, 0.70);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
-  }
-  .sw-glass .dot { background: rgba(255, 255, 255, 0.92); }
-  .sw-glass .bar { background: rgba(255, 255, 255, 0.60); }
-
-  /* ④ 新拟态（同色系双向阴影凸/凹） */
-  .sw-neu {
-    background: #dde4ee; border: 1px solid rgba(255, 255, 255, 0.6);
-    box-shadow: inset 3px 3px 7px #b0b9c9, inset -3px -3px 7px #ffffff;
-  }
-  .sw-neu .dot { background: #dde4ee; box-shadow: 2px 2px 5px #b0b9c9, -2px -2px 5px #ffffff; }
-  .sw-neu .bar { background: #c3ccda; }
-
-  /* ⑤ 科技感（深底 + 青蓝霓虹 + 网格 + 四角切角） */
-  .sw-tech {
-    background:
-      linear-gradient(rgba(34, 211, 238, 0.06) 1px, transparent 1px) 0 0 / 11px 11px,
-      linear-gradient(90deg, rgba(34, 211, 238, 0.06) 1px, transparent 1px) 0 0 / 11px 11px,
-      linear-gradient(160deg, #0e1622, #0a1017);
-    border: 1px solid rgba(34, 211, 238, 0.50);
-  }
-  .sw-tech::before, .sw-tech::after {
-    content: ""; position: absolute; width: 8px; height: 8px; pointer-events: none;
-  }
-  .sw-tech::before { top: 3px; left: 3px; border-top: 2px solid #22d3ee; border-left: 2px solid #22d3ee; }
-  .sw-tech::after { bottom: 3px; right: 3px; border-bottom: 2px solid #22d3ee; border-right: 2px solid #22d3ee; }
-  .sw-tech .dot { background: #22d3ee; box-shadow: 0 0 8px rgba(34, 211, 238, 0.8); }
-  .sw-tech .bar { background: rgba(143, 240, 255, 0.35); }
-
-  /* ⑥ 温润拟物（纸感 + 暖棕 + 衬线字 + 柔和立体） */
-  .sw-warm {
-    background: linear-gradient(#fffdf7, #faf3e6); border: 1px solid #e7dbc4;
-    box-shadow: inset 0 1px 0 #ffffff, 0 3px 8px rgba(120, 90, 50, 0.16);
-  }
-  .sw-warm .dot { background: radial-gradient(circle at 32% 28%, #d98a55, #b5602f); }
-  .sw-warm .bar { background: #e6d9c0; }
 
   /* 普通行 / 跟随开关 */
   .row {
@@ -334,7 +300,7 @@
   /* 跟随时置灰（除透明度外） */
   .dimmed { opacity: 0.5; pointer-events: none; }
 
-  /* v3 低对比提示条（§3.4）：背景明暗 × 文字轴 冲突时的克制轻提示 */
+  /* 低对比提示条（§3.4）：背景明暗 × 文字轴 冲突时的克制轻提示 */
   .warn-tip {
     display: flex; align-items: flex-start; gap: 7px;
     margin: 8px var(--s-4) 0; padding: 8px 10px;
@@ -396,123 +362,136 @@
     </div>
 
     <div id="body">
-      <div class="surface-tabs" id="surfaceTabs">
-        <button data-surface="calendar">日历界面</button>
-        <button data-surface="dock">浮动插件界面</button>
-        <button data-surface="desktop">桌面插件界面</button>
-        <button data-surface="expanded">放大界面</button>
-      </div>
-      <div class="cur-surface" id="curSurface">当前界面：日历界面</div>
-
-      <!-- 6 风格材质卡（style × bg 双维度之一：风格。与背景来源正交，可叠加） -->
-      <div class="group-title">皮肤风格</div>
-      <div class="style-grid" id="styleGrid">
-        <button class="style-card" data-style="default">
-          <span class="badge">默认</span>
-          <span class="swatch sw-default"><i class="dot"></i><i class="bar"></i></span>
-          <span class="style-name">默认</span>
-        </button>
-        <button class="style-card" data-style="minimal">
-          <span class="swatch sw-minimal"><i class="dot"></i><i class="bar"></i></span>
-          <span class="style-name">极简</span>
-        </button>
-        <button class="style-card" data-style="glass">
-          <span class="swatch sw-glass"><i class="dot"></i><i class="bar"></i></span>
-          <span class="style-name">玻璃拟态</span>
-        </button>
-        <button class="style-card" data-style="neu">
-          <span class="swatch sw-neu"><i class="dot"></i><i class="bar"></i></span>
-          <span class="style-name">新拟态</span>
-        </button>
-        <button class="style-card" data-style="tech">
-          <span class="swatch sw-tech"><i class="dot"></i><i class="bar"></i></span>
-          <span class="style-name">科技感</span>
-        </button>
-        <button class="style-card" data-style="warm">
-          <span class="swatch sw-warm"><i class="dot"></i><i class="bar"></i></span>
-          <span class="style-name">温润拟物</span>
-        </button>
-      </div>
-
-      <!-- 明暗轴（tone）：风格默认 / 浅色 / 深色 / 跟随系统。与风格、背景正交。
-           值经 skinSet(surface,'tone',v) 即时落盘。bg=image 时明暗由图片亮度自动判定 →
-           该段置灰 + 提示，但 tone 取值保留（切回原生背景时仍在）。 -->
-      <div id="toneSection">
-        <div class="group-title">明暗</div>
-        <div class="type-grid text" id="toneGrid">
-          <button data-tone="auto">风格默认</button>
-          <button data-tone="light">浅色</button>
-          <button data-tone="dark">深色</button>
-          <button data-tone="system">跟随系统</button>
+      <!-- ===== 主视图：6 行原生风格 + 自选图片入口 ===== -->
+      <div id="mainView">
+        <div class="group-title">皮肤风格</div>
+        <!-- 6 个原生风格：圆角长方形，皮肤名字居中。点击即全局生效（只写 calendar）。 -->
+        <div class="style-list" id="styleList">
+          <button class="style-row" data-style="default"><span class="style-name">默认</span></button>
+          <button class="style-row" data-style="minimal"><span class="style-name">极简</span></button>
+          <button class="style-row" data-style="glass"><span class="style-name">玻璃拟态</span></button>
+          <button class="style-row" data-style="neu"><span class="style-name">新拟态</span></button>
+          <button class="style-row" data-style="tech"><span class="style-name">科技感</span></button>
+          <button class="style-row" data-style="warm"><span class="style-name">温润拟物</span></button>
         </div>
-        <div class="tone-tip" id="toneTip" style="display:none">已选图片背景，明暗由图片亮度自动判定</div>
-      </div>
 
-      <!-- 背景来源（style × bg 双维度之二：与风格正交，可叠加，如「玻璃拟态 + 我的照片」） -->
-      <div class="group-title">背景来源</div>
-      <div class="type-grid" id="bgGrid">
-        <button data-bg="native">原生</button>
-        <button data-bg="image">自选图片</button>
-      </div>
-
-      <div class="row" id="followRow" style="display:none">
-        <div class="txt"><div class="label">跟随日历界面</div><div class="hint">取消后独立设置</div></div>
-        <div class="switch" id="followSwitch" role="switch" tabindex="0"><span class="knob"></span></div>
-      </div>
-
-      <div id="imageSection" style="display:none">
-        <div class="group-title">图片取景</div>
-        <div class="drop-zone" id="dropZone">拖拽图片到此处，或点击选择文件</div>
-        <div class="crop-wrap" id="cropWrap" style="display:none">
-          <div id="cropBox"><div id="cropImg"></div></div>
-        </div>
-        <div class="crop-empty" id="cropEmpty" style="display:none">尚无图片，请先拖入或点选导入</div>
-        <div class="crop-tip" id="cropTip" style="display:none">拖动平移 · 滚轮缩放（1×~5×）</div>
-        <div class="slider">
-          <div class="slider-head"><span class="label">图片不透明度</span><span class="val" id="imageOpacityVal">100%</span></div>
-          <input type="range" id="imageOpacityRange" min="0.2" max="1" step="0.05" value="1">
+        <div class="group-title">自定义</div>
+        <!-- 第 7 行：自选图片入口。点击打开下面的窗内浮层（细调能力全部收在这里）。 -->
+        <div class="style-list">
+          <button class="style-row entry" id="openCustom">
+            <span class="style-name">
+              <svg class="entry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+                <circle cx="8.5" cy="8.5" r="1.4"></circle>
+                <path d="M21 15l-5-5L5 21"></path>
+              </svg>
+              自选图片
+            </span>
+          </button>
         </div>
       </div>
 
-      <!-- 文字轴：auto / light(深字) / dark(浅字)。v3 起对所有风格通用，常驻显示。
-           低对比冲突（warn）时在其下方给出轻提示。 -->
-      <div id="textSection">
-        <div class="group-title">文字明暗</div>
-        <div class="type-grid text" id="textGrid">
-          <button data-text="auto">自动</button>
-          <button data-text="light">深字</button>
-          <button data-text="dark">浅字</button>
+      <!-- ===== 自选图片浮层（契约 C4：界面选择器 + 图片导入 + 细调，全部收此）===== -->
+      <div class="overlay" id="overlay" aria-hidden="true">
+        <div class="overlay-head">
+          <span class="overlay-title">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+              <circle cx="8.5" cy="8.5" r="1.4"></circle>
+              <path d="M21 15l-5-5L5 21"></path>
+            </svg>
+            自选图片
+          </span>
+          <button id="overlayClose" title="返回" aria-label="返回">✕</button>
         </div>
-        <div class="warn-tip" id="warnTip" style="display:none">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 9v4"></path><path d="M12 17h.01"></path>
-            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-          </svg>
-          <span>当前文字与背景对比偏低，建议切换文字明暗或提高 UI 清晰度</span>
-        </div>
-      </div>
-
-      <!-- v2.4.4 UI 清晰度：v3 起对所有风格通用（风格 × 背景可叠加），常驻显示。
-           一个 clarity 值联动保护层浓度 + 文字光晕；auto 由主进程按图片复杂度推导。 -->
-      <div id="claritySection">
-        <div class="group-title">UI 清晰度</div>
-        <div class="row">
-          <div class="txt">
-            <div class="label">自动</div>
-            <div class="hint">按背景复杂度推导（20–85）</div>
+        <div class="overlay-body">
+          <!-- 界面选择器（从主视图移入；映射到 surface key） -->
+          <div class="surface-tabs" id="surfaceTabs">
+            <button data-surface="calendar">日历界面</button>
+            <button data-surface="dock">浮动插件界面</button>
+            <button data-surface="desktop">桌面插件界面</button>
+            <button data-surface="expanded">放大界面</button>
           </div>
-          <div class="switch" id="clarityAuto" role="switch" tabindex="0"><span class="knob"></span></div>
-        </div>
-        <div class="slider" id="claritySlider">
-          <div class="slider-head"><span class="label">保护强度</span><span class="val" id="clarityVal">自动</span></div>
-          <input type="range" id="clarityRange" min="0" max="100" step="5" value="40">
-        </div>
-      </div>
+          <div class="cur-surface" id="curSurface">当前界面：日历界面</div>
 
-      <div class="group-title">透明度</div>
-      <div class="slider">
-        <div class="slider-head"><span class="label">界面透明度</span><span class="val" id="opacityVal">100%</span></div>
-        <input type="range" id="opacityRange" min="0.3" max="1" step="0.05" value="1">
+          <!-- 跟随主界面开关：仅 桌面 / 放大 / 浮动 三个界面显示 -->
+          <div class="row" id="followRow" style="display:none">
+            <div class="txt"><div class="label">跟随主界面</div><div class="hint">取消后独立设置</div></div>
+            <div class="switch" id="followSwitch" role="switch" tabindex="0"><span class="knob"></span></div>
+          </div>
+
+          <!-- 背景来源（原生 / 自选图片） -->
+          <div class="group-title">背景来源</div>
+          <div class="type-grid" id="bgGrid">
+            <button data-bg="native">原生</button>
+            <button data-bg="image">自选图片</button>
+          </div>
+
+          <div id="imageSection" style="display:none">
+            <div class="group-title">图片取景</div>
+            <div class="drop-zone" id="dropZone">拖拽图片到此处，或点击选择文件</div>
+            <div class="crop-wrap" id="cropWrap" style="display:none">
+              <div id="cropBox"><div id="cropImg"></div></div>
+            </div>
+            <div class="crop-empty" id="cropEmpty" style="display:none">尚无图片，请先拖入或点选导入</div>
+            <div class="crop-tip" id="cropTip" style="display:none">拖动平移 · 滚轮缩放（1×~5×）</div>
+            <div class="slider">
+              <div class="slider-head"><span class="label">图片不透明度</span><span class="val" id="imageOpacityVal">100%</span></div>
+              <input type="range" id="imageOpacityRange" min="0.2" max="1" step="0.05" value="1">
+            </div>
+          </div>
+
+          <!-- 明暗轴（tone）：风格默认 / 浅色 / 深色 / 跟随系统。bg=image 时置灰 + 提示。 -->
+          <div id="toneSection">
+            <div class="group-title">明暗</div>
+            <div class="type-grid text" id="toneGrid">
+              <button data-tone="auto">风格默认</button>
+              <button data-tone="light">浅色</button>
+              <button data-tone="dark">深色</button>
+              <button data-tone="system">跟随系统</button>
+            </div>
+            <div class="tone-tip" id="toneTip" style="display:none">已选图片背景，明暗由图片亮度自动判定</div>
+          </div>
+
+          <!-- 文字轴：auto / light(深字) / dark(浅字)。低对比冲突时下方给出轻提示。 -->
+          <div id="textSection">
+            <div class="group-title">文字明暗</div>
+            <div class="type-grid text" id="textGrid">
+              <button data-text="auto">自动</button>
+              <button data-text="light">深字</button>
+              <button data-text="dark">浅字</button>
+            </div>
+            <div class="warn-tip" id="warnTip" style="display:none">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 9v4"></path><path d="M12 17h.01"></path>
+                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              </svg>
+              <span>当前文字与背景对比偏低，建议切换文字明暗或提高 UI 清晰度</span>
+            </div>
+          </div>
+
+          <!-- UI 清晰度：一个 clarity 值联动保护层浓度 + 文字光晕；auto 由主进程按图片复杂度推导。 -->
+          <div id="claritySection">
+            <div class="group-title">UI 清晰度</div>
+            <div class="row">
+              <div class="txt">
+                <div class="label">自动</div>
+                <div class="hint">按背景复杂度推导（20–85）</div>
+              </div>
+              <div class="switch" id="clarityAuto" role="switch" tabindex="0"><span class="knob"></span></div>
+            </div>
+            <div class="slider" id="claritySlider">
+              <div class="slider-head"><span class="label">保护强度</span><span class="val" id="clarityVal">自动</span></div>
+              <input type="range" id="clarityRange" min="0" max="100" step="5" value="40">
+            </div>
+          </div>
+
+          <div class="group-title">透明度</div>
+          <div class="slider">
+            <div class="slider-head"><span class="label">界面透明度</span><span class="val" id="opacityVal">100%</span></div>
+            <input type="range" id="opacityRange" min="0.3" max="1" step="0.05" value="1">
+          </div>
+        </div>
       </div>
     </div>
 
@@ -532,6 +511,8 @@
         desktop: '桌面插件界面',
         expanded: '放大界面'
       };
+      /* 可跟随「主界面（calendar）」的表面集合。契约 C1：dock 一并纳入跟随名单。 */
+      var FOLLOWABLE = { expanded: 1, desktop: 1, dock: 1 };
 
       var S = { surface: 'calendar', skin: null, resolved: null, viewport: null };
       // 取景交互态（针对当前 surface 的图片）
@@ -542,16 +523,17 @@
       function pct(v) { return Math.round(Number(v) * 100) + '%'; }
 
       /* surface 配置兜底（v3：style × bg 双维度）。
-       * 缺字段一律按契约默认值补齐，保证 UI 在无数据/旧数据下不崩。 */
+       * 缺字段一律按契约默认值补齐，保证 UI 在无数据/旧数据下不崩。
+       * 注意：可跟随面的 follow 默认 'calendar'（契约 C1，含 dock）。 */
       function getConfig(surface) {
         return (S.skin && S.skin.surfaces && S.skin.surfaces[surface]) ||
           { style: 'default', bg: 'native', image: null, text: 'auto', tone: 'auto',
             clarity: 'auto',
-            follow: (surface === 'desktop' || surface === 'expanded') ? 'calendar' : null };
+            follow: FOLLOWABLE[surface] ? 'calendar' : null };
       }
       function isFollowing(surface) {
         var c = getConfig(surface);
-        return (surface === 'desktop' || surface === 'expanded') && c.follow === 'calendar';
+        return !!FOLLOWABLE[surface] && c.follow === 'calendar';
       }
       function opacityFor(surface) {
         var key = (surface === 'expanded') ? 'calendar' : surface;
@@ -597,9 +579,10 @@
       function setField(surface, field, value) {
         if (api && api.skinSet) api.skinSet(surface, field, value);
       }
-      // v3：style 风格材质 / bg 背景来源（两者正交）
-      function setStyle(style) {
-        setField(S.surface, 'style', style);
+      /* 原生风格是全局的（契约 C1）：只写 calendar，其余界面靠 follow 自动跟随。
+       * 为什么不做 per-surface 风格：用户明确要求原生风格「直接固定」且列表统一。 */
+      function setCalendarStyle(style) {
+        setField('calendar', 'style', style);
       }
       function setBg(bg) {
         setField(S.surface, 'bg', bg);
@@ -691,16 +674,19 @@
         // 主题回显（皮肤窗自身跟随基准主题 baseTheme）
         document.documentElement.setAttribute('data-theme', (S.resolved && S.resolved.calendar && S.resolved.calendar.theme === 'dark') ? 'dark' : 'light');
 
-        // 顶部 tabs
+        // 主视图 6 风格列表：高亮 = 日历全局风格（契约 C1：原生风格只写 calendar）
+        setActive('styleList', 'data-style', getConfig('calendar').style || 'default');
+
+        // 浮层：界面选择器高亮（当前编辑的 surface）
         var tabs = document.querySelectorAll('#surfaceTabs button');
         for (var i = 0; i < tabs.length; i++) {
           tabs[i].classList.toggle('active', tabs[i].getAttribute('data-surface') === surface);
         }
         $('curSurface').textContent = '当前界面：' + SURFACE_LABEL[surface];
 
-        // 跟随开关（仅桌面/放大显示）
+        // 跟随开关（仅 桌面 / 放大 / 浮动 显示）：回显该 surface 的 follow 状态
         var followRow = $('followRow');
-        var showFollow = (surface === 'desktop' || surface === 'expanded');
+        var showFollow = !!FOLLOWABLE[surface];
         followRow.style.display = showFollow ? 'flex' : 'none';
         $('followSwitch').classList.toggle('on', !!following);
 
@@ -709,9 +695,6 @@
 
         // resolved[surface]：低对比 warn / 明暗 tone 等「主进程推导结果」都从这里读
         var r = (S.resolved && S.resolved[surface]) ? S.resolved[surface] : null;
-
-        // 风格（6 风格材质卡）
-        setActive('styleGrid', 'data-style', effCfg.style || 'default');
 
         // 背景来源（原生 / 自选图片）
         var effBg = (effCfg.bg === 'image') ? 'image' : 'native';
@@ -759,7 +742,6 @@
         $('warnTip').style.display = (r && r.warn) ? 'flex' : 'none';
 
         // follow 时除透明度外置灰（明暗段另受 bg=image 影响，已在上面单独处理）
-        $('styleGrid').classList.toggle('dimmed', following);
         $('bgGrid').classList.toggle('dimmed', following);
         $('imageSection').classList.toggle('dimmed', following);
         $('textSection').classList.toggle('dimmed', following);
@@ -783,8 +765,43 @@
         initCrop();
       }
 
+      /* ---- 浮层开合（窗内 overlay，不新开窗口） ---- */
+      function openOverlay() {
+        var ov = $('overlay');
+        if (!ov) return;
+        ov.style.display = 'flex';
+        ov.setAttribute('aria-hidden', 'false');
+        // 打开即按当前 surface 回显（含 follow 状态）
+        render();
+      }
+      function closeOverlay() {
+        var ov = $('overlay');
+        if (!ov) return;
+        ov.style.display = 'none';
+        ov.setAttribute('aria-hidden', 'true');
+      }
+      function overlayOpen() {
+        var ov = $('overlay');
+        return !!ov && ov.style.display !== 'none';
+      }
+
       /* ---- 事件绑定 ---- */
-      // 表面 tabs
+      // 主视图：6 原生风格行 → 只写 calendar（契约 C1）
+      var styleBtns = document.querySelectorAll('#styleList .style-row[data-style]');
+      for (var j = 0; j < styleBtns.length; j++) {
+        (function (b) {
+          b.addEventListener('click', function () {
+            if (b.disabled) return;
+            setCalendarStyle(b.getAttribute('data-style'));
+          });
+        })(styleBtns[j]);
+      }
+
+      // 「自选图片」入口 → 打开浮层
+      $('openCustom').addEventListener('click', openOverlay);
+      $('overlayClose').addEventListener('click', closeOverlay);
+
+      // 浮层内界面选择器（surface）
       var tabBtns = document.querySelectorAll('#surfaceTabs button');
       for (var t = 0; t < tabBtns.length; t++) {
         (function (b) {
@@ -793,17 +810,6 @@
             render();
           });
         })(tabBtns[t]);
-      }
-
-      // 风格（6 材质卡）
-      var styleBtns = document.querySelectorAll('#styleGrid button');
-      for (var j = 0; j < styleBtns.length; j++) {
-        (function (b) {
-          b.addEventListener('click', function () {
-            if (b.disabled) return;
-            setStyle(b.getAttribute('data-style'));
-          });
-        })(styleBtns[j]);
       }
 
       // 背景来源（原生 / 自选图片）
@@ -839,10 +845,12 @@
         })(toneBtns[q]);
       }
 
-      // 跟随开关
+      /* 跟随主界面开关（仅 桌面/放大/浮动 可见）：
+       * 打开 → skinSet(surface,'follow','calendar')；关闭 → skinSet(surface,'follow','')。
+       * 主进程把非 'calendar' 的值一律当作「取消跟随」并做 copy-on-write 快照（见 C1/C2）。 */
       $('followSwitch').addEventListener('click', function () {
         var following = isFollowing(S.surface);
-        setField(S.surface, 'follow', following ? null : 'calendar');
+        setField(S.surface, 'follow', following ? '' : 'calendar');
       });
 
       // 透明度
@@ -952,14 +960,16 @@
         scheduleSaveCrop();
       });
 
-      // 关闭
+      // 关闭：优先关浮层，无浮层时才关窗口
       function closeWin() {
         if (api && api.skinAction) api.skinAction('close');
         setTimeout(function () { window.close(); }, 60);
       }
       $('btnClose').addEventListener('click', closeWin);
       document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape') closeWin();
+        if (e.key !== 'Escape') return;
+        if (overlayOpen()) { closeOverlay(); return; }
+        closeWin();
       });
 
       // 订阅主进程推送的皮肤配置（唯一真相）

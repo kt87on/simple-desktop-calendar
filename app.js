@@ -240,6 +240,7 @@ var gridEl, headerEl, yearSel, monthSel, wkSwitchEl, widgetEl, lastLit = -1, bgM
 var lastTipKey = '';   // R3：上次推送 tooltip 的日期键，跨午夜才重新推送
 var remindInputEl, remindDateLabelEl, remindTextEl, remindOkEl, remindCancelEl, toastEl;
 var remindHourEl, remindMinuteEl;   // v3.0.0：定时（时/分）输入框，留空=全天
+var remindTimeHintEl;               // v3.1.0：定时提示行（内容输入框下方，实时刷新）
 // v1.7.12：关注列表已改为独立窗口（remindlist.html），主窗口内不再有弹窗 DOM
 var bookBtnEl;
 
@@ -518,6 +519,8 @@ function openRemindInput(y, m, d) {
   // v3.0.0：每次打开清空时/分（留空即全天提醒）
   if (remindHourEl) remindHourEl.value = '';
   if (remindMinuteEl) remindMinuteEl.value = '';
+  // v3.1.0 C5：清空后立即初始化提示行（否则上次残留值会让提示不同步）
+  updateRemindTimeHint();
   if (remindInputEl) {
     remindInputEl.classList.add('show');
     var cell = findCellEl(y, m, d);
@@ -591,6 +594,20 @@ function readRemindTime() {
   }
   if ((hh === null) !== (mm === null)) { hh = null; mm = null; }   // 只填一个 → 全天
   return { hh: hh, mm: mm };
+}
+/* v3.1.0 C5：刷新「定时提示」行 —— 与 readRemindTime 同源，保证提示 = 实际将要保存的语义。
+ * 为什么用 readRemindTime 而不是直接读输入框：只有「时」「分」两栏都合法才算定时，
+ * 否则（含只填一栏）实际会按全天保存，提示必须与之一致，避免误导用户。 */
+function updateRemindTimeHint() {
+  if (!remindTimeHintEl) return;
+  var t = readRemindTime();
+  if (t.hh === null || t.mm === null) {
+    remindTimeHintEl.textContent = '全天提醒';
+    remindTimeHintEl.classList.remove('has-time');
+  } else {
+    remindTimeHintEl.textContent = '定时提醒：' + t.hh + '时' + t.mm + '分';
+    remindTimeHintEl.classList.add('has-time');
+  }
 }
 function confirmRemindInput() {
   if (!pendingRemind) return;
@@ -1182,6 +1199,9 @@ function confirmRemindInput() {
     // v3.0.0：时/分输入框同样支持回车提交 / Esc 取消
     if (remindHourEl) remindHourEl.addEventListener('keydown', onKey);
     if (remindMinuteEl) remindMinuteEl.addEventListener('keydown', onKey);
+    // v3.1.0 C5：时/分变化即时刷新「定时提示」行（input 覆盖键入/退格/粘贴/微调）
+    if (remindHourEl) remindHourEl.addEventListener('input', updateRemindTimeHint);
+    if (remindMinuteEl) remindMinuteEl.addEventListener('input', updateRemindTimeHint);
   }
 
   /* ===== v2.2.0 需求4：桌面插件模式 =====
@@ -1259,6 +1279,7 @@ function confirmRemindInput() {
     remindTextEl = $('remindText');
     remindHourEl = $('remindHour');          // v3.0.0：定时（时）
     remindMinuteEl = $('remindMinute');      // v3.0.0：定时（分）
+    remindTimeHintEl = $('remindTimeHint');  // v3.1.0：定时提示行
     remindOkEl = $('remindOk');
     remindCancelEl = $('remindCancel');
     // v1.7.12 关注列表已改独立窗口，主窗口内仅保留书按钮
