@@ -41,7 +41,13 @@ const whenReadyBody = main.slice(main.indexOf('app.whenReady'), main.indexOf("ap
 // =====================================================================
 // 版本号
 // =====================================================================
-check('版本号=2.4.4', pkg.version === '2.4.4', 'package.json version=' + pkg.version);
+check('版本号=3.0.0', pkg.version === '3.0.0', 'package.json version=' + pkg.version);
+
+/* 护栏：使用说明.html 随安装包发给用户（build.extraFiles → 安装完成页「查看说明文档」），
+ * 其声明的版本必须与 package.json 一致，防止文档版本漂移（历史遗留 v2.4.4）。 */
+check('[v3.0.0] 使用说明.html 版本与 package.json 一致',
+  read('使用说明.html').indexOf('v' + pkg.version) !== -1,
+  'package.json=' + pkg.version + '，使用说明.html 未含 "v' + pkg.version + '"');
 
 // =====================================================================
 // v2.3.0 Phase 3：设置窗口拖动 / 解除特别关注数量限制 / 安装后说明弹出
@@ -472,20 +478,22 @@ check('[v2.0] 设计规范文档存在',
 // v2.4.0 第二轮：皮肤 per-surface 重构 + 图片皮肤 + A-bug1/A-bug2
 // =====================================================================
 
-/* ---- 皮肤数据模型（主进程唯一真相，per-surface） ---- */
-check('[v2.4.0 R2] skin 新结构 __v:2 + surfaces{calendar,expanded,desktop,dock}',
-  /let skin = \{/.test(mainCode) && /__v:\s*2,/.test(mainCode) &&
-  /surfaces:\s*\{/.test(mainCode) && /calendar:\s*\{\s*type: 'light'/.test(mainCode));
-check('[v2.4.0 R2] opacity 收敛为 skin.opacity{calendar,desktop,dock}',
+/* ---- 皮肤数据模型（主进程唯一真相，per-surface，v3.0.0：style × bg × tone） ---- */
+check('[v3.0.0] skin 新结构 __v:3 + surfaces{calendar,expanded,desktop,dock} + style/bg/tone',
+  /let skin = \{/.test(mainCode) && /__v:\s*3,/.test(mainCode) &&
+  /surfaces:\s*\{/.test(mainCode) && /calendar:\s*\{\s*style: 'default', bg: 'native'/.test(mainCode) &&
+  /tone: 'auto'/.test(mainCode));
+check('[v3.0.0] skin.opacity 收敛为 {calendar,desktop,dock}',
   /opacity:\s*\{\s*calendar: 1, desktop: 1, dock: 1\s*\}/.test(mainCode));
-check('[v2.4.0 R2][关键] 旧皮肤散落变量已删除（skinMode/nativeSkin/skinColor/跟随/透明度全局）',
+check('[v3.0.0][关键] 旧皮肤散落变量已删除（skinMode/nativeSkin/skinColor/跟随/透明度全局）',
   !/let skinMode = /.test(mainCode) && !/let nativeSkin = /.test(mainCode) &&
   !/let skinColor = /.test(mainCode) && !/let desktopFollowCalendar = /.test(mainCode) &&
   !/let dockFollowCalendar = /.test(mainCode) && !/let mainOpacity = /.test(mainCode) &&
   !/let desktopOpacity = /.test(mainCode) && !/let dockOpacity = /.test(mainCode));
 
-check('[v2.4.0 R2] normalizeSkin + migrateSkin 一次性迁移',
-  /function normalizeSkin\(raw\)/.test(mainCode) && /function migrateSkin\(o\)/.test(mainCode) &&
+check('[v3.0.0] normalizeSkinV3 + migrateSkinV2toV3 一次性迁移（v2→v3）',
+  /function normalizeSkinV3\(raw\)/.test(mainCode) && /function migrateSkinV2toV3\(v2\)/.test(mainCode) &&
+  /o\.skin && o\.skin\.__v === 3 && o\.skin\.surfaces/.test(mainCode) &&
   /o\.skin && o\.skin\.__v === 2 && o\.skin\.surfaces/.test(mainCode));
 // saveSettings 作用域精确自检：只在函数体内查。文件其它位置 `theme: themeMode` 是
 // 设置/关注列表/提醒窗口的 query/IPC 载荷（跟随 baseTheme，属合法残留），不应误判。
@@ -503,17 +511,23 @@ check('[v2.4.0 R2][关键] 迁移后 saveSettings 只写 skin（不再写 theme 
 check('[v2.4.0 R2] resolveSurfaceConfig（expanded/desktop follow→calendar）',
   /function resolveSurfaceConfig\(surface\)/.test(mainCode) &&
   /follow === 'calendar'/.test(mainCode) && /return skin\.surfaces\.calendar;/.test(mainCode));
-check('[v2.4.0 R2] surfaceTheme 五类 type 推导（text 字段决定 color/image 明暗）',
-  /function surfaceTheme\(surface\)/.test(mainCode) && /c\.text === 'light'/.test(mainCode) &&
-  /c\.text === 'dark'/.test(mainCode) && /nativeTheme\.shouldUseDarkColors/.test(mainCode));
-check('[v2.4.0 R2] surfaceBg（native/color/image 三态）',
-  /function surfaceBg\(surface\)/.test(mainCode) && /kind: 'color'/.test(mainCode) &&
-  /kind: 'image'/.test(mainCode) && /kind: 'native'/.test(mainCode));
-check('[v2.4.0 R2] baseTheme = surfaceTheme("calendar")（非表面窗口基准）',
+check('[v3.0.0] surfaceTheme 优先级（image.dark > tone 显式 > system > styleNativeTheme）',
+  /function surfaceTheme\(surface\)/.test(mainCode) &&
+  /if \(c\.bg === 'image' && c\.image\) return c\.image\.dark \? 'dark' : 'light';/.test(mainCode) &&
+  /if \(c\.tone === 'light'\) return 'light';/.test(mainCode) &&
+  /if \(c\.tone === 'dark'\) return 'dark';/.test(mainCode) &&
+  /if \(c\.tone === 'system'\)/.test(mainCode) &&
+  /return styleNativeTheme\(c\.style\);/.test(mainCode));
+check('[v3.0.0] styleNativeTheme（tech→dark，其余→light）',
+  /function styleNativeTheme\(style\)/.test(mainCode) && /style === 'tech'/.test(mainCode));
+check('[v3.0.0] surfaceBg（bg=native/image 双态 + 无图 color 兜底）',
+  /function surfaceBg\(surface\)/.test(mainCode) && /if \(c\.bg === 'image'\)/.test(mainCode) &&
+  /kind: 'color'/.test(mainCode) && /kind: 'image'/.test(mainCode) && /kind: 'native'/.test(mainCode));
+check('[v3.0.0] baseTheme = surfaceTheme("calendar")（非表面窗口基准）',
   /function baseTheme\(\)\s*\{\s*return surfaceTheme\('calendar'\);/.test(mainCode));
-check('[v2.4.0 R2] resolvedSurfaceState 下发 type/theme/bg/color/image',
-  /function resolvedSurfaceState\(surface\)/.test(mainCode) && /theme: surfaceTheme\(surface\)/.test(mainCode) &&
-  /bg: bg\.kind/.test(mainCode));
+check('[v3.0.0] resolvedSurfaceState 下发 style/tone/theme/text/warn/bg/color/image/clarity',
+  /function resolvedSurfaceState\(surface\)/.test(mainCode) && /var theme = surfaceTheme\(surface\)/.test(mainCode) &&
+  /style: c\.style,/.test(mainCode) && /warn: warn,/.test(mainCode) && /bg: bg\.kind/.test(mainCode));
 
 /* ---- skin:// 特权协议 + 图片导入 ---- */
 check('[v2.4.0 R2] registerSchemesAsPrivileged 注册 skin://（app ready 前）',
@@ -550,9 +564,9 @@ check('[v2.4.2] dock.html 纯色/图片复用原生描边+阴影（不再单独 
   !/\[data-skin="color"\] #card,/.test(dockCode) && !/border-color: transparent/.test(dockCode) &&
   /\[data-skin="color"\] #card \{ background: var\(--skin-bg-solid\); \}/.test(dockCode) &&
   /\[data-skin="image"\] #card \{ background: var\(--protect-mid\); \}/.test(dockCode));
-check('[v2.4.2] dock.html hover 锁住自选背景（body.hit + data-skin，不闪黑）',
-  /body\.hit\[data-skin="color"\] #card:hover/.test(dockCode) &&
-  /body\.hit\[data-skin="image"\] #card:hover/.test(dockCode));
+check('[v3.0.0] dock.html hover 锁住自选背景（html[data-skin] body.hit，不闪黑）',
+  /html\[data-skin="color"\] body\.hit #card:hover/.test(dockCode) &&
+  /html\[data-skin="image"\] body\.hit #card:hover/.test(dockCode));
 check('[v2.4.2] bgColorFor 始终返回透明（窗口不再做方形色块底子）',
   /function bgColorFor\(surface\)\s*\{\s*return '#00000000';/.test(mainCode));
 
@@ -662,15 +676,18 @@ check('[v2.4.0 R2 A6] dock 日期拆「星期 + 日期」两 span + gap 放宽',
 /* ---- 皮肤窗口 + 设置入口 ---- */
 const skinHtml = read('skin.html');
 check('[v2.4.0 R2] skin.html 存在', skinHtml.length > 0);
-check('[v2.4.0 R2] skin.html 4 界面分段 + 5 皮肤类型',
+check('[v3.0.0] skin.html 4 界面分段 + 6 风格 + 明暗段（tone）',
   /data-surface="calendar"/.test(skinHtml) && /data-surface="dock"/.test(skinHtml) &&
   /data-surface="desktop"/.test(skinHtml) && /data-surface="expanded"/.test(skinHtml) &&
-  /data-type="light"/.test(skinHtml) && /data-type="dark"/.test(skinHtml) &&
-  /data-type="system"/.test(skinHtml) && /data-type="color"/.test(skinHtml) &&
-  /data-type="image"/.test(skinHtml));
-check('[v2.4.0 R2] skin.html 色盘 + 取景 + 文字明暗 + 透明度 + 跟随开关',
-  /paletteGrid/.test(skinHtml) && /dropZone/.test(skinHtml) && /cropBox/.test(skinHtml) &&
-  /data-text="auto"/.test(skinHtml) && /opacityRange/.test(skinHtml) && /followSwitch/.test(skinHtml));
+  /data-style="default"/.test(skinHtml) && /data-style="minimal"/.test(skinHtml) &&
+  /data-style="glass"/.test(skinHtml) && /data-style="neu"/.test(skinHtml) &&
+  /data-style="tech"/.test(skinHtml) && /data-style="warm"/.test(skinHtml) &&
+  /data-tone="auto"/.test(skinHtml) && /data-tone="light"/.test(skinHtml) &&
+  /data-tone="dark"/.test(skinHtml) && /data-tone="system"/.test(skinHtml));
+check('[v3.0.0] skin.html 取景 + 文字明暗 + 透明度 + 跟随开关 + 清晰度',
+  /dropZone/.test(skinHtml) && /cropBox/.test(skinHtml) &&
+  /data-text="auto"/.test(skinHtml) && /opacityRange/.test(skinHtml) && /followSwitch/.test(skinHtml) &&
+  /claritySection/.test(skinHtml) && /clarityRange/.test(skinHtml));
 check('[v2.4.0 R2] skin.html 走 skin-set 即时回写 + skin-import + choose-file',
   /skinSet\(/.test(skinHtml) && /skinImport\(/.test(skinHtml) && /skinAction\('choose-file'/.test(skinHtml));
 
@@ -718,8 +735,10 @@ check('[v2.4.3] template.html 功能栏按钮玻璃 0.10/0.16（对齐 v4 .fn-bt
   /\[data-skin="color"\] #dragBar \.sel,[\s\S]{0,400}background-color: rgba\(255, 255, 255, 0\.10\);[\s\S]{0,160}border-color: rgba\(255, 255, 255, 0\.16\);/.test(tmpl));
 
 /* ---- app.js：同步写描边/阴影 + 图片不透明度 ---- */
-check('[v2.4.4] app.js applySkinState 调 applyClarity 写 --stroke-color/--ink-glow',
-  /applyClarity\(root, S\.theme, state\.clarity\)/.test(codeOnly(appjs)) &&
+check('[v3.0.0] app.js applySkinState 调 applyClarity + effectiveClarity（warn→≥35）',
+  /applyClarity\(root, S\.theme, clarity\)/.test(codeOnly(appjs)) &&
+  /function effectiveClarity\(state\)/.test(codeOnly(appjs)) &&
+  /state\.warn === true && c < 35/.test(codeOnly(appjs)) &&
   /setProperty\('--stroke-color'/.test(codeOnly(appjs)) &&
   /setProperty\('--ink-glow'/.test(codeOnly(appjs)));
 check('[v2.4.4] app.js 原生皮肤清除可读性变量（clearReadability）',
@@ -732,11 +751,12 @@ check('[v2.4.3] app.js applySkinImage 直接写元素 style.opacity',
 check('[v2.4.4] dock.html 声明 --stroke-color / --ink-glow / --protect-mid',
   /--stroke-color:\s*transparent/.test(dock) && /--ink-glow:\s*0 0 0 transparent/.test(dock) &&
   /--protect-mid:\s*transparent/.test(dock));
-check('[v2.4.3] dock.html 文字真描边（data-skin 限定）',
-  /\[data-skin="color"\] #dockTime, \[data-skin="image"\] #dockTime/.test(dock) &&
+check('[v3.0.0] dock.html 文字真描边（html[data-skin] 限定）',
+  /html\[data-skin="color"\] #dockTime, html\[data-skin="image"\] #dockTime/.test(dock) &&
   /-webkit-text-stroke:\s*0\.5px var\(--stroke-color\)/.test(dock));
-check('[v2.4.4] dock.html dockApplyClarity 写/清可读性变量',
-  /dockApplyClarity\(root, theme, state\.clarity\)/.test(dockCode) && /dockClearReadability\(root\)/.test(dockCode) &&
+check('[v3.0.0] dock.html dockApplyClarity 写/清可读性变量（clarity 经 dockEffectiveClarity）',
+  /dockApplyClarity\(root, theme, clarity\)/.test(dockCode) && /dockClearReadability\(root\)/.test(dockCode) &&
+  /function dockEffectiveClarity\(state\)/.test(dockCode) &&
   /setProperty\('--stroke-color'/.test(dockCode) && /removeProperty\('--stroke-color'\)/.test(dockCode));
 check('[v2.4.3] dock.html dockApplyImage 直接写元素 style.opacity',
   /el\.style\.opacity = \(typeof image\.opacity === 'number' && isFinite\(image\.opacity\)\) \? String\(image\.opacity\) : '1'/.test(dockCode));
@@ -829,9 +849,9 @@ check('[v2.4.4] dock.html dockApplyClarity / dockClearReadability 三层可读�
   /setProperty\('--protect-mid'/.test(dockCode));
 
 /* ---- skin.html：「UI 清晰度」滑杆 + 自动开关 + 联调回显 ---- */
-check('[v2.4.4] skin.html #claritySection（仅纯色/图片，与 textSection 同步显隐）',
+check('[v3.0.0] skin.html #claritySection（与 textSection 同步置灰）',
   /id="claritySection"/.test(skinHtml) &&
-  /claritySection'\)\.style\.display = \(isColor \|\| isImage\)/.test(skinHtml));
+  /claritySection'\)\.classList\.toggle\('dimmed', following\)/.test(skinHtml));
 check('[v2.4.4] skin.html 清晰度滑杆 #clarityRange 0~100 step5 + #clarityVal',
   /id="clarityRange"/.test(skinHtml) && /min="0" max="100" step="5"/.test(skinHtml) && /id="clarityVal"/.test(skinHtml));
 check('[v2.4.4] skin.html 「自动」开关 #clarityAuto（切换 auto ⇄ 手动）',

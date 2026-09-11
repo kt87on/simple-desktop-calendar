@@ -76,8 +76,8 @@ const FN_NAMES = [
   'clarityForConfig', 'normalizeClarity', 'normalizeImageSpec',
   // EXIF
   'parseTiffOrientation', 'readJpegOrientation', 'importSkinImage',
-  // 中枢解析
-  'resolveSurfaceConfig', 'surfaceTheme', 'solidFallbackFor', 'surfaceBg', 'resolvedSurfaceState',
+  // 中枢解析（v3.0.0：surfaceTheme 依赖 styleNativeTheme，须一并抽取）
+  'styleNativeTheme', 'resolveSurfaceConfig', 'surfaceTheme', 'solidFallbackFor', 'surfaceBg', 'resolvedSurfaceState',
   // 写入口
   'applySkinSet'
 ];
@@ -467,22 +467,22 @@ function nativeImgMock(w, h, buf) {
   eq(A.clarityForConfig({ clarity: -10 }), 0, '手动 clarity=-10 → 夹到 0');
   eq(A.clarityForConfig({ clarity: 999 }), 100, '手动 clarity=999 → 夹到 100');
 
-  /* --- 4.3 clarityForConfig：'auto' 按 type 推导 --- */
-  eq(A.clarityForConfig({ clarity: 'auto', type: 'image', image: { complexity: 0.5 } }), 50, "image+auto → 按 complexity(0.5)→50");
-  eq(A.clarityForConfig({ clarity: 'auto', type: 'image', image: { complexity: 0 } }), 20, 'image+auto complexity=0 → 下限 20');
-  eq(A.clarityForConfig({ clarity: 'auto', type: 'image', image: { complexity: 0.1 } }), 20, 'image+auto 低复杂度 → 下限 20');
-  eq(A.clarityForConfig({ clarity: 'auto', type: 'image', image: { complexity: 1 } }), 85, 'image+auto 高复杂度 → 上限 85');
-  eq(A.clarityForConfig({ type: 'image', image: {} }), 20, 'image 无 complexity → 20');
-  eq(A.clarityForConfig({ type: 'image' }), 20, 'image 无 image → 20（基础保护）');
-  eq(A.clarityForConfig({ clarity: 'auto', type: 'color', color: '#000000' }), 0, "color+auto → 0（不引入灰罩）");
-  eq(A.clarityForConfig({ clarity: 'auto', type: 'system' }), 0, 'system+auto → 0');
-  eq(A.clarityForConfig({ clarity: 'abc', type: 'color' }), 0, 'color + 非数字 clarity → 0');
+  /* --- 4.3 clarityForConfig：'auto' 按 bg 推导（v3.0.0：判据由 type 改为 bg） --- */
+  eq(A.clarityForConfig({ clarity: 'auto', bg: 'image', image: { complexity: 0.5 } }), 50, "bg=image+auto → 按 complexity(0.5)→50");
+  eq(A.clarityForConfig({ clarity: 'auto', bg: 'image', image: { complexity: 0 } }), 20, 'bg=image+auto complexity=0 → 下限 20');
+  eq(A.clarityForConfig({ clarity: 'auto', bg: 'image', image: { complexity: 0.1 } }), 20, 'bg=image+auto 低复杂度 → 下限 20');
+  eq(A.clarityForConfig({ clarity: 'auto', bg: 'image', image: { complexity: 1 } }), 85, 'bg=image+auto 高复杂度 → 上限 85');
+  eq(A.clarityForConfig({ bg: 'image', image: {} }), 20, 'bg=image 无 complexity → 20');
+  eq(A.clarityForConfig({ bg: 'image' }), 20, 'bg=image 无 image → 20（基础保护）');
+  eq(A.clarityForConfig({ clarity: 'auto', bg: 'native' }), 0, "bg=native+auto → 0（不引入灰罩）");
+  eq(A.clarityForConfig({ clarity: 'auto', tone: 'system' }), 0, 'tone=system（native 背景）→ 0');
+  eq(A.clarityForConfig({ clarity: 'abc', bg: 'native' }), 0, 'native + 非数字 clarity → 0');
 
-  /* --- 4.4 image 与 color 在 auto 下的差异（核心契约） --- */
-  const cImage = A.clarityForConfig({ clarity: 'auto', type: 'image', image: { complexity: 0.3 } });
-  const cColor = A.clarityForConfig({ clarity: 'auto', type: 'color', color: '#FFFFFF' });
-  ok(cImage > cColor, "auto 推导差异：image(" + cImage + ") > color(" + cColor + ')');
-  ok(cImage >= 20 && cImage <= 85, 'image+auto 推导值始终落在 [20,85] 基础保护区间');
+  /* --- 4.4 bg=image 与 bg=native 在 auto 下的差异（核心契约） --- */
+  const cImage = A.clarityForConfig({ clarity: 'auto', bg: 'image', image: { complexity: 0.3 } });
+  const cNative = A.clarityForConfig({ clarity: 'auto', bg: 'native' });
+  ok(cImage > cNative, "auto 推导差异：bg=image(" + cImage + ") > bg=native(" + cNative + ')');
+  ok(cImage >= 20 && cImage <= 85, 'bg=image+auto 推导值始终落在 [20,85] 基础保护区间');
 
   /* --- 4.5 normalizeImageSpec：complexity 归一 + 既有字段夹取 --- */
   eq(A.normalizeImageSpec({ file: 'a.jpg', complexity: 0.4 }).complexity, 0.4, 'complexity=0.4 原样');
@@ -504,23 +504,26 @@ function nativeImgMock(w, h, buf) {
  * ============================================================ */
 function skinFixture() {
   return {
-    __v: 2,
+    __v: 3,
     surfaces: {
-      calendar: { type: 'image', color: null, text: 'auto', clarity: 'auto', image: { file: 'a.jpg', complexity: 0.5, dark: false } },
-      expanded: { follow: 'calendar', type: 'light', color: null, text: 'auto', clarity: 'auto' },
-      desktop: { follow: 'calendar', type: 'light', color: null, text: 'auto', clarity: 'auto' },
-      dock: { type: 'light', color: null, text: 'auto', clarity: 'auto' }
+      calendar: { style: 'default', bg: 'image', image: { file: 'a.jpg', complexity: 0.5, dark: false }, text: 'auto', clarity: 'auto', tone: 'auto' },
+      expanded: { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+      desktop: { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+      dock: { style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' }
     },
     opacity: { calendar: 1, desktop: 1, dock: 1 }
   };
 }
 
 (function section5_ResolveAndWrite() {
-  /* --- 5.1 resolvedSurfaceState 下发 clarity（auto 派生） --- */
+  /* --- 5.1 resolvedSurfaceState 下发（v3.0.0：style/tone/bg，无 type 字段） --- */
   const A = apiWith({ skin: skinFixture() }).api;
   const rs = A.resolvedSurfaceState('calendar');
-  eq(rs.type, 'image', 'resolved.type=image');
+  eq(rs.style, 'default', 'resolved.style=default');
   eq(rs.bg, 'image', 'resolved.bg=image（有 file）');
+  eq(rs.theme, 'light', 'resolved.theme=light（图片 dark:false）');
+  eq(rs.tone, 'auto', 'resolved.tone=auto');
+  eq(rs.warn, false, 'resolved.warn=false（浅底 + auto 字）');
   eq(rs.clarity, 50, 'resolved.clarity 下发 auto 派生值 50');
   eq(A.resolvedSurfaceState('expanded').clarity, 50, 'expanded 跟随日历 → clarity 同步 50');
   eq(A.resolvedSurfaceState('desktop').clarity, 50, 'desktop 跟随日历 → clarity 同步 50');
@@ -532,11 +535,11 @@ function skinFixture() {
   eq(A2.resolvedSurfaceState('calendar').clarity, 30, '手动 clarity=30 原样下发');
   eq(A2.resolvedSurfaceState('desktop').clarity, 30, 'desktop 跟随 → 同步 30');
 
-  /* --- 5.3 color 表面 auto → 0 --- */
+  /* --- 5.3 原生背景 auto → 0（v3.0.0：无 color 轴，改用 bg=native） --- */
   const s3 = skinFixture();
-  s3.surfaces.calendar = { type: 'color', color: '#FFFFFF', text: 'auto', clarity: 'auto', image: null };
+  s3.surfaces.calendar = { style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' };
   const A3 = apiWith({ skin: s3 }).api;
-  eq(A3.resolvedSurfaceState('calendar').clarity, 0, 'color+auto 下发 clarity=0（不引入灰罩）');
+  eq(A3.resolvedSurfaceState('calendar').clarity, 0, 'bg=native+auto 下发 clarity=0（不引入灰罩）');
 
   /* --- 5.4 applySkinSet(field=clarity) 写入 + 触发持久化/下发 --- */
   const sk = skinFixture();
@@ -557,13 +560,17 @@ function skinFixture() {
   ok(built.counters.refreshTray >= 5, 'clarity 写入触发 refreshTrayMenu 次数=' + built.counters.refreshTray);
   ok(JSON.parse(JSON.stringify(sk.surfaces.calendar)).clarity === 0, 'clarity 可 JSON 序列化（能落盘）');
 
-  /* --- 5.5 v2.4.4：取消跟随 copy-on-write 时 clarity 一并物化 --- */
+  /* --- 5.5 v3.0.0：取消跟随 copy-on-write 时 clarity + tone 一并物化 --- */
   const sk2 = skinFixture();
   sk2.surfaces.calendar.clarity = 40;
+  sk2.surfaces.calendar.tone = 'dark';
+  sk2.surfaces.calendar.style = 'glass';
   const A5 = apiWith({ skin: sk2 }).api;
   A5.applySkinSet({ surface: 'desktop', field: 'follow', value: null });
   eq(sk2.surfaces.desktop.follow, null, '取消跟随 → desktop.follow=null');
-  eq(sk2.surfaces.desktop.clarity, 40, 'v2.4.4 取消跟随 → desktop 物化日历 clarity=40');
+  eq(sk2.surfaces.desktop.clarity, 40, '取消跟随 → desktop 物化日历 clarity=40');
+  eq(sk2.surfaces.desktop.tone, 'dark', 'v3.0.0 取消跟随 → desktop 物化日历 tone=dark');
+  eq(sk2.surfaces.desktop.style, 'glass', '取消跟随 → desktop 物化日历 style=glass');
 })();
 
 /* ============================================================

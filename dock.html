@@ -130,17 +130,162 @@
                     inset 0 1px 0 var(--hi);
   }
 
+  /* ==========================================================================
+   * v3.0.0 §7 六套「风格」token（风格驱动，叠加在 [data-theme] 之上）
+   * --------------------------------------------------------------------------
+   * 三轴解耦（§12）：data-theme=背景明暗、data-style=风格材质、data-text=文字轴。
+   * 浅/深两档各自独立成块（[data-theme="light"|"dark"][data-style="X"]，同为 (0,2,0)
+   * 互不越界）。变量按 dock 自己的体系落：--card/--card-hover/--edge/--hi/--ink/
+   * --ink-soft/--accent/--accent-soft/--hover/--r-md/--dock-blur/--dock-sat。
+   * ⚠️ 硬约束（勿改）：**不改 --shadow / --shadow-hover** —— 插件贴任务栏，阴影 y 偏移
+   * 必须恒为 0，采用设计文档 §8 的 e-4（带 y 偏移）会在插件与任务栏间造出视觉缝隙。
+   * 圆角对 116×50 微件做了收敛（不照搬卡片 24/26px 的大圆角），保留风格特征即可。
+   * 状态色守恒：休/异=红、上班=绿/青，仅调明度饱和度（§8.3）。
+   * 注：default 档沿用既有 :root / [data-theme="dark"] 取值，零视觉回归。
+   * ========================================================================== */
+
+  /* ---------- ① 默认（融合） ---------- */
+  [data-theme="light"][data-style="default"] {
+    --card: rgba(250, 250, 252, 0.95); --card-hover: rgba(238, 242, 250, 0.97);
+    --edge: rgba(31, 35, 48, 0.09); --hi: rgba(255, 255, 255, 0.85);
+    --ink: #1f2430; --ink-soft: #4b5563;
+    --accent: #3b6fd4; --accent-soft: rgba(59, 111, 212, 0.10);
+    --hover: rgba(31, 35, 48, 0.055);
+    --r-md: 10px; --dock-blur: 10px; --dock-sat: 1.3;
+  }
+  [data-theme="dark"][data-style="default"] {
+    --card: rgba(38, 43, 57, 0.95); --card-hover: rgba(48, 55, 72, 0.97);
+    --edge: rgba(255, 255, 255, 0.10); --hi: rgba(255, 255, 255, 0.07);
+    --ink: #eef1f6; --ink-soft: #a8b0be;
+    --accent: #7aa5ff; --accent-soft: rgba(122, 165, 255, 0.16);
+    --hover: rgba(255, 255, 255, 0.075);
+    --r-md: 10px; --dock-blur: 10px; --dock-sat: 1.3;
+  }
+
+  /* ---------- ② 极简 ---------- */
+  [data-theme="light"][data-style="minimal"] {
+    --card: #ffffff; --card-hover: #f4f4f5;
+    --edge: #e8e8ea; --hi: rgba(255, 255, 255, 0.90);
+    --ink: #18181b; --ink-soft: #3f3f46;
+    --accent: #18181b; --accent-soft: rgba(24, 24, 27, 0.08);
+    --hover: rgba(24, 24, 27, 0.05);
+    --r-md: 10px; --dock-blur: 0px; --dock-sat: 1;
+  }
+  [data-theme="dark"][data-style="minimal"] {
+    --card: #18181b; --card-hover: #232326;
+    --edge: rgba(255, 255, 255, 0.14); --hi: rgba(255, 255, 255, 0.05);
+    --ink: #f4f4f5; --ink-soft: #c4c4c8;
+    --accent: #f4f4f5; --accent-soft: rgba(244, 244, 245, 0.10);
+    --hover: rgba(255, 255, 255, 0.06);
+    --r-md: 10px; --dock-blur: 0px; --dock-sat: 1;
+  }
+
+  /* ---------- ③ 玻璃拟态 ---------- */
+  [data-theme="light"][data-style="glass"] {
+    --card: rgba(255, 255, 255, 0.55); --card-hover: rgba(255, 255, 255, 0.72);
+    --edge: rgba(255, 255, 255, 0.70); --hi: rgba(255, 255, 255, 0.85);
+    --ink: #1f2430; --ink-soft: #3d4658;
+    --accent: #7c6bff; --accent-soft: rgba(124, 107, 255, 0.16);
+    --hover: rgba(124, 107, 255, 0.10);
+    --r-md: 14px; --dock-blur: 18px; --dock-sat: 1.8;
+  }
+  [data-theme="dark"][data-style="glass"] {
+    --card: rgba(30, 20, 60, 0.42); --card-hover: rgba(40, 28, 78, 0.55);
+    --edge: rgba(255, 255, 255, 0.45); --hi: rgba(255, 255, 255, 0.16);
+    --ink: #ffffff; --ink-soft: rgba(255, 255, 255, 0.72);
+    --accent: #9d8cff; --accent-soft: rgba(157, 140, 255, 0.22);
+    --hover: rgba(157, 140, 255, 0.14);
+    --r-md: 14px; --dock-blur: 18px; --dock-sat: 1.8;
+  }
+
+  /* ---------- ④ 新拟态 ---------- */
+  [data-theme="light"][data-style="neu"] {
+    --card: #dde4ee; --card-hover: #e6ebf3;
+    --edge: #ffffff; --hi: rgba(255, 255, 255, 0.70);
+    --ink: #414b5c; --ink-soft: #54606f;
+    --accent: #3f6ea8; --accent-soft: rgba(63, 110, 168, 0.14);
+    --hover: rgba(63, 110, 168, 0.08);
+    --r-md: 14px; --dock-blur: 0px; --dock-sat: 1;
+  }
+  [data-theme="dark"][data-style="neu"] {
+    --card: #232a36; --card-hover: #2a323f;
+    --edge: #151a22; --hi: rgba(255, 255, 255, 0.05);
+    --ink: #c7ced9; --ink-soft: #9aa3b3;
+    --accent: #6fb0d8; --accent-soft: rgba(111, 176, 216, 0.18);
+    --hover: rgba(111, 176, 216, 0.10);
+    --r-md: 14px; --dock-blur: 0px; --dock-sat: 1;
+  }
+
+  /* ---------- ⑤ 科技感（深底 + 青蓝霓虹 + 等宽字） ---------- */
+  [data-theme="light"][data-style="tech"] {
+    --card: #f2f8fb; --card-hover: #e6f4f8;
+    --edge: rgba(34, 211, 238, 0.40); --hi: rgba(255, 255, 255, 0.70);
+    --ink: #0b4351; --ink-soft: #14657a;
+    --accent: #0891b2; --accent-soft: rgba(8, 145, 178, 0.14);
+    --hover: rgba(8, 145, 178, 0.08);
+    --r-md: 8px; --dock-blur: 0px; --dock-sat: 1;
+    --font-sans: "Cascadia Code", "Consolas", ui-monospace, "JetBrains Mono", monospace;
+  }
+  [data-theme="dark"][data-style="tech"] {
+    --card: #0e1622; --card-hover: #13202f;
+    --edge: rgba(34, 211, 238, 0.30); --hi: rgba(34, 211, 238, 0.08);
+    --ink: #8ff0ff; --ink-soft: rgba(143, 240, 255, 0.62);
+    --accent: #22d3ee; --accent-soft: rgba(34, 211, 238, 0.18);
+    --hover: rgba(34, 211, 238, 0.12);
+    --r-md: 8px; --dock-blur: 0px; --dock-sat: 1;
+    --font-sans: "Cascadia Code", "Consolas", ui-monospace, "JetBrains Mono", monospace;
+  }
+
+  /* ---------- ⑥ 温润拟物（纸感 + 暖棕 + 衬线字） ---------- */
+  [data-theme="light"][data-style="warm"] {
+    --card: #fffdf7; --card-hover: #faf3e6;
+    --edge: #e7dbc4; --hi: rgba(255, 255, 255, 0.75);
+    --ink: #4a3f33; --ink-soft: #5b4a36;
+    --accent: #b5602f; --accent-soft: rgba(181, 96, 47, 0.14);
+    --hover: rgba(181, 96, 47, 0.08);
+    --r-md: 12px; --dock-blur: 0px; --dock-sat: 1;
+    --font-sans: "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
+  }
+  [data-theme="dark"][data-style="warm"] {
+    --card: #2c2419; --card-hover: #362c1f;
+    --edge: #4a3f2c; --hi: rgba(255, 255, 255, 0.05);
+    --ink: #efe4d2; --ink-soft: #c6b79a;
+    --accent: #d98a55; --accent-soft: rgba(217, 138, 85, 0.18);
+    --hover: rgba(217, 138, 85, 0.10);
+    --r-md: 12px; --dock-blur: 0px; --dock-sat: 1;
+    --font-sans: "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
+  }
+
+  /* ==========================================================================
+   * v3.0.0 §3.2 文字轴 data-text（只覆盖「文字相关」变量）
+   * light=深字（浅底语义）、dark=浅字；auto/缺失 → 不设属性，跟随 [data-theme]。
+   * :root[...] 特异性 (0,2,0)，置于全部 [data-style] 之后，与 [data-theme][data-style]
+   * 同权靠源序取胜 → 文字轴恒压过风格档。仅动 --ink/--ink-soft/--stroke-color/--ink-glow。
+   * ========================================================================== */
+  :root[data-text="light"] {
+    --ink: #1f2430; --ink-soft: #4b5563;
+    --stroke-color: rgba(255, 255, 255, 0.70);
+    --ink-glow: 0 0 0 transparent;
+  }
+  :root[data-text="dark"] {
+    --ink: #e8eaf0; --ink-soft: #9aa3b3;
+    --stroke-color: rgba(0, 0, 0, 0.55);
+    --ink-glow: 0 0 0 transparent;
+  }
+
   /* v2.4.0 第二轮 自选纯色/图片皮肤：只覆盖卡片 #card（窗口外透明区保持穿透，不改 body）。
    * 皮肤只改背景层，文字明暗由 data-theme 全量驱动；状态色/强调色仍取生效主题 token。 */
-  [data-skin="color"] #card { background: var(--skin-bg-solid); }
+  /* v3.0.0：皮肤层规则一律加 html 前缀（特异性 (0,1,1)→(1,1,1)），避免被源序更后的
+   * 同特异性主题/风格规则反压（与 template.html 四角黑边同一铁律，见 MEMORY.md 第二节）。 */
+  html[data-skin="color"] #card { background: var(--skin-bg-solid); }
   /* v2.4.4 图片皮肤：#card 铺局部保护遮罩（透明底 + --protect-mid 罩层，提升文字对比）。 */
-  [data-skin="image"] #card { background: var(--protect-mid); }
+  html[data-skin="image"] #card { background: var(--protect-mid); }
 
   /* v2.4.4 自选纯色/图片皮肤：文字兜底极细描边 + 柔和光晕（由 dockApplyClarity 按明暗写入）。
    * 原生皮肤无 [data-skin]，不触发。 */
-  [data-skin="color"] #dockTime, [data-skin="image"] #dockTime,
-  [data-skin="color"] #dockWeek, [data-skin="image"] #dockWeek,
-  [data-skin="color"] #dockDateNum, [data-skin="image"] #dockDateNum {
+  html[data-skin="color"] #dockTime, html[data-skin="image"] #dockTime,
+  html[data-skin="color"] #dockWeek, html[data-skin="image"] #dockWeek,
+  html[data-skin="color"] #dockDateNum, html[data-skin="image"] #dockDateNum {
     -webkit-text-stroke: 0.5px var(--stroke-color);
     text-shadow: var(--ink-glow);
   }
@@ -151,9 +296,11 @@
    * 根因 2) body.hit #card:hover 优先级高于 [data-skin]，hover 把自选背景换成 --card-hover
    *        （黑夜底子）→ 点击闪黑。
    * 因此不再单独剥离描边/阴影：纯色/图片复用原生模式的 --edge 描边 + --shadow 阴影 + 顶部高光
-   * （圆角随 #card 不变），仅在 hover 时锁住自选背景，其余点按反馈与原生一致。 */
-  body.hit[data-skin="color"] #card:hover { background: var(--skin-bg-solid); }
-  body.hit[data-skin="image"] #card:hover { background: var(--protect-mid); }
+   * （圆角随 #card 不变），仅在 hover 时锁住自选背景，其余点按反馈与原生一致。
+   * v3.0.0：修正选择器 —— data-skin 挂在 <html>（root.dataset.skin），原 `body.hit[data-skin=…]`
+   * 要求 <body> 带该属性（永不成立，规则形同虚设）；改为 `html[data-skin=…] body.hit` 使其真正生效。 */
+  html[data-skin="color"] body.hit #card:hover { background: var(--skin-bg-solid); }
+  html[data-skin="image"] body.hit #card:hover { background: var(--protect-mid); }
 
   /* ============================ L3 组件层 ============================ */
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -172,8 +319,9 @@
     left: 2px; top: 2px; right: auto; bottom: auto;
     border-radius: var(--r-md);
     background: var(--card);
-    -webkit-backdrop-filter: blur(10px) saturate(1.3);
-    backdrop-filter: blur(10px) saturate(1.3);
+    /* v3.0.0 §7：模糊/饱和随风格档（--dock-blur/--dock-sat），缺省沿用原 10px/1.3 */
+    -webkit-backdrop-filter: blur(var(--dock-blur, 10px)) saturate(var(--dock-sat, 1.3));
+    backdrop-filter: blur(var(--dock-blur, 10px)) saturate(var(--dock-sat, 1.3));
     border: 1px solid var(--edge);
     box-shadow: var(--shadow);
     display: flex; flex-direction: column;
@@ -493,21 +641,38 @@
           if (sz.w !== IW || sz.h !== IH) dockLayoutSkin(el, sz.w, sz.h, image.crop, image.zoom);
         });
       }
+      /* v3.0.0：三轴落地 —— data-style（风格材质）+ data-text（文字轴）。
+       * data-text：'light'（深字）/'dark'（浅字）时写属性；'auto'/缺失 → 删除（跟随 data-theme）。
+       * 只动根节点数据属性，绝不改 --card/--accent（那由 [data-theme]/[data-style] 负责）。 */
+      function dockApplyTone(root, state) {
+        if (state.style) root.dataset.style = state.style;
+        else delete root.dataset.style;
+        if (state.text === 'light' || state.text === 'dark') root.dataset.text = state.text;
+        else delete root.dataset.text;
+      }
+      /* v3.0.0 §3.4：低对比兜底 —— warn=true 时 clarity 抬到 ≥35（保留用户选择，不反转） */
+      function dockEffectiveClarity(state) {
+        var c = (typeof state.clarity === 'number' && isFinite(state.clarity)) ? state.clarity : 0;
+        if (state.warn === true && c < 35) c = 35;
+        return c;
+      }
       function dockApplySkin(state) {
         if (!state) return;
         var root = document.documentElement;
         var theme = (state.theme === 'dark') ? 'dark' : 'light';
         root.dataset.theme = theme;
+        dockApplyTone(root, state);                       // v3.0.0：data-style / data-text
+        var clarity = dockEffectiveClarity(state);        // v3.0.0：warn → 下限 35
         if (state.bg === 'color') {
           root.dataset.skin = 'color';
           root.style.setProperty('--skin-bg-solid', state.color || '#fafafc');
-          dockApplyClarity(root, theme, state.clarity);
+          dockApplyClarity(root, theme, clarity);
           var c0 = document.getElementById('skinImg');
           if (c0) { c0.style.backgroundImage = ''; c0.style.opacity = ''; }
         } else if (state.bg === 'image') {
           root.dataset.skin = 'image';
           root.style.removeProperty('--skin-bg-solid');
-          dockApplyClarity(root, theme, state.clarity);
+          dockApplyClarity(root, theme, clarity);
           dockApplyImage(state.image);
         } else {
           delete root.dataset.skin;

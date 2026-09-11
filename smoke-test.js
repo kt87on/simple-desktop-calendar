@@ -238,8 +238,11 @@ setTimeout(function () {
   // ============ v2.4.0 第二轮：启动即完成一次性皮肤迁移（settings.json 只写 skin、停写旧键） ============
   try {
     const saved = JSON.parse(fs.readFileSync(path.join(USERDATA, 'settings.json'), 'utf8'));
-    assert(saved && saved.skin && saved.skin.__v === 2 && saved.skin.surfaces,
-      '迁移后 settings.json 写入 skin.__v===2 结构');
+    assert(saved && saved.skin && saved.skin.__v === 3 && saved.skin.surfaces,
+      '迁移后 settings.json 写入 skin.__v===3 结构');
+    assert(saved.skin.surfaces.calendar && saved.skin.surfaces.calendar.style &&
+      saved.skin.surfaces.calendar.bg && ('tone' in saved.skin.surfaces.calendar),
+      'v3 surface 含 style/bg/tone 字段');
     assert(!('theme' in saved), 'saveSettings 已停写旧字段 theme');
     assert(!('skinMode' in saved) && !('nativeSkin' in saved) && !('skinColor' in saved),
       'saveSettings 已停写 skinMode/nativeSkin/skinColor');

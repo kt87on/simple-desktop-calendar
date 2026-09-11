@@ -61,6 +61,7 @@
     --font-num-feat: "tnum" 1, "lnum" 1, "ss01" 1;
 
     --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px;
+    --s-8: 32px;   /* 与 template.html 同一套间距阶（空态 #empty 用到，缺省会令整条 padding 失效） */
 
     --r-xs: 4px;
     --r-sm: 6px;
@@ -204,17 +205,15 @@
   }
   .rl-date:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 
-  /* 内容列：超出可横向拖动查看完整文字 */
+  /* 内容列：v3.0.0 改为省略号截断（原横向拖动已移除）—— 长内容不再撑破网格，✕ 恒在最后一列。
+   * min-width:0 是关键：grid 轨道默认 min-width:auto 会被超长内容撑开、把 ✕ 挤出可视区。 */
   .rl-text-wrap {
-    overflow-x: auto; overflow-y: hidden;
-    cursor: grab; user-select: none; -webkit-user-select: none;
+    min-width: 0; overflow: hidden;
     -webkit-app-region: no-drag;
   }
-  .rl-text-wrap::-webkit-scrollbar { height: 0; }
-  .rl-text-wrap:active { cursor: grabbing; }
   .rl-text {
+    display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--ink-soft);
-    white-space: nowrap; display: inline-block; padding-right: var(--s-3);
   }
 
   .rl-del {
@@ -288,9 +287,14 @@
       list = list || [];
       countEl.textContent = String(list.length);
 
-      // 按日期升序
+      // 按日期升序（同日内再按定时 时:分 升序；无定时的全天提醒排最前）
       list = list.slice().sort(function (a, b) {
-        return (a.y * 10000 + a.m * 100 + a.d) - (b.y * 10000 + b.m * 100 + b.d);
+        var da = a.y * 10000 + a.m * 100 + a.d;
+        var db = b.y * 10000 + b.m * 100 + b.d;
+        if (da !== db) return da - db;
+        var ta = (a.hh == null || a.mm == null) ? -1 : (a.hh * 100 + a.mm);
+        var tb = (b.hh == null || b.mm == null) ? -1 : (b.hh * 100 + b.mm);
+        return ta - tb;
       });
 
       bodyEl.innerHTML = '';
@@ -320,10 +324,12 @@
         wrap.className = 'rl-text-wrap';
         var txt = document.createElement('div');
         txt.className = 'rl-text';
-        txt.textContent = r.text || '';
-        txt.title = r.text || '';
+        // v3.0.0 §4.4：内容后拼接定时（有 hh/mm 时），格式「内容 · HH:MM」；无定时仅内容
+        var hasTime = (r.hh != null && r.mm != null);
+        var timeStr = hasTime ? (' · ' + pad2(r.hh) + ':' + pad2(r.mm)) : '';
+        txt.textContent = (r.text || '') + timeStr;
+        txt.title = (r.text || '') + timeStr;
         wrap.appendChild(txt);
-        bindTextDrag(wrap);
 
         var del = document.createElement('button');
         del.className = 'rl-del';
@@ -340,24 +346,8 @@
       });
     }
 
-    // 内容列横向拖动（按住左右拖看完整长文）
-    function bindTextDrag(wrap) {
-      wrap.addEventListener('mousedown', function (e) {
-        if (wrap.scrollWidth <= wrap.clientWidth) return;   // 没超宽就不拦鼠标
-        if (e.button !== 0) return;
-        e.preventDefault();
-        var startX = e.clientX;
-        var startLeft = wrap.scrollLeft;
-        function onMove(ev) { wrap.scrollLeft = startLeft - (ev.clientX - startX); }
-        function onUp() {
-          document.removeEventListener('mousemove', onMove);
-          document.removeEventListener('mouseup', onUp);
-        }
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
-      });
-    }
-
+    // v3.0.0：内容列改为省略号截断（见 .rl-text），原「横向拖动看长文」已移除 ——
+    // 完整文本仍可通过 title 悬停查看。
     render(payload.reminders);
 
     // ---------- 关闭 ----------

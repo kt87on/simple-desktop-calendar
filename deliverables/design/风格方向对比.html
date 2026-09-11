@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>简洁桌面日历 · UI 风格方向对比</title>
+<style>
+/* ============================================================
+   风格方向对比板 —— 同一张迷你日历卡，5 种视觉方向并列
+   仅为"看方向"用，不追求像素级还原
+   ============================================================ */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --board:#0d0f13; --line:#242833; --ink:#e9eaee; --sub:#8b93a3;
+  --sans:"Segoe UI","Microsoft YaHei",-apple-system,system-ui,sans-serif;
+  --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+  --serif:Georgia,"Times New Roman","Songti SC",SimSun,serif;
+}
+html,body{height:100%}
+body{
+  background:
+    radial-gradient(1200px 600px at 15% -10%, #1a2030 0%, transparent 60%),
+    radial-gradient(900px 500px at 90% 0%, #201a2c 0%, transparent 55%),
+    var(--board);
+  color:var(--ink); font-family:var(--sans); padding:34px 26px 56px;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- 页头 ---------- */
+.hero{max-width:1400px;margin:0 auto 26px}
+.hero .kicker{font-size:12px;letter-spacing:.22em;color:#5f6878;text-transform:uppercase;margin-bottom:10px}
+.hero h1{font-size:26px;font-weight:650;letter-spacing:.01em}
+.hero h1 small{font-weight:400;color:var(--sub);font-size:14px;margin-left:10px;letter-spacing:0}
+.hero p{margin-top:10px;font-size:13.5px;color:var(--sub);line-height:1.7;max-width:860px}
+.hero .tags{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+.hero .tags span{font-size:12px;color:#9aa3b2;border:1px solid var(--line);border-radius:999px;padding:5px 11px;background:#12151b}
+
+/* ---------- 板面 ---------- */
+.board{max-width:1400px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:24px}
+.panel{background:#12151a;border:1px solid var(--line);border-radius:18px;overflow:hidden;display:flex;flex-direction:column}
+.panel .meta{padding:16px 18px 14px;border-bottom:1px solid var(--line)}
+.panel .meta h2{font-size:15.5px;font-weight:650;display:flex;align-items:baseline;gap:9px}
+.panel .meta h2 em{font-style:normal;font-size:11.5px;color:#5f6878;letter-spacing:.14em;text-transform:uppercase}
+.panel .meta p{font-size:12.5px;color:var(--sub);margin-top:7px;line-height:1.6}
+.panel .meta .kw{margin-top:9px;display:flex;gap:6px;flex-wrap:wrap}
+.panel .meta .kw i{font-style:normal;font-size:11px;color:#8b93a3;border:1px solid var(--line);border-radius:6px;padding:3px 8px}
+.stage{height:452px;display:flex;align-items:center;justify-content:center;padding:30px;position:relative;overflow:hidden}
+
+/* ---------- 卡片公共骨架 ---------- */
+.card{
+  width:320px;height:406px;padding:20px 18px 16px;position:relative;
+  display:flex;flex-direction:column;z-index:2;flex:0 0 auto;
+  transition:transform .35s cubic-bezier(.22,.61,.36,1), box-shadow .35s ease;
+}
+.stage:hover .card{transform:translateY(-4px)}
+.top{display:flex;align-items:flex-end;gap:12px;justify-content:space-between}
+.top .time{font-size:30px;font-weight:600;letter-spacing:-.02em;line-height:1}
+.top .date{text-align:right;line-height:1.35}
+.top .date b{font-size:13.5px;font-weight:600;display:block}
+.top .date i{font-style:normal;font-size:11px;opacity:.62;display:block}
+.week{display:grid;grid-template-columns:repeat(7,1fr);margin-top:16px;padding-bottom:7px}
+.week span{text-align:center;font-size:10.5px;letter-spacing:.08em;opacity:.55}
+.grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;flex:1;align-content:center;margin-top:5px}
+.grid .cell{display:flex;align-items:center;justify-content:center;height:38px;position:relative;font-size:13px;font-weight:500}
+.grid .cell b{font-weight:inherit;position:relative;z-index:2;line-height:1}
+.grid .cell.dim{opacity:.26}
+.grid .cell.today b{font-weight:700}
+.grid .cell.dot::after{content:"";position:absolute;left:50%;bottom:5px;width:4px;height:4px;border-radius:50%;transform:translateX(-50%);background:currentColor;opacity:.75}
+.bar{display:flex;align-items:center;gap:6px;margin-top:auto;padding-top:13px}
+.bar .ic{width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;cursor:default;flex:0 0 auto}
+.bar .ym{font-size:12.5px;font-weight:600;letter-spacing:.01em}
+.bar .sp{flex:1}
+.bar .pill{font-size:11.5px;font-weight:600;padding:5px 11px;border-radius:999px}
+
+/* ============================================================
+   ① 现代极简 Modern Minimal
+   ============================================================ */
+.s-minimal{background:#f5f5f6}
+.s-minimal .card{background:#fff;border:1px solid #e8e8ea;border-radius:16px;
+  box-shadow:0 1px 2px rgba(16,24,40,.04),0 10px 28px rgba(16,24,40,.06);color:#18181b}
+.s-minimal .top .date b{color:#3f3f46}
+.s-minimal .top .date i{color:#a1a1aa}
+.s-minimal .week{border-bottom:1px solid #f1f1f2;color:#a1a1aa}
+.s-minimal .grid .cell{border-radius:9px;color:#3f3f46}
+.s-minimal .grid .cell.dim{color:#d4d4d8}
+.s-minimal .grid .cell.hol{color:#ef4444}
+.s-minimal .grid .cell.today{border-radius:50%}
+.s-minimal .grid .cell.today b{color:#fff;width:30px;height:30px;border-radius:50%;background:#18181b;display:flex;align-items:center;justify-content:center}
+.s-minimal .bar{border-top:1px solid #f1f1f2}
+.s-minimal .bar .ic{color:#71717a;border-radius:7px}
+.s-minimal .bar .ym{color:#18181b}
+.s-minimal .bar .pill{color:#fff;background:#18181b}
+
+/* ============================================================
+   ② 玻璃拟态 Glassmorphism
+   ============================================================ */
+.s-glass{background:
+  radial-gradient(130px 130px at 46% 40%,rgba(255,255,255,.9) 0%,rgba(255,255,255,0) 74%),
+  radial-gradient(110px 110px at 76% 72%,#ff6fc4 0%,rgba(255,111,196,0) 72%),
+  radial-gradient(240px 240px at 20% 24%,#ff7ac8 0%,transparent 70%),
+  radial-gradient(280px 280px at 80% 20%,#7c6bff 0%,transparent 72%),
+  radial-gradient(320px 320px at 64% 90%,#2fc6ff 0%,transparent 70%),
+  linear-gradient(150deg,#2a1d52,#0e1132 60%,#1d1546)}
+.s-glass .card{
+  background:linear-gradient(145deg,rgba(255,255,255,.30),rgba(255,255,255,.12));
+  -webkit-backdrop-filter:blur(26px) saturate(2.1);backdrop-filter:blur(26px) saturate(2.1);
+  border:1px solid rgba(255,255,255,.58);border-radius:24px;color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.78),inset 0 -1px 0 rgba(255,255,255,.20),0 20px 54px rgba(18,8,58,.48)}
+.s-glass .card::after{content:"";position:absolute;inset:0;border-radius:24px;pointer-events:none;
+  background:linear-gradient(118deg,rgba(255,255,255,.34) 0%,rgba(255,255,255,0) 44%)}
+.s-glass .top .date b{color:#fff}
+.s-glass .top .date i{color:rgba(255,255,255,.72)}
+.s-glass .week{color:rgba(255,255,255,.72);border-bottom:1px solid rgba(255,255,255,.20)}
+.s-glass .grid .cell{color:#fff;border-radius:9px;text-shadow:0 1px 3px rgba(20,10,60,.35)}
+.s-glass .grid .cell.dim{color:rgba(255,255,255,.5)}
+.s-glass .grid .cell.hol{color:#ffd0e2}
+.s-glass .grid .cell.today b{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.92);
+  color:#2a1b52;display:flex;align-items:center;justify-content:center;text-shadow:none}
+.s-glass .bar{border-top:1px solid rgba(255,255,255,.20)}
+.s-glass .bar .ic{color:#fff;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.26);border-radius:9px}
+.s-glass .bar .pill{color:#2a1b52;background:rgba(255,255,255,.92)}
+
+/* ============================================================
+   ③ 新拟态 Neumorphism
+   ============================================================ */
+.s-neu{background:#dde4ee}
+.s-neu .card{background:#dde4ee;border-radius:26px;color:#54606f;
+  box-shadow:20px 20px 40px #b0b9c9,-20px -20px 40px #ffffff}
+.s-neu .top .time{color:#414b5c}
+.s-neu .top .date b{color:#4c5361}
+.s-neu .top .date i{color:#8f98a8}
+.s-neu .week{color:#8f98a8}
+.s-neu .grid .cell{color:#5b6472;border-radius:50%}
+.s-neu .grid .cell.dim{color:#aeb6c3}
+.s-neu .grid .cell.hol{color:#c96a63}
+.s-neu .grid .cell.today{box-shadow:inset 4px 4px 9px #b0b9c9,inset -4px -4px 9px #ffffff}
+.s-neu .grid .cell.today b{color:#3f6ea8;font-weight:700}
+.s-neu .bar .ic{color:#6a7484;background:#dde4ee;box-shadow:3px 3px 7px #b0b9c9,-3px -3px 7px #ffffff}
+.s-neu .bar .ym{color:#414b5c}
+.s-neu .bar .pill{color:#3f6ea8;box-shadow:3px 3px 7px #b0b9c9,-3px -3px 7px #ffffff}
+
+/* ============================================================
+   ④ 科技感 Tech / HUD
+   ============================================================ */
+.s-tech{background:
+  linear-gradient(rgba(34,211,238,.055) 1px,transparent 1px) 0 0/26px 26px,
+  linear-gradient(90deg,rgba(34,211,238,.055) 1px,transparent 1px) 0 0/26px 26px,
+  radial-gradient(420px 260px at 70% 12%,rgba(34,211,238,.14),transparent 70%),
+  #070b12}
+.s-tech .card{background:linear-gradient(160deg,#0e1622,#0a1017);border:1px solid rgba(34,211,238,.24);
+  border-radius:12px;color:#8ff0ff;font-family:var(--mono);
+  box-shadow:0 0 34px rgba(34,211,238,.12),inset 0 0 46px rgba(34,211,238,.05)}
+.s-tech .card::before,.s-tech .card::after{content:"";position:absolute;width:16px;height:16px;pointer-events:none}
+.s-tech .card::before{top:-1px;left:-1px;border-top:2px solid #22d3ee;border-left:2px solid #22d3ee}
+.s-tech .card::after{bottom:-1px;right:-1px;border-bottom:2px solid #22d3ee;border-right:2px solid #22d3ee}
+.s-tech .top .time{color:#5ff0ff;text-shadow:0 0 14px rgba(34,211,238,.6);font-weight:600;letter-spacing:.02em}
+.s-tech .top .date b{color:#a9f3ff;letter-spacing:.06em}
+.s-tech .top .date i{color:rgba(143,240,255,.55);letter-spacing:.06em}
+.s-tech .week{color:rgba(143,240,255,.5);border-bottom:1px solid rgba(34,211,238,.22);text-transform:uppercase}
+.s-tech .grid .cell{color:#a9f3ff;border-radius:6px}
+.s-tech .grid .cell.dim{color:rgba(143,240,255,.22)}
+.s-tech .grid .cell.hol{color:#ffb454}
+.s-tech .grid .cell.today b{width:30px;height:30px;border-radius:6px;background:#22d3ee;color:#04121b;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 0 16px rgba(34,211,238,.75)}
+.s-tech .bar{border-top:1px solid rgba(34,211,238,.22)}
+.s-tech .bar .ic{color:#22d3ee;border:1px solid rgba(34,211,238,.32);border-radius:6px}
+.s-tech .bar .ym{color:#5ff0ff;letter-spacing:.08em}
+.s-tech .bar .pill{color:#04121b;background:#22d3ee;box-shadow:0 0 14px rgba(34,211,238,.6);border-radius:6px}
+
+/* ============================================================
+   ⑤ 温润拟物 Warm Skeuomorphic
+   ============================================================ */
+.s-warm{background:
+  radial-gradient(600px 380px at 50% 40%,rgba(255,255,255,.30),transparent 70%),
+  repeating-linear-gradient(45deg,rgba(120,90,50,.030) 0 2px,transparent 2px 5px),
+  linear-gradient(150deg,#dccbb0,#cdb896)}
+.s-warm .card{background:linear-gradient(#fffdf7,#faf3e6);border:1px solid #e7dbc4;border-radius:14px;color:#4a3f33;
+  font-family:var(--serif);
+  box-shadow:0 1px 0 #fff inset,0 14px 30px rgba(120,90,50,.20),0 3px 6px rgba(120,90,50,.13)}
+.s-warm .top .time{color:#7a5a34;font-weight:700;letter-spacing:.01em}
+.s-warm .top .date b{color:#5b4a36}
+.s-warm .top .date i{color:#9a8467}
+.s-warm .week{color:#9a8467;border-bottom:1px double #e0d2b6}
+.s-warm .grid .cell{color:#4a3f33;border-radius:50%}
+.s-warm .grid .cell.dim{color:#c4b193}
+.s-warm .grid .cell.hol{color:#b3402f}
+.s-warm .grid .cell.today b{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  color:#fff8ee;background:radial-gradient(circle at 32% 28%,#d98a55,#b5602f);
+  box-shadow:0 2px 5px rgba(120,60,20,.35),inset 0 1px 0 rgba(255,255,255,.4)}
+.s-warm .bar{border-top:1px solid #ece0ca}
+.s-warm .bar .ic{color:#8a7355;background:linear-gradient(#fffdf8,#f2e8d6);border:1px solid #e4d7bf;border-radius:8px;
+  box-shadow:0 1px 0 #fff inset,0 1px 2px rgba(120,90,50,.14)}
+.s-warm .bar .ym{color:#6b5540}
+.s-warm .bar .pill{color:#fff8ee;background:linear-gradient(#c9824c,#ab5f2e);box-shadow:0 1px 0 rgba(255,255,255,.35) inset,0 2px 4px rgba(120,60,20,.28)}
+
+/* ---------- 页脚 ---------- */
+.foot{max-width:1400px;margin:30px auto 0;font-size:12.5px;color:#5f6878;line-height:1.8}
+.foot b{color:#9aa3b2;font-weight:600}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="kicker">Style Direction · 风格方向探索</div>
+  <h1>简洁桌面日历 <small>同一张迷你日历卡，5 种视觉方向并列对比</small></h1>
+  <p>以下是<b>同一天（2026 年 9 月 10 日 星期四）</b>在同一张卡片上、用 5 种视觉语言渲染的效果。只用于<b>定方向</b>——确定后我再把整套 UI（日历 / 桌面插件 / 放大窗口 / 设置 / 皮肤窗 / 图标 / 安装界面）按选定方向完整重设计。数字 25 是节假日示例，15 号下的小点是「特别关注」示例。</p>
+  <div class="tags">
+    <span>① 现代极简</span><span>② 玻璃拟态</span><span>③ 新拟态</span><span>④ 科技感</span><span>⑤ 温润拟物</span>
+  </div>
+</header>
+
+<main class="board">
+
+  <!-- ① 现代极简 -->
+  <section class="panel">
+    <div class="meta">
+      <h2>① 现代极简 <em>Modern Minimal</em></h2>
+      <p>大量留白 + 极细边框 + 单一强调色。靠排版、层次和"少"取胜，最耐看、最不容易过时。</p>
+      <div class="kw"><i>留白</i><i>细线</i><i>无渐变</i><i>黑白强调</i></div>
+    </div>
+    <div class="stage s-minimal">
+      <div class="card">
+        <div class="top"><div class="time">20:41</div><div class="date"><b>9月10日</b><i>星期四 · 八月十九</i></div></div>
+        <div class="week"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+        <div class="grid"></div>
+        <div class="bar"><span class="ic">‹</span><span class="ym">2026年 9月</span><span class="ic">›</span><span class="sp"></span><span class="pill">今</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ② 玻璃拟态 -->
+  <section class="panel">
+    <div class="meta">
+      <h2>② 玻璃拟态 <em>Glassmorphism</em></h2>
+      <p>磨砂玻璃、强模糊、彩色光斑从背后透出。在壁纸上"浮"着，视觉最抓眼、最有现代感。</p>
+      <div class="kw"><i>毛玻璃</i><i>模糊</i><i>描边高光</i><i>彩色光斑</i></div>
+    </div>
+    <div class="stage s-glass">
+      <div class="card">
+        <div class="top"><div class="time">20:41</div><div class="date"><b>9月10日</b><i>星期四 · 八月十九</i></div></div>
+        <div class="week"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+        <div class="grid"></div>
+        <div class="bar"><span class="ic">‹</span><span class="ym">2026年 9月</span><span class="ic">›</span><span class="sp"></span><span class="pill">今</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ③ 新拟态 -->
+  <section class="panel">
+    <div class="meta">
+      <h2>③ 新拟态 <em>Neumorphism</em></h2>
+      <p>同色系靠双向阴影"挤出/压下"出立体感，柔和但对比度低。好看但有可读性风险，需谨慎用。</p>
+      <div class="kw"><i>柔和凸起</i><i>内凹按压</i><i>低对比</i><i>单色系</i></div>
+    </div>
+    <div class="stage s-neu">
+      <div class="card">
+        <div class="top"><div class="time">20:41</div><div class="date"><b>9月10日</b><i>星期四 · 八月十九</i></div></div>
+        <div class="week"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+        <div class="grid"></div>
+        <div class="bar"><span class="ic">‹</span><span class="ym">2026年 9月</span><span class="ic">›</span><span class="sp"></span><span class="pill">今</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ④ 科技感 -->
+  <section class="panel">
+    <div class="meta">
+      <h2>④ 科技感 <em>Tech / HUD</em></h2>
+      <p>深色底 + 青蓝霓虹 + 网格与四角切角，数字用等宽字体。像仪表盘/HUD，酷但偏"工具硬核"。</p>
+      <div class="kw"><i>深色</i><i>霓虹发光</i><i>网格底纹</i><i>等宽数字</i></div>
+    </div>
+    <div class="stage s-tech">
+      <div class="card">
+        <div class="top"><div class="time">20:41</div><div class="date"><b>9月10日</b><i>星期四 · 八月十九</i></div></div>
+        <div class="week"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+        <div class="grid"></div>
+        <div class="bar"><span class="ic">‹</span><span class="ym">2026-09</span><span class="ic">›</span><span class="sp"></span><span class="pill">今</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑤ 温润拟物 -->
+  <section class="panel">
+    <div class="meta">
+      <h2>⑤ 温润拟物 <em>Warm &amp; Tactile</em></h2>
+      <p>纸张质感、暖棕配色、衬线字与柔和投影，像一本桌面台历。亲切、耐看、有"实物感"。</p>
+      <div class="kw"><i>纸感</i><i>暖棕</i><i>衬线字</i><i>柔和立体</i></div>
+    </div>
+    <div class="stage s-warm">
+      <div class="card">
+        <div class="top"><div class="time">20:41</div><div class="date"><b>9月10日</b><i>星期四 · 八月十九</i></div></div>
+        <div class="week"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+        <div class="grid"></div>
+        <div class="bar"><span class="ic">‹</span><span class="ym">2026年 9月</span><span class="ic">›</span><span class="sp"></span><span class="pill">今</span></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<p class="foot">
+  <b>怎么选：</b>先挑"第一眼就想用"的那张，再看它放到深色壁纸/浅色壁纸上是否都成立。<b>可以组合</b>——例如「① 的排版 + ② 的质感」也是很常见的现代做法。选定后我会输出完整设计规范（配色 / 字号 / 圆角 / 阴影 / 动效）再落到各个界面。
+</p>
+
+<script>
+/* 2026 年 9 月（周一起始），10 号是今天（周四），25 号中秋示例，15 号挂"特别关注"小点 */
+(function () {
+  var CELLS = [
+    { d: '31', dim: 1 }, { d: '1' }, { d: '2' }, { d: '3' }, { d: '4' }, { d: '5' }, { d: '6' },
+    { d: '7' }, { d: '8' }, { d: '9' }, { d: '10', today: 1 }, { d: '11' }, { d: '12' }, { d: '13' },
+    { d: '14' }, { d: '15', dot: 1 }, { d: '16' }, { d: '17' }, { d: '18' }, { d: '19' }, { d: '20' },
+    { d: '21' }, { d: '22' }, { d: '23' }, { d: '24' }, { d: '25', hol: 1 }, { d: '26' }, { d: '27' },
+    { d: '28' }, { d: '29' }, { d: '30' }, { d: '1', dim: 1 }, { d: '2', dim: 1 }, { d: '3', dim: 1 }, { d: '4', dim: 1 }
+  ];
+  var grids = document.querySelectorAll('.grid');
+  for (var g = 0; g < grids.length; g++) {
+    var html = '';
+    for (var i = 0; i < CELLS.length; i++) {
+      var c = CELLS[i], cls = 'cell';
+      if (c.dim) cls += ' dim';
+      if (c.today) cls += ' today';
+      if (c.hol) cls += ' hol';
+      if (c.dot) cls += ' dot';
+      html += '<span class="' + cls + '"><b>' + c.d + '</b></span>';
+    }
+    grids[g].innerHTML = html;
+  }
+})();
+</script>
+</body>
+</html>

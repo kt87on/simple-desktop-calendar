@@ -4,6 +4,25 @@
 
 ---
 
+## [3.0.0] - 2026-09-11
+
+### 变更（破坏性：皮肤数据结构 v2 → v3）
+- **皮肤模型拆为正交双维度 + 独立明暗轴**：旧的单一 `type`（light/dark/system/color/image）拆成 **`style`（风格材质）`{default,minimal,glass,neu,tech,warm}`** × **`bg`（背景来源）`{native,image}`**，并新增 **`tone`（明暗轴）`{auto,light,dark,system}`**。每面结构变为 `{style,bg,image,text,clarity,tone}`（`expanded/desktop` 另带 `follow`），`settings.json` 的 `skin.__v` 升级为 `3`。
+- **文字轴与整窗明暗解耦**：`text`（`auto|light|dark`）今后**只**控制文字深浅，整窗 `data-theme` 由 `tone` 推导，彻底修复 v2 时代「一调深浅字、整窗跟着变黑/白」的根因（文字轴不再退化）。
+- **`color` 类型删除**：纯色皮肤从用户可选集移除（自定义色值不再保留）；`bg=image` 但无图时仍是内部 `color` 兜底态（绝不白屏）。
+
+### 新增
+- **风格自带原生明暗（`styleNativeTheme`）**：`tech` → 深色，其余风格 → 浅色；`tone='auto'` 时按风格取明暗。
+- **明暗优先级链（`surfaceTheme`）**：① `bg=image` 且有图 → 按照片亮暗（`image.dark`，压过 `tone`）→ ② `tone='light'` → ③ `tone='dark'` → ④ `tone='system'`（跟随系统深浅）→ ⑤ `tone='auto'`（风格自带）。
+- **低对比组合标记（`warn`）**：浅底配浅字 / 深底配深字时，下发 `warn=true`（皮肤窗提示），渲染层据此把清晰度下限抬到 35（`effectiveClarity`），保证可读。
+- **皮肤窗新增明暗段（`tone`）× 6 风格选择器**：`skin.html` 由 v2 的「5 类型」升级为「4 界面分段 + 6 风格 + 明暗段」。
+- **`cleanupStaleInstances` 残留清理加固（dev 隔离）**：dev 形态（`!app.isPackaged`）**直接短路**、不再做生产清理；进程名改用 `path.basename(process.execPath)` 不再硬编码；新增安全网——若「自己」不在候选集则记日志后放弃，绝不 `taskkill`（杜绝 dev 误杀真实 `SimpleCalendar.exe` 实例）。
+
+### 迁移
+- **v2 → v3 一次性迁移（`migrateSkinV2toV3`）**：`light`→`minimal`/tone:light、`dark`→`minimal`/tone:dark、`system`→`minimal`/tone:system、`color`→`default`/tone:auto（丢色值）、`image`→`default`/tone:auto + `bg:image`（图片与 `text`/`clarity`/`follow` 原样保留），写 `__v=3`；已是 v3 的数据走 `normalizeSkinV3` 补齐兜底。旧键（`type`/`color`/`skinMode`/`nativeSkin`/`skinColor` 等）迁移后停写。
+
+---
+
 ## [2.4.4] - 2026-09-07
 
 ### 新增

@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, screen, nativeImage, nativeTheme, ipcMain, Menu, dialog, protocol, net } = require('electron');
+const { app, BrowserWindow, Tray, screen, nativeImage, nativeTheme, ipcMain, Menu, dialog, protocol, net, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -59,13 +59,17 @@ function loadSettings() {
     if (!f) return;
     const o = JSON.parse(fs.readFileSync(f, 'utf8'));
     if (o && typeof o === 'object') {
-      /* v2.4.0 第二轮：皮肤 per-surface 结构 + 一次性迁移。
-       * 已迁移（skin.__v===2）→ normalizeSkin 直接读新结构；否则 migrateSkin 从旧字段一次性迁移。
-       * 迁移后 saveSettings 只写 skin，不再写 theme/skinMode/nativeSkin/skinColor 等旧键。 */
-      if (o.skin && o.skin.__v === 2 && o.skin.surfaces) {
-        skin = normalizeSkin(o.skin);
+      /* v3.0.0：皮肤 per-surface 结构（style × bg 双维度）+ 一次性迁移。
+       * __v===3 → normalizeSkinV3 直接读新结构；
+       * __v===2 → migrateSkinV2toV3（type → style/bg）；
+       * 更老（第一批旧字段）→ 先走既有 migrateSkin（产 v2）再过一遍 V2toV3。
+       * 迁移后 saveSettings 只写 v3 新结构，不再写 theme/skinMode/nativeSkin/skinColor 等旧键。 */
+      if (o.skin && o.skin.__v === 3 && o.skin.surfaces) {
+        skin = normalizeSkinV3(o.skin);
+      } else if (o.skin && o.skin.__v === 2 && o.skin.surfaces) {
+        skin = migrateSkinV2toV3(o.skin);
       } else {
-        skin = migrateSkin(o);
+        skin = migrateSkinV2toV3(migrateSkin(o));
       }
       pinned = o.pinned !== false;
       autoLaunch = o.autoLaunch !== false;
@@ -158,12 +162,16 @@ function validHex(v) {
 }
 
 /* =====================================================================
- * v2.4.0 第二轮 皮肤中枢（主进程是唯一真相）
+ * v3.0.0 皮肤中枢（主进程是唯一真相）
  * ---------------------------------------------------------------------
  * - skin.surfaces{calendar,expanded,desktop,dock}：per-surface 配置树。
+ *   每面 { style, bg, image, text, clarity, tone }（expanded/desktop 另带 follow）。
+ *   style ∈ {default,minimal,glass,neu,tech,warm}（风格材质，正交维度）；
+ *   bg    ∈ {native,image}（背景来源，正交维度，可与 style 叠加）；
+ *   tone  ∈ {auto,light,dark,system}（明暗轴：显式浅/深/跟随系统/按风格）；默认 auto。
  * - resolveSurfaceConfig(surface)：expanded/desktop 跟随日历 → 返回 calendar 配置。
- * - surfaceTheme(surface)：per-surface 生效明暗（light/dark/system/color/image）。
- * - surfaceBg(surface)：背景层类型（native/color/image）。
+ * - surfaceTheme(surface)：整窗明暗 = 图片暗 > tone 显式值/system > style nativeTheme，与 text 解耦。
+ * - surfaceBg(surface)：背景层类型（native/color/image；color 仅无图兜底时出现）。
  * - baseTheme()：非表面窗口 + 托盘跟随「日历表面」生效明暗。
  * - resolvedSurfaceState(surface)：下发给渲染层的 ResolvedSurfaceState。
  * ===================================================================== */
@@ -176,37 +184,44 @@ function resolveSurfaceConfig(surface) {
   return c;
 }
 
+/* v3.0.0：每个风格自带 nativeTheme（原生底默认明暗）。tech → dark，其余 → light。 */
+function styleNativeTheme(style) {
+  return (style === 'tech') ? 'dark' : 'light';
+}
+
+/* v3.0.0 R5：整窗明暗（= data-theme）按固定优先级推导（顺序不能错），且与文字轴 text 完全解耦。
+ *   ① bg=image 且有图 → 按照片亮暗（用户选了照片就按照片来；tone 被忽略但保留设置值不清空）
+ *   ② tone='light'   → 显式浅底
+ *   ③ tone='dark'    → 显式深底
+ *   ④ tone='system'  → 跟随系统深浅
+ *   ⑤ tone='auto'    → 风格自带原生明暗（styleNativeTheme）
+ * 修复 v2 时代把 text（深/浅字）误当整窗明暗、导致「一调深浅字整窗变黑/白」的根因（不退化）。 */
 function surfaceTheme(surface) {
   var c = resolveSurfaceConfig(surface);
-  if (c.type === 'light') return 'light';
-  if (c.type === 'dark') return 'dark';
-  if (c.type === 'system') {
+  if (c.bg === 'image' && c.image) return c.image.dark ? 'dark' : 'light';
+  if (c.tone === 'light') return 'light';
+  if (c.tone === 'dark') return 'dark';
+  if (c.tone === 'system') {
     try { return (nativeTheme && nativeTheme.shouldUseDarkColors) ? 'dark' : 'light'; }
     catch (e) { return 'light'; }
   }
-  if (c.text === 'light') return 'light';
-  if (c.text === 'dark') return 'dark';
-  var dark = false;
-  if (c.type === 'color') dark = isDarkColor(c.color);
-  else if (c.type === 'image') dark = !!(c.image && c.image.dark);
-  return dark ? 'dark' : 'light';
+  return styleNativeTheme(c.style);
 }
 
-/* image 类型但尚未导入图片时的兜底纯色（绝不透明）。
- * text=light/dark 直接取对应底色；auto 跟随该表面当前生效明暗（image 缺失时 surfaceTheme 已回退浅色）。 */
+/* v3.0.0：bg=image 但图片缺失/解码失败时的兜底纯色（绝不透明/白屏）。
+ * v3.0.0 R5：基色跟随**生效明暗 surfaceTheme()**（而非仅 style）—— 这样 tone 显式深/浅时，
+ * 兜底底色与整窗 data-theme 一致，不会出现「浅底兜底 + 深色 token」的低对比。
+ * 说明：surfaceTheme 在本分支（bg=image 无图）不会回落到图片分支，故无循环调用。 */
 function solidFallbackFor(c, surface) {
-  var theme;
-  if (c.text === 'light') theme = 'light';
-  else if (c.text === 'dark') theme = 'dark';
-  else theme = surfaceTheme(surface);
+  var theme = surfaceTheme(surface);
   return (theme === 'dark') ? '#1C202C' : '#FCFBF9';
 }
 
 function surfaceBg(surface) {
   var c = resolveSurfaceConfig(surface);
-  if (c.type === 'color') return { kind: 'color', color: c.color };
-  if (c.type === 'image') {
+  if (c.bg === 'image') {
     if (c.image && c.image.file) return { kind: 'image', image: c.image };
+    // bg=image 但无图（异常/尚未导入）→ 走纯色兜底，绝不白屏（kind:'color' 仅此处出现）
     return { kind: 'color', color: solidFallbackFor(c, surface) };
   }
   return { kind: 'native' };
@@ -216,14 +231,25 @@ function baseTheme() {
   return surfaceTheme('calendar');
 }
 
-/* v2.4.4：UI 清晰度生效值。手动值直接用；'auto' → image 类型按 complexity 推导
- * （clamp 20~85，保证总有基础保护），非 image（原生/纯色/无图兜底）→ 0（不引入多余灰罩）。 */
+/* v3.0.0 R5：是否存在任一界面处于「跟随系统」（tone==='system'）。
+ * 系统深浅变化时，只有命中此条件才需要重算/重推（否则皮肤明暗与 OS 无关）。 */
+function anySurfaceToneSystem() {
+  var names = ['calendar', 'expanded', 'desktop', 'dock'];
+  for (var i = 0; i < names.length; i++) {
+    var c = skin.surfaces[names[i]];
+    if (c && c.tone === 'system') return true;
+  }
+  return false;
+}
+
+/* v2.4.4：UI 清晰度生效值。手动值直接用；'auto' → bg=image 时按 complexity 推导
+ * （clamp 20~85，保证总有基础保护），其余（原生/无图兜底）→ 0（不引入多余灰罩）。 */
 function clarityForConfig(c) {
   if (!c) return 0;
   if (typeof c.clarity === 'number' && isFinite(c.clarity)) {
     return Math.max(0, Math.min(100, Math.round(c.clarity)));
   }
-  if (c.type === 'image') {
+  if (c.bg === 'image') {
     var cx = (c.image && typeof c.image.complexity === 'number' && isFinite(c.image.complexity)) ? c.image.complexity : 0;
     return Math.max(20, Math.min(85, Math.round(cx * 100)));
   }
@@ -232,10 +258,17 @@ function clarityForConfig(c) {
 
 function resolvedSurfaceState(surface) {
   var c = resolveSurfaceConfig(surface);
+  var theme = surfaceTheme(surface);
+  var text = (c.text === 'light' || c.text === 'dark') ? c.text : 'auto';   // 文字轴原值 'auto'|'light'|'dark'
+  // v3.0.0：低对比组合标记（浅底+浅字 / 深底+深字）→ 皮肤窗提示 + 渲染层 clarity 下限
+  var warn = (theme === 'light' && text === 'dark') || (theme === 'dark' && text === 'light');
   var bg = surfaceBg(surface);
   return {
-    type: c.type,
-    theme: surfaceTheme(surface),
+    style: c.style,
+    tone: (c.tone === 'light' || c.tone === 'dark' || c.tone === 'system') ? c.tone : 'auto',   // 明暗轴原值
+    theme: theme,
+    text: text,
+    warn: warn,
     bg: bg.kind,
     color: (bg.kind === 'color') ? bg.color : null,
     image: (bg.kind === 'image') ? bg.image : null,
@@ -391,6 +424,105 @@ function migrateSkin(o) {
     raw.surfaces.dock = { type: 'color', color: dockColor, image: null, text: 'auto' };
   }
   return normalizeSkin(raw);
+}
+
+/* =====================================================================
+ * v3.0.0 皮肤模型 v3（style × bg 双维度）归一化 + v2→v3 迁移
+ * ===================================================================== */
+
+/* 风格取值白名单：非法 → 'default' */
+function normStyle(v) {
+  return (v === 'minimal' || v === 'glass' || v === 'neu' || v === 'tech' || v === 'warm') ? v : 'default';
+}
+/* 背景来源白名单：非法 → 'native'（bg='color' 仅为内部兜底态，不再作为用户可选值） */
+function normBg(v) {
+  return (v === 'image') ? 'image' : 'native';
+}
+/* v3.0.0 R5：明暗轴白名单：非法（'x'/null/'LIGHT'/数字/缺失）→ 'auto' */
+function normTone(v) {
+  return (v === 'light' || v === 'dark' || v === 'system') ? v : 'auto';
+}
+/* v3 单面归一化。核心防白屏：bg='image' 但图缺失/非法 → 回落 bg='native'。 */
+function normalizeSurfaceV3(s, isFollowable) {
+  s = s || {};
+  var bg = normBg(s.bg);
+  var image = (bg === 'image') ? normalizeImageSpec(s.image) : null;
+  if (bg === 'image' && !image) { bg = 'native'; }   // 有 bg=image 但图缺失 → 回落原生，绝不白屏
+  var c = {
+    style: normStyle(s.style),
+    bg: bg,
+    image: image,
+    text: (s.text === 'light' || s.text === 'dark') ? s.text : 'auto',
+    clarity: normalizeClarity(s.clarity),
+    tone: normTone(s.tone)
+  };
+  if (isFollowable) {
+    c.follow = (s.follow === 'calendar') ? 'calendar' : null;
+  }
+  return c;
+}
+/* v3 归一化：已迁移数据（__v===3）直接读新结构时补齐/兜底。 */
+function normalizeSkinV3(raw) {
+  var out = { __v: 3, surfaces: {}, opacity: { calendar: 1, desktop: 1, dock: 1 } };
+  var names = ['calendar', 'expanded', 'desktop', 'dock'];
+  for (var i = 0; i < names.length; i++) {
+    var n = names[i];
+    var s = (raw && raw.surfaces && raw.surfaces[n]) || {};
+    out.surfaces[n] = normalizeSurfaceV3(s, (n === 'expanded' || n === 'desktop'));
+  }
+  if (raw && raw.opacity && typeof raw.opacity === 'object') {
+    out.opacity.calendar = clampOpacity(raw.opacity.calendar, 1);
+    out.opacity.desktop = clampOpacity(raw.opacity.desktop, 1);
+    out.opacity.dock = clampOpacity(raw.opacity.dock, 1);
+  }
+  return out;
+}
+
+/* v2 type → v3 (style, tone, bg) 映射（v3.0.0 R5 用户拍板，覆盖上一轮）：
+ *   light  → minimal / tone:light  / native
+ *   dark   → minimal / tone:dark   / native   （旧「黑夜」→ 极简·深色）
+ *   system → minimal / tone:system / native   （旧「跟随系统」→ 极简·跟随系统，语义不失真）
+ *   color  → default / tone:auto   / native   （纯色被删，自定义色值丢弃）
+ *   image  → default / tone:auto   / bg:'image'（图片原样保留） */
+var V2_TYPE_MAP = {
+  light:  { style: 'minimal', tone: 'light' },
+  dark:   { style: 'minimal', tone: 'dark' },
+  system: { style: 'minimal', tone: 'system' },
+  color:  { style: 'default', tone: 'auto' },
+  image:  { style: 'default', tone: 'auto' }
+};
+function migrateSkinV2toV3(v2) {
+  var src = (v2 && v2.surfaces) ? v2 : normalizeSkin(v2);   // 传入既非 v2 结构时先兜底归一
+  var out = { __v: 3, surfaces: {}, opacity: { calendar: 1, desktop: 1, dock: 1 } };
+  var names = ['calendar', 'expanded', 'desktop', 'dock'];
+  for (var i = 0; i < names.length; i++) {
+    var n = names[i];
+    var s = (src.surfaces && src.surfaces[n]) || {};
+    var oldType = (s.type === 'dark' || s.type === 'system' || s.type === 'color' || s.type === 'image') ? s.type : 'light';
+    var map = V2_TYPE_MAP[oldType] || V2_TYPE_MAP.light;
+    var bg = (oldType === 'image') ? 'image' : 'native';
+    // 旧 image 的 file/snapshot/w/h/crop/zoom/opacity/dark/complexity 原样保留（normalizeImageSpec 仅做范围夹取，不删字段/文件）
+    var image = (oldType === 'image') ? normalizeImageSpec(s.image) : null;
+    if (bg === 'image' && !image) { bg = 'native'; }   // 旧 image 缺失 → 回落原生，防白屏
+    var c = {
+      style: map.style,
+      tone: map.tone,
+      bg: bg,
+      image: image,
+      text: (s.text === 'light' || s.text === 'dark') ? s.text : 'auto',   // 原样保留
+      clarity: normalizeClarity(s.clarity)                                 // 原样保留
+    };
+    if (n === 'expanded' || n === 'desktop') {
+      c.follow = (s.follow === 'calendar') ? 'calendar' : null;            // 原样保留
+    }
+    out.surfaces[n] = c;
+  }
+  if (src.opacity && typeof src.opacity === 'object') {
+    out.opacity.calendar = clampOpacity(src.opacity.calendar, 1);
+    out.opacity.desktop = clampOpacity(src.opacity.desktop, 1);
+    out.opacity.dock = clampOpacity(src.opacity.dock, 1);
+  }
+  return out;
 }
 
 /* 皮肤状态下发 + 窗口背景。v2.4.2：窗口背景**始终透明**（#00000000）。
@@ -675,8 +807,10 @@ function importSkinImage(surface, srcPath) {
   }
 }
 
-/* v2.4.0 第二轮：皮肤写操作统一入口（skin.html → skin-set）。
- * field ∈ type/color/text/follow/opacity/image。处理 follow 取消时的 copy-on-write 物化。 */
+/* v2.4.0 第二轮 / v3.0.0：皮肤写操作统一入口（skin.html → skin-set）。
+ * field ∈ style/bg/tone/text/follow/opacity/image。处理 follow 取消时的 copy-on-write 物化。
+ * 注意：此处**不做** normalizeSkinV3 的整体回落 —— bg='image' 允许「已选图片但尚未导入」的过渡态
+ * （渲染层走 solidFallbackFor 兜底不白屏）；仅在 loadSettings 归一化时对无图 bg=image 回落 native。 */
 function applySkinSet(payload) {
   var surface = payload && payload.surface;
   var field = payload && payload.field;
@@ -686,15 +820,16 @@ function applySkinSet(payload) {
   var c = skin.surfaces[surface];
   if (!c) return;
 
-  if (field === 'type') {
-    var t = (value === 'dark' || value === 'system' || value === 'color' || value === 'image') ? value : 'light';
-    c.type = t;
-    if (t !== 'color') c.color = null;
-    if (t !== 'image') c.image = null;
-    if (t === 'light' || t === 'dark' || t === 'system') c.text = 'auto';
-  } else if (field === 'color') {
-    c.color = validHex(value);
-    if (c.color) { c.type = 'color'; c.image = null; }
+  if (field === 'style') {
+    // v3.0.0：风格材质（6 选一）。与 bg/tone 正交，不改背景来源与明暗轴。
+    c.style = normStyle(value);
+  } else if (field === 'bg') {
+    // v3.0.0：背景来源（native | image）。切回 native 时丢弃图片引用（不删盘上文件）。
+    c.bg = normBg(value);
+    if (c.bg === 'native') c.image = null;
+  } else if (field === 'tone') {
+    // v3.0.0 R5：明暗轴（auto | light | dark | system）。非法值归一为 'auto'，不写脏数据。
+    c.tone = normTone(value);
   } else if (field === 'text') {
     c.text = (value === 'light' || value === 'dark') ? value : 'auto';
   } else if (field === 'follow') {
@@ -702,14 +837,15 @@ function applySkinSet(payload) {
       if (value === 'calendar') {
         c.follow = 'calendar';
       } else {
-        // 取消跟随 = copy-on-write：以日历当前配置为初始快照
+        // 取消跟随 = copy-on-write：以日历当前配置为初始快照（6 项：style/bg/image/text/clarity/tone）
         var cal = skin.surfaces.calendar;
         c.follow = null;
-        c.type = cal.type;
-        c.color = cal.color;
+        c.style = cal.style;
+        c.bg = cal.bg;
         c.image = cal.image ? JSON.parse(JSON.stringify(cal.image)) : null;
         c.text = cal.text;
         c.clarity = cal.clarity;   // v2.4.4：清晰度一并物化快照
+        c.tone = cal.tone;         // v3.0.0 R5：明暗轴一并物化快照（漏复制会丢明暗设置）
       }
     }
   } else if (field === 'clarity') {
@@ -723,7 +859,7 @@ function applySkinSet(payload) {
       applyOpacity(key);
     }
   } else if (field === 'image') {
-    // value = ImageSpec（皮肤窗取景后回写 file/crop/zoom）。渲染层回写的字段覆盖，
+    // value = ImageSpec（皮肤窗取景/导入后回写 file/crop/zoom/opacity）。渲染层回写的字段覆盖，
     // 缺失的 w/h/dark/snapshot 保留既有值（导入时主进程已算好），避免取景回写丢失亮度/冻结帧。
     if (value && typeof value === 'object' && value.file) {
       var prev = c.image || {};
@@ -735,10 +871,10 @@ function applySkinSet(payload) {
         crop: value.crop || prev.crop,
         zoom: (value.zoom !== undefined) ? value.zoom : prev.zoom,
         opacity: (value.opacity !== undefined) ? value.opacity : prev.opacity,
-        dark: (value.dark !== undefined) ? value.dark : prev.dark
+        dark: (value.dark !== undefined) ? value.dark : prev.dark,
+        complexity: (value.complexity !== undefined) ? value.complexity : prev.complexity
       });
-      c.type = 'image';
-      c.color = null;
+      c.bg = 'image';   // 有了图片 → 背景来源切到 image（与 style 叠加）
     }
   }
   recomputeTheme();
@@ -815,20 +951,43 @@ let themeMode = 'light';      // 'light' 白日 | 'dark' 黑夜
 let pinned = true;             // 主窗置顶
 let autoLaunch = true;         // 开机自启
 
-/* ===== v2.4.0 第二轮 皮肤（per-surface 配置树，主进程唯一真相） =====
- * skin.surfaces{calendar,expanded,desktop,dock}：每界面独立 type(light|dark|system|color|image)
- *   + color/image/text(auto|light|dark)；expanded/desktop 带 follow('calendar'|null)。
+/* ===== v3.0.0 皮肤（per-surface 配置树，主进程唯一真相；style × bg 双维度 + tone 明暗轴） =====
+ * skin.surfaces{calendar,expanded,desktop,dock}：每界面独立 style（风格材质）
+ *   + bg（背景来源 native|image）+ tone（明暗 auto|light|dark|system）
+ *   + image/text(auto|light|dark)/clarity；expanded/desktop 带 follow('calendar'|null)。
  * skin.opacity{calendar,desktop,dock}：透明度（opacity.calendar 同时作用于 mini/max 同一窗口）。 */
 let skin = {
-  __v: 2,
+  __v: 3,
   surfaces: {
-    calendar: { type: 'light', color: null, image: null, text: 'auto', clarity: 'auto' },
-    expanded: { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto', clarity: 'auto' },
-    desktop:  { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto', clarity: 'auto' },
-    dock:     { type: 'light', color: null, image: null, text: 'auto', clarity: 'auto' }
+    calendar: { style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+    expanded: { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+    desktop:  { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+    dock:     { style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' }
   },
   opacity: { calendar: 1, desktop: 1, dock: 1 }
 };
+
+/* ===== v3.0.0：透明窗口公共参数收敛（§6 I1「四角黑角」集成点） =====
+ * 所有透明窗口（主窗/桌面插件/浮动/放大/设置/皮肤/关注列表/提醒/退出/节假日更新）
+ * 共用同一套基础参数 winBase()，一处改全局生效。
+ * ⚠ 「四角黑角」根因已实证为 template.html 的 CSS 特异性缺陷并已修复，与本处无关；
+ *    HAS_SHADOW 仅作**预留开关**（默认 true = 与现状一致，不改变任何窗口参数）。
+ *    如需关闭系统投影，把 HAS_SHADOW 改为 false 即可，无需逐个窗口改。**当前请勿改动。** */
+const HAS_SHADOW = true;
+function winBase(overrides) {
+  var base = {
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: HAS_SHADOW
+  };
+  if (overrides) {
+    for (var k in overrides) {
+      if (Object.prototype.hasOwnProperty.call(overrides, k)) base[k] = overrides[k];
+    }
+  }
+  return base;
+}
 
 /* ===== v1.7.20 任务栏挂件条（dock） =====
  * 用户要的"任务栏插件"：贴任务栏上沿右侧、始终可见的一个小条，
@@ -1645,11 +1804,10 @@ function buildReminderMenuItems() {
 }
 
 function toggleTheme() {
-  // v2.4.0 第二轮：托盘菜单「主题」= 日历表面 native light↔dark 快捷切换。
+  /* v3.0.0 R5：快捷「主题」切换 = 只切日历表面的**明暗轴 tone**（light ↔ dark），不动 style 材质。
+   * 「切明暗」与「换风格」两件事彻底分开。其它 tone 值（auto/system）一律切到 dark（再点切回 light）。 */
   var cal = skin.surfaces.calendar;
-  if (cal.type === 'system') cal.type = (themeMode === 'dark') ? 'light' : 'dark';
-  else cal.type = (cal.type === 'dark') ? 'light' : 'dark';
-  cal.color = null; cal.image = null; cal.text = 'auto';
+  cal.tone = (cal.tone === 'dark') ? 'light' : 'dark';
   recomputeTheme();
   pushThemeToAll();
   pushSkinToAll();
@@ -1813,13 +1971,13 @@ function pushDesktopState() {
 function createDesktopWidget() {
   if (desktopWin) return;
   try {
-    desktopWin = new BrowserWindow({
+    desktopWin = new BrowserWindow(winBase({
       width: DESKTOP_W, height: DESKTOP_H,
-      frame: false, transparent: true, resizable: false,
+      resizable: false,
       alwaysOnTop: false, skipTaskbar: true,
-      backgroundColor: '#00000000', show: false,
+      show: false,
       webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.js') }
-    });
+    }));
     desktopWin.loadFile(path.join(__dirname, 'calendar.html'), { query: { mode: 'desktopWidget' } });
     desktopWin.webContents.on('did-finish-load', function () {
       pushSkinToDesktop();   // v2.4.0 第二轮：桌面插件皮肤（skin-state 含 theme + 背景层）
@@ -1899,15 +2057,15 @@ function openSettingsWindow() {
   }
   const wa = screen.getPrimaryDisplay().workAreaSize;
   const W = 360, H = 600;
-  settingsWin = new BrowserWindow({
+  settingsWin = new BrowserWindow(winBase({
     width: W, height: H,
     x: Math.round((wa.width - W) / 2),
     y: Math.round((wa.height - H) / 2),
-    frame: false, transparent: true, resizable: false,
+    resizable: false,
     alwaysOnTop: true, skipTaskbar: true,
-    backgroundColor: '#00000000', show: false,
+    show: false,
     webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.js') }
-  });
+  }));
   settingsWin.setAlwaysOnTop(true, 'screen-saver');
   settingsWin.loadFile(path.join(__dirname, 'settings.html'), { query: { theme: themeMode } });
   settingsWin.once('ready-to-show', function () {
@@ -1926,15 +2084,15 @@ function openSkinWindow() {
   }
   const wa = screen.getPrimaryDisplay().workAreaSize;
   const W = 520, H = 620;
-  skinWin = new BrowserWindow({
+  skinWin = new BrowserWindow(winBase({
     width: W, height: H,
     x: Math.round((wa.width - W) / 2),
     y: Math.round((wa.height - H) / 2),
-    frame: false, transparent: true, resizable: false,
+    resizable: false,
     alwaysOnTop: true, skipTaskbar: true,
-    backgroundColor: '#00000000', show: false,
+    show: false,
     webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.js') }
-  });
+  }));
   skinWin.setAlwaysOnTop(true, 'screen-saver');
   skinWin.loadFile(path.join(__dirname, 'skin.html'), { query: { theme: baseTheme() } });
   skinWin.once('ready-to-show', function () {
@@ -2058,13 +2216,13 @@ function hideMain() {
   try { win.hide(); } catch (e) {}
 }
 function createWindow() {
-  win = new BrowserWindow({
+  win = new BrowserWindow(winBase({
     width: MINI_W, height: MINI_H,
-    frame: false, transparent: true, resizable: false,
+    resizable: false,
     alwaysOnTop: pinned, skipTaskbar: true,
-    backgroundColor: '#00000000', titleBarStyle: 'hidden', show: false,
+    titleBarStyle: 'hidden', show: false,
     webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.js') }
-  });
+  }));
   win.loadFile(path.join(__dirname, 'calendar.html'));
   try { win.setOpacity(skin.opacity.calendar); } catch (e) {}   // v2.4.0 第二轮：日历透明度读 skin.opacity
 
@@ -2169,11 +2327,30 @@ function pushWinSize() {
  *   残留的旧实例其 PPID 是 explorer.exe（或已失效的 PID），天然落在闭包之外 → 精准命中。
  * 安全网：拿不到父子关系（PowerShell/CIM 不可用）就**放弃清理**——宁可留着旧进程，
  *   也绝不能误杀自己的渲染进程。 */
+/* ===== v3.0.0 R6：修复「dev 启动误杀生产实例」（二次事故，血的教训，勿重犯） =====
+ * 【现象】在工程目录跑 `electron .`（dev）时，会把用户正在运行的**打包版实例**整棵树 taskkill。
+ * 【根因】本函数的 CIM 过滤条件**硬编码**了 `Name='SimpleCalendar.exe'`；而 dev 主进程名是
+ *         `electron.exe`，根本不在候选集里 → 以「自己」为根求子孙闭包时，childrenOf 里没有自己的行，
+ *         闭包退化为 {自己} → 所有 `SimpleCalendar.exe`（= 用户真实实例及其子进程）全被判为 stale 遭殃。
+ *         讽刺的是上一段注释已写明「任何按进程名批量清理的写法在本程序上都是错的」，却仍硬编码了名字。
+ * 【教训 / 修复】三条：
+ *   ① dev **本就不该做生产清理** —— dev 不是发布形态，不存在"残留实例"问题 → 函数开头直接短路；
+ *   ② **绝不硬编码进程名** —— 改用 `path.basename(process.execPath)`，换 executableName 也自动跟随；
+ *   ③ 加**安全网** —— 若「自己」不在候选集（正是本次 bug 的直接信号），必须 log 后放弃，绝不 taskkill。 */
 function cleanupStaleInstances() {
+  /* ① dev 短路：从根上消灭「闭包退化为 {自己} → 杀光真实 SimpleCalendar.exe 实例」的路径。 */
+  if (!app.isPackaged) {
+    log('cleanup: dev build, skip stale cleanup');
+    return;
+  }
   try {
+    /* ② 进程名不再硬编码：取当前可执行文件名（打包版即 SimpleCalendar.exe；
+     *    将来改 executableName 也自动跟随）。拼进 PowerShell 单引号串前，把 ' 转义为 ''。 */
+    const exeName = path.basename(process.execPath);
+    const safeName = String(exeName).replace(/'/g, "''");
     // 用 CIM 拿 PID + 父 PID（tasklist 不给父 PID，所以不能用它）
     const args = ['-NoProfile', '-NonInteractive', '-Command',
-      'Get-CimInstance Win32_Process -Filter "Name=\'SimpleCalendar.exe\'" | ' +
+      'Get-CimInstance Win32_Process -Filter "Name=\'' + safeName + '\'" | ' +
       'ForEach-Object { Write-Output ($_.ProcessId.ToString() + \' \' + $_.ParentProcessId.ToString()) }'];
     const ps = spawn('powershell.exe', args, { windowsHide: true, timeout: 15000 });
     let out = '';
@@ -2193,12 +2370,20 @@ function cleanupStaleInstances() {
         return;
       }
 
+      /* ③ 安全网：若「自己」不在候选集里，说明进程名过滤没覆盖到本进程
+       *    （正是 dev 误杀事故的信号）→ 闭包会退化、会误杀他人，必须放弃。 */
+      const selfPid = String(myProcessPid);
+      if (!rows.some(function (r) { return r.pid === selfPid; })) {
+        log('cleanup: self (pid=' + selfPid + ') not in candidate set, abort to avoid killing peers');
+        return;
+      }
+
       // 以自己为根求子孙传递闭包
       const childrenOf = {};
       rows.forEach(function (r) { (childrenOf[r.ppid] = childrenOf[r.ppid] || []).push(r.pid); });
       const mine = {};
-      mine[String(myProcessPid)] = true;
-      const queue = [String(myProcessPid)];
+      mine[selfPid] = true;
+      const queue = [selfPid];
       while (queue.length) {
         const cur = queue.shift();
         (childrenOf[cur] || []).forEach(function (c) {
@@ -2284,14 +2469,13 @@ function createDock() {
     const tb = taskbarHeight();
     dockH = Math.max(40, Math.min(tb, 56));
     dockW = DOCK_W;
-    dockWin = new BrowserWindow({
+    dockWin = new BrowserWindow(winBase({
       width: dockW, height: dockH,
-      frame: false, transparent: true, resizable: false,
+      resizable: false,
       alwaysOnTop: dockPinned, skipTaskbar: true,
-      backgroundColor: '#00000000',
       show: false,
       webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.js') }
-    });
+    }));
     /* v1.7.22.7 自诊断：把「请求尺寸 vs 实际尺寸」写进日志。
      * 若实际被撑大（实测出现过 232×164），日志会明确记录下来，后续可据此定位。 */
     try {
@@ -2431,14 +2615,13 @@ function openReminderListWindow() {
       remindlistWin.moveTop();
       return;
     }
-    remindlistWin = new BrowserWindow({
+    remindlistWin = new BrowserWindow(winBase({
       width: RL_W, height: RL_H,
-      frame: false, transparent: true, resizable: true,
+      resizable: true,
       alwaysOnTop: true, skipTaskbar: true,
-      backgroundColor: '#00000000',
       show: false,
       webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.js') }
-    });
+    }));
 
     // v1.7.12：恢复上次位置；越界（换显示器/分辨率变了）则回落到居中
     let placed = false;
@@ -2620,16 +2803,12 @@ ipcMain.on('remindlist-remove', function (evt, id) {
     }
   }
 });
-// 主窗 themeBtn 点击 → 原生皮肤 light↔dark 快捷切换（v2.4.0 主题→皮肤语义变更）
+// 主窗 themeBtn 点击 → 快捷切换日历表面明暗（v2.4.0 主题→皮肤语义变更；v3.0.0 已移除主窗换肤键，保留通道向后兼容）
 ipcMain.on('set-theme', function (evt, mode) {
-  // v2.4.0 第二轮：主窗 themeBtn = 日历表面 native light↔dark 快捷切换（不动 follow/其它表面）。
+  // v3.0.0 R5：主窗换肤键已移除（换肤统一走皮肤设置窗）。此通道保留向后兼容：
+  // 只切日历表面的**明暗轴 tone**（light/dark），不动 style 材质。
   var cal = skin.surfaces.calendar;
-  if (cal.type === 'system') {
-    cal.type = (themeMode === 'dark') ? 'light' : 'dark';
-  } else {
-    cal.type = (mode === 'dark') ? 'dark' : 'light';
-  }
-  cal.color = null; cal.image = null; cal.text = 'auto';
+  cal.tone = (mode === 'dark') ? 'dark' : 'light';
   recomputeTheme();
   pushThemeToAll();
   pushSkinToAll();
@@ -2700,11 +2879,10 @@ ipcMain.on('desktop-toggle', function () { toggleDesktop(); });
  * ===================================================================== */
 ipcMain.on('settings-set', function (evt, key, value) {
   switch (key) {
-    case 'theme':                 // 兼容旧调用：日历表面 native light↔dark（与 set-theme 等价）
+    case 'theme':                 // 兼容旧调用：只切日历表面明暗轴 tone（与 set-theme 等价，不动 style）
       (function () {
         var cal = skin.surfaces.calendar;
-        cal.type = (value === 'dark') ? 'dark' : 'light';
-        cal.color = null; cal.image = null; cal.text = 'auto';
+        cal.tone = (value === 'dark') ? 'dark' : 'light';
         recomputeTheme();
         pushThemeToAll();
         pushSkinToAll();
@@ -2783,9 +2961,8 @@ ipcMain.on('skin-action', function (evt, action, payload) {
         if (r && !r.canceled && r.filePaths && r.filePaths[0]) {
           var res = importSkinImage(surface, r.filePaths[0]);
           if (res && res.ok) {
-            skin.surfaces[surface].type = 'image';
-            skin.surfaces[surface].image = res.image;
-            skin.surfaces[surface].color = null;
+            skin.surfaces[surface].bg = 'image';        // v3：背景来源＝自选图片
+            skin.surfaces[surface].image = res.image;    // 图片原样保留（file/snapshot/w/h/crop/zoom/opacity/dark/complexity）
             recomputeTheme();
             saveSettings();
             pushThemeToAll();     // baseTheme 可能变化：托盘/关注列表/设置窗主题跟随
@@ -2815,6 +2992,14 @@ function loadReminders() {
       return r && typeof r.id === 'string' && typeof r.y === 'number' &&
         typeof r.m === 'number' && typeof r.d === 'number' &&
         typeof r.text === 'string';
+    }).map(function (r) {
+      // v3.0.0：hh/mm 可选（缺省/非整数/越界 → null = 全天）。旧记录无此字段 → 补 null，
+      // 不再因缺 hh/mm 被剔除（向后兼容）。两者需成对：任一缺失即按全天处理。
+      var hh = normalizeHH(r.hh), mm = normalizeMM(r.mm);
+      if (hh === null || mm === null) { hh = null; mm = null; }
+      r.hh = hh;
+      r.mm = mm;
+      return r;
     });
   } catch (e) { reminders = []; }
 }
@@ -2841,9 +3026,13 @@ ipcMain.handle('add-reminder', function (evt, item) {
   // v2.3.0：解除「最多 10 条」数量限制（用户要求不限制），仅保留单条 15 字兜底截断。
   const txt = String(item.text || '').trim().slice(0, MAX_REMINDER_TEXT);
   if (!txt) return null;
+  // v3.0.0：定时时刻归一（缺省/非整数/越界 → null = 全天）。hh 与 mm 成对，任一缺失即全天。
+  let hh = normalizeHH(item.hh), mm = normalizeMM(item.mm);
+  if (hh === null || mm === null) { hh = null; mm = null; }
   const r = {
     id: genReminderId(),
     y: item.y, m: item.m, d: item.d,
+    hh: hh, mm: mm,          // v3.0.0：定时时刻（null = 全天，缺省/非法一律按全天）
     text: txt,
     createdAt: Date.now(),
     snoozeUntil: 0,
@@ -2898,6 +3087,33 @@ function isSameYMD(a, b) {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate();
 }
+/* v3.0.0：hh/mm 归一化 —— 缺省/非整数/越界一律 null（= 全天）。 */
+function normalizeHH(v) {
+  if (v === undefined || v === null || v === '') return null;
+  var n = Number(v);
+  if (!isFinite(n)) return null;
+  n = Math.round(n);
+  return (n >= 0 && n <= 23) ? n : null;
+}
+function normalizeMM(v) {
+  if (v === undefined || v === null || v === '') return null;
+  var n = Number(v);
+  if (!isFinite(n)) return null;
+  n = Math.round(n);
+  return (n >= 0 && n <= 59) ? n : null;
+}
+/* v3.0.0：到期判定。全天（hh/mm 缺省）→ 当天首次巡检即触发；定时 → 到点才触发。
+ * 已 ack（今天）/ snooze 未到 一律不触发。同日错过（唤醒晚于 fireAt）仍会触发（补弹）；
+ * 跨日错过由 isSameYMD 拦下（不补弹，避免陈年提醒骚扰）。 */
+function shouldFire(r, now, todayKey) {
+  var target = new Date(r.y, r.m - 1, r.d);
+  if (!isSameYMD(target, now)) return false;                     // 不是今天
+  if (r.ackedDate === todayKey) return false;                    // 今天已点"知道了"
+  if (r.snoozeUntil && r.snoozeUntil > now.getTime()) return false;  // 稍后提醒未到
+  if (r.hh == null || r.mm == null) return true;                 // 全天：当天首次巡检即触发
+  var fireAt = new Date(r.y, r.m - 1, r.d, r.hh, r.mm, 0);
+  return now.getTime() >= fireAt.getTime();                      // 到点才弹
+}
 function checkReminders() {
   if (reminders.length === 0) return;
   const now = new Date();
@@ -2905,10 +3121,7 @@ function checkReminders() {
   const todayKey = now.getFullYear() + '-' + pad2(now.getMonth() + 1) + '-' + pad2(now.getDate());
   for (let i = 0; i < reminders.length; i++) {
     const r = reminders[i];
-    const target = new Date(r.y, r.m - 1, r.d);
-    if (!isSameYMD(target, now)) continue;          // 不是今天
-    if (r.ackedDate === todayKey) continue;          // v1.7.1：今天已点"知道了"，不再弹
-    if (r.snoozeUntil && r.snoozeUntil > Date.now()) continue;  // 还没到再弹时间
+    if (!shouldFire(r, now, todayKey)) continue;
     showReminderWindow(r);
     return;                                          // 一次只弹一个，避免重叠
   }
@@ -2922,28 +3135,27 @@ function showReminderWindow(r) {
   }
   const wa = screen.getPrimaryDisplay().workAreaSize;
   const W = 380, H = 264;
-  reminderWin = new BrowserWindow({
+  reminderWin = new BrowserWindow(winBase({
     width: W, height: H,
     x: Math.round((wa.width - W) / 2),
     y: Math.round((wa.height - H) / 2),
-    frame: false,
-    transparent: true,           // HTML 内部用 #card 不透明圆角容器
-    alwaysOnTop: true,
+    alwaysOnTop: true,          // HTML 内部用 #card 不透明圆角容器
     resizable: false,
     skipTaskbar: true,
-    backgroundColor: '#00000000',
     show: false,
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     }
-  });
+  }));
   reminderWin.setAlwaysOnTop(true, 'screen-saver');
   reminderWin.loadFile(path.join(__dirname, 'reminder.html'), {
     query: {
       id: r.id,
       text: r.text,
       date: r.y + ' 年 ' + pad2(r.m) + ' 月 ' + pad2(r.d) + ' 日',
+      // v3.0.0：定时时刻（'HH:MM' 或空=全天），供弹窗显示（§4.5 query 契约）
+      time: (r.hh != null && r.mm != null) ? (pad2(r.hh) + ':' + pad2(r.mm)) : '',
       /* v2.0 视觉：把当前主题透传给弹窗（此前提醒弹窗恒为白底，黑夜模式下刺眼）。
        * 仅多传一个渲染用的状态量，不改变任何功能与交互行为。 */
       theme: themeMode
@@ -2971,22 +3183,19 @@ function showExitDialog() {
   }
   const wa = screen.getPrimaryDisplay().workAreaSize;
   const W = 320, H = 172;
-  exitWin = new BrowserWindow({
+  exitWin = new BrowserWindow(winBase({
     width: W, height: H,
     x: Math.round((wa.width - W) / 2),
     y: Math.round((wa.height - H) / 2),
-    frame: false,
-    transparent: true,           // HTML 内部用 #card 不透明圆角容器
-    alwaysOnTop: true,
+    alwaysOnTop: true,          // HTML 内部用 #card 不透明圆角容器
     resizable: false,
     skipTaskbar: true,
-    backgroundColor: '#00000000',
     show: false,
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     }
-  });
+  }));
   exitWin.setAlwaysOnTop(true, 'screen-saver');
   exitWin.loadFile(path.join(__dirname, 'exit.html'), {
     query: { theme: themeMode }
@@ -3150,22 +3359,19 @@ function showHolidayDialog(payload) {
     const wa = holidayWorkArea();
     /* v2.1.0 P2-1：原来 252 放不下 success 态的明细（7 个假期段会被裁掉），加高到 300。 */
     const W = 400, H = 300;
-    holidayWin = new BrowserWindow({
+    holidayWin = new BrowserWindow(winBase({
       width: W, height: H,
       x: Math.round((wa.width - W) / 2),
       y: Math.round((wa.height - H) / 2),
-      frame: false,
-      transparent: true,           // HTML 内部用 #card 不透明圆角容器
-      alwaysOnTop: true,
+      alwaysOnTop: true,          // HTML 内部用 #card 不透明圆角容器
       resizable: false,
       skipTaskbar: true,
-      backgroundColor: '#00000000',
       show: false,
       webPreferences: {
         contextIsolation: true,
         preload: path.join(__dirname, 'preload.js')
       }
-    });
+    }));
     holidayWin.setAlwaysOnTop(true, 'screen-saver');
     holidayLastState = (payload && payload.state) || '';
     holidayWin.loadFile(path.join(__dirname, 'holidayupd.html'), {
@@ -3462,16 +3668,17 @@ app.whenReady().then(function () {
       } catch (e) {}
     });
   } catch (e) {}
-  /* v2.4.0 第二轮：跟随系统实时深浅色。system 表面在系统切换时重算；color/image/text 手动的表面
-   * 由 surfaceTheme 的 text 字段决定，不受系统深浅影响。基准主题变化时广播托盘/关注列表/设置。 */
+  /* v3.0.0 R5：系统深浅色只在**任一面 tone==='system'（跟随系统）**时影响皮肤明暗。
+   * 命中才重算/重推，让该窗口（含浮动插件）立刻跟随 OS 深浅切换；否则与 OS 无关，直接跳过。 */
   try {
     nativeTheme.on('updated', function () {
+      if (!anySurfaceToneSystem()) return;
       var prev = themeMode;
       recomputeTheme();
       if (themeMode !== prev) {
         pushThemeToAll();
       }
-      pushSkinToAll();   // 各表面 system 型明暗实时刷新（skin-state.theme 更新）
+      pushSkinToAll();   // 各「跟随系统」表面实时刷新（skin-state.theme 更新）
     });
   } catch (e) {}
   process.on('uncaughtException', function (e) {
@@ -3484,6 +3691,14 @@ app.whenReady().then(function () {
   // v1.6.2：每 60s 巡检到期关注；启动时先跑一次避免重启后错过今天
   reminderCheckTimer = setInterval(checkReminders, 60 * 1000);
   setTimeout(checkReminders, 500);
+  /* v3.0.0：系统唤醒/解锁后补跑一次巡检 —— 修复休眠期间到点的提醒（同日错过 → 立即补弹）。
+   * 跨日错过的由 shouldFire 的 isSameYMD 拦下，不补弹。 */
+  try {
+    if (powerMonitor) {
+      powerMonitor.on('resume', function () { try { checkReminders(); } catch (e) {} });
+      powerMonitor.on('unlock-screen', function () { try { checkReminders(); } catch (e) {} });
+    }
+  } catch (e) { log('powerMonitor listeners failed: ' + (e && e.message || e)); }
   /* v2.1.0 节假日年度更新：启动 5s 后查一次（让主窗先渲染完，别一开机就弹窗），
    * 之后每 6 小时轮询一次。真正的自动提示还受「7 天节流 + 用户已推迟」双重约束。 */
   setTimeout(function () { try { maybeHolidayUpdate(false); } catch (e) { log('holiday: auto check failed ' + (e && e.stack || e)); } }, 5000);

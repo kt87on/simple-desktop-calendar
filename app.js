@@ -239,6 +239,7 @@ var $ = function (id) { return document.getElementById(id); };
 var gridEl, headerEl, yearSel, monthSel, wkSwitchEl, widgetEl, lastLit = -1, bgMonthEl, calendarEl, litGlowEl, themeBtnEl;
 var lastTipKey = '';   // R3：上次推送 tooltip 的日期键，跨午夜才重新推送
 var remindInputEl, remindDateLabelEl, remindTextEl, remindOkEl, remindCancelEl, toastEl;
+var remindHourEl, remindMinuteEl;   // v3.0.0：定时（时/分）输入框，留空=全天
 // v1.7.12：关注列表已改为独立窗口（remindlist.html），主窗口内不再有弹窗 DOM
 var bookBtnEl;
 
@@ -514,6 +515,9 @@ function openRemindInput(y, m, d) {
   pendingRemind = { y: y, m: m, d: d };
   if (remindDateLabelEl) remindDateLabelEl.textContent = y + '/' + pad2(m) + '/' + pad2(d);
   if (remindTextEl) remindTextEl.value = '';
+  // v3.0.0：每次打开清空时/分（留空即全天提醒）
+  if (remindHourEl) remindHourEl.value = '';
+  if (remindMinuteEl) remindMinuteEl.value = '';
   if (remindInputEl) {
     remindInputEl.classList.add('show');
     var cell = findCellEl(y, m, d);
@@ -546,11 +550,14 @@ function positionRemindInput(cellDiv) {
   remindInputEl.style.left = x + 'px';
   remindInputEl.style.top = y + 'px';
 }
-function localAddReminder(y, m, d, text) {
+function localAddReminder(y, m, d, text, hh, mm) {
   // 浏览器预览（无 Electron api）下的本地内存模拟：单元格同样会变黄，方便预览验证
   reminders.push({
     id: 'local_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
     y: y, m: m, d: d,
+    // v3.0.0：定时（时/分）可选；缺省/越界 = null（全天），与主进程归一一致
+    hh: (typeof hh === 'number' && hh >= 0 && hh <= 23) ? hh : null,
+    mm: (typeof mm === 'number' && mm >= 0 && mm <= 59) ? mm : null,
     text: String(text || '').slice(0, MAX_REMINDER_TEXT),
     createdAt: Date.now(), snoozeUntil: 0, ackedDate: ''
   });
@@ -570,19 +577,36 @@ function showToast(msg) {
   }, 2200);
 }
 
+/* v3.0.0：读取时/分输入（可空=全天）。两栏都填且合法才生效；只填一个视为无效 → 全天
+ * （与主进程归一一致：hh==null || mm==null → 全天）。越界/非数字 → 当空处理。 */
+function readRemindTime() {
+  var hh = null, mm = null;
+  if (remindHourEl) {
+    var hv = parseInt(remindHourEl.value, 10);
+    if (isFinite(hv) && hv >= 0 && hv <= 23) hh = hv;
+  }
+  if (remindMinuteEl) {
+    var mv = parseInt(remindMinuteEl.value, 10);
+    if (isFinite(mv) && mv >= 0 && mv <= 59) mm = mv;
+  }
+  if ((hh === null) !== (mm === null)) { hh = null; mm = null; }   // 只填一个 → 全天
+  return { hh: hh, mm: mm };
+}
 function confirmRemindInput() {
   if (!pendingRemind) return;
   var text = (remindTextEl && remindTextEl.value || '').trim();
   if (!text) { if (remindTextEl) remindTextEl.focus(); return; }
   // v1.7.11 需求 1：硬截到 15 字（主进程也会截一次）
   text = text.slice(0, MAX_REMINDER_TEXT);
+  var t = readRemindTime();   // v3.0.0：时/分（可空=全天）
   if (window.api && window.api.addReminder) {
     window.api.addReminder({
-      y: pendingRemind.y, m: pendingRemind.m, d: pendingRemind.d, text: text
+      y: pendingRemind.y, m: pendingRemind.m, d: pendingRemind.d,
+      hh: t.hh, mm: t.mm, text: text
     }).then(function () {}).catch(function () {});
   } else {
     // 浏览器预览：本地内存模拟
-    localAddReminder(pendingRemind.y, pendingRemind.m, pendingRemind.d, text);
+    localAddReminder(pendingRemind.y, pendingRemind.m, pendingRemind.d, text, t.hh, t.mm);
   }
   hideRemindInput();
 }
@@ -625,32 +649,13 @@ function confirmRemindInput() {
     renderAll();
   }
 
-  /* ===== 主题：白日 / 黑夜 两态（v1.6：衣服形状按钮 + 太阳/月亮图标） ===== */
-  function syncThemeIcon() {
-    var g = document.getElementById('themeIcon');
-    if (!g) return;
-    if (S.theme === 'dark') {
-      // 黑夜：月亮（新月）
-      g.innerHTML = '<path d="M14.6 12.4 a 3.6 3.6 0 1 0 -2.4 5.6 a 2.7 3.6 0 1 1 2.4 -5.6 z" fill="currentColor" stroke="none"></path>';
-    } else {
-      // 白日：太阳（圆 + 4 道光芒，贴胸口大小）
-      g.innerHTML = '<circle cx="12" cy="13.5" r="2.2" fill="currentColor" stroke="none"></circle>' +
-        '<path d="M12 9.4 L12 10.8"></path>' +
-        '<path d="M12 16.2 L12 17.6"></path>' +
-        '<path d="M8.4 13.5 L7.6 13.5"></path>' +
-        '<path d="M16.4 13.5 L15.6 13.5"></path>';
-    }
-  }
+  /* ===== v3.0.0 主题（背景明暗）：只写 data-theme =====
+   * 换肤键已废弃：主窗由 CSS 隐藏（#themeBtn 仅 body.desktop-mode 显示），
+   * 桌面模式把同一节点复用为「锁定键」。故移除了原 syncThemeIcon()（太阳/月亮图标）
+   * 与 applyTheme() 里对 themeBtnEl 的 title/class 联动——换肤不再走这个按钮。
+   * 背景明暗由主进程 resolved.theme 决定（v3 §3），这里只落到根节点驱动 token。 */
   function applyTheme() {
-    var root = document.documentElement;
-    if (S.theme === 'dark') {
-      root.dataset.theme = 'dark';
-      if (!IS_DESKTOP && themeBtnEl) { themeBtnEl.title = '主题：黑夜（点击切回白日）'; themeBtnEl.classList.add('active'); }
-    } else {
-      root.dataset.theme = 'light';
-      if (!IS_DESKTOP && themeBtnEl) { themeBtnEl.title = '主题：白日（点击切换为黑夜）'; themeBtnEl.classList.remove('active'); }
-    }
-    if (!IS_DESKTOP) syncThemeIcon();   // v2.2.0：桌面模式下换肤键已改为锁键，图标由锁逻辑接管
+    document.documentElement.dataset.theme = (S.theme === 'dark') ? 'dark' : 'light';
   }
 
   /* ===== v2.4.0 第二轮 皮肤（独立背景层 + 自动明暗文字） =====
@@ -786,21 +791,39 @@ function confirmRemindInput() {
     root.style.removeProperty('--ink-glow');
     root.style.removeProperty('--stroke-color');
   }
+  /* v3.0.0 §3.3：三轴落地 —— data-theme=背景明暗、data-style=风格材质、data-text=文字轴。
+   * data-text：'light'（深字）/'dark'（浅字）时写属性；'auto' 或缺失 → 删除属性（跟随 data-theme）。
+   * 只动根节点数据属性，绝不在此改 --paper/--accent（那由 [data-theme]/[data-style] 负责，§3.2）。 */
+  function applySkinTone(root, state) {
+    if (state.style) root.dataset.style = state.style;
+    else delete root.dataset.style;
+    if (state.text === 'light' || state.text === 'dark') root.dataset.text = state.text;
+    else delete root.dataset.text;
+  }
+  /* v3.0.0 §3.4：低对比组合兜底 —— warn=true（浅底浅字 / 深底深字）时把 clarity 抬到 ≥35，
+   * 用保护层/光晕把文字从背景里托出来（保留用户选择，不强行反转）。非法 clarity 一律按 0。 */
+  function effectiveClarity(state) {
+    var c = (typeof state.clarity === 'number' && isFinite(state.clarity)) ? state.clarity : 0;
+    if (state.warn === true && c < 35) c = 35;
+    return c;
+  }
   function applySkinState(state) {
     if (!state) return;
     S.theme = (state.theme === 'dark') ? 'dark' : 'light';
-    applyTheme();   // 设 data-theme（决定状态色 token + 文字明暗）
+    applyTheme();   // 设 data-theme（背景明暗 → 状态色 token + 默认文字明暗）
     var root = document.documentElement;
+    applySkinTone(root, state);   // 三轴：data-style + data-text
+    var clarity = effectiveClarity(state);   // warn → 下限 35
     if (state.bg === 'color') {
       root.dataset.skin = 'color';
       root.style.setProperty('--skin-bg-solid', state.color || '#fcfbf9');
-      applyClarity(root, S.theme, state.clarity);
+      applyClarity(root, S.theme, clarity);
       var c0 = document.getElementById('skinImg');
       if (c0) { c0.style.backgroundImage = ''; c0.style.opacity = ''; }
     } else if (state.bg === 'image') {
       root.dataset.skin = 'image';
       root.style.removeProperty('--skin-bg-solid');
-      applyClarity(root, S.theme, state.clarity);
+      applyClarity(root, S.theme, clarity);
       applySkinImage(state.image);
     } else {
       delete root.dataset.skin;
@@ -922,12 +945,10 @@ function confirmRemindInput() {
       }
     });
 
-    // 主题切换（白日/黑夜两态）；v2.2.0 桌面模式下换肤键已改为锁定键
+    // v3.0.0：主窗换肤键已废弃（CSS 仅 body.desktop-mode 显示，复用为锁定键）。
+    // 主窗点击不再切主题（背景明暗由主进程按 skin 决定）；桌面模式仍走锁定键逻辑。
     themeBtnEl.addEventListener('click', function () {
       if (IS_DESKTOP) { onLockClick(); return; }
-      S.theme = (S.theme === 'light') ? 'dark' : 'light';
-      applyTheme();
-      if (window.api && window.api.setTheme) window.api.setTheme(S.theme);
     });
 
     // v1.7.12：关注列表按钮点击 → 打开独立窗口（主进程负责去重聚焦）
@@ -1153,12 +1174,14 @@ function confirmRemindInput() {
     if (!remindInputEl) return;
     if (remindOkEl) remindOkEl.addEventListener('click', confirmRemindInput);
     if (remindCancelEl) remindCancelEl.addEventListener('click', hideRemindInput);
-    if (remindTextEl) {
-      remindTextEl.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { e.preventDefault(); confirmRemindInput(); }
-        else if (e.key === 'Escape') { e.preventDefault(); hideRemindInput(); }
-      });
+    function onKey(e) {
+      if (e.key === 'Enter') { e.preventDefault(); confirmRemindInput(); }
+      else if (e.key === 'Escape') { e.preventDefault(); hideRemindInput(); }
     }
+    if (remindTextEl) remindTextEl.addEventListener('keydown', onKey);
+    // v3.0.0：时/分输入框同样支持回车提交 / Esc 取消
+    if (remindHourEl) remindHourEl.addEventListener('keydown', onKey);
+    if (remindMinuteEl) remindMinuteEl.addEventListener('keydown', onKey);
   }
 
   /* ===== v2.2.0 需求4：桌面插件模式 =====
@@ -1234,6 +1257,8 @@ function confirmRemindInput() {
     remindInputEl = $('remindInput');
     remindDateLabelEl = $('remindDateLabel');
     remindTextEl = $('remindText');
+    remindHourEl = $('remindHour');          // v3.0.0：定时（时）
+    remindMinuteEl = $('remindMinute');      // v3.0.0：定时（分）
     remindOkEl = $('remindOk');
     remindCancelEl = $('remindCancel');
     // v1.7.12 关注列表已改独立窗口，主窗口内仅保留书按钮

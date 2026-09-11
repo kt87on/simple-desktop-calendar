@@ -70,6 +70,8 @@ contextBridge.exposeInMainWorld('api', {
   onSettingsState: function (cb) { ipcRenderer.on('settings-state', function (e, state) { try { cb && cb(state); } catch (err) {} }); },
 
   // ---- v2.4.0 第二轮：独立皮肤窗口 ----
+  // v3.0.0：field 支持 'style'（default|minimal|glass|neu|tech|warm）/ 'bg'（native|image）
+  //        / 'tone'（auto|light|dark|system）/ 'text' / 'follow' / 'opacity' / 'clarity' / 'image'。
   skinSet: function (surface, field, value) { ipcRenderer.send('skin-set', surface, field, value); },
   skinAction: function (action, payload) { ipcRenderer.send('skin-action', action, payload); },
   skinImport: function (surface, filePath) { return ipcRenderer.invoke('skin-import', surface, filePath); },
@@ -78,6 +80,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // ---- v1.6.2 关注 ----
   listReminders: function () { return ipcRenderer.invoke('list-reminders'); },
+  // v3.0.0：item 可选 hh(0~23)/mm(0~59)，缺省或非法 = 全天；主进程归一后落盘并回传含 hh/mm 的 r。
   addReminder: function (item) { return ipcRenderer.invoke('add-reminder', item); },
   removeReminder: function (id) { return ipcRenderer.invoke('remove-reminder', id); },
   onRemindersChanged: function (cb) {

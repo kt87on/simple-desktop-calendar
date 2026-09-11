@@ -1,7 +1,7 @@
 # 简洁桌面日历 · 程序规格书（可复制级 / AI 可直接复刻）
 
 > **用途**：本文件是为「让 AI 在零上下文情况下重建该程序」而写。任何 AI 拿到本文件，都能完整还原软件的功能、视觉、行为与打包方式。修改或升级时，直接把本文件 + 源码目录交给 AI 即可。
-> **版本**：2.4.4 　**作者**：YG　**协议**：MIT　**平台**：Windows
+> **版本**：3.0.0 　**作者**：YG　**协议**：MIT　**平台**：Windows
 
 ---
 
@@ -133,38 +133,42 @@ node make-icon.js    # 生成 icon.ico（多尺寸）
 - 周起始开关：真 toggle（轨道+滑块+一/日标签，平滑过渡 cubic-bezier）
 - 月份切换：仅网格淡入，无缩放抖动
 
-### 4.6 皮肤系统（v2.4.0）
+### 4.6 皮肤系统（v3.0.0：style × bg 双维度 + 明暗轴）
 
-v2.4.0 第二轮把「主题 + 皮肤」重构为 **per-surface 皮肤配置树**，并完整落地**图片皮肤**。主进程仍是皮肤状态的唯一真相，渲染层只被动消费下发的解析结果。
+v2.4.0 把「主题 + 皮肤」重构为 **per-surface 皮肤配置树**，并落地**图片皮肤**；**v3.0.0 把旧 `type` 单维度拆成 `style`（风格材质）× `bg`（背景来源）两个正交维度，并新增独立的明暗轴 `tone`，把文字轴 `text` 与整窗明暗彻底解耦**（修复 v2 时代「一调深浅字整窗变黑/白」的根因）。主进程仍是皮肤状态的唯一真相，渲染层只被动消费下发的解析结果。
 
 **数据模型（`electron-main.js`，持久化到 `settings.json` 的 `skin` 字段）**
 
 ```js
 skin = {
-  __v: 2,                                    // 迁移版本门（旧字段一次性迁移后只写本结构）
+  __v: 3,                                    // 迁移版本门（v2→v3 一次性迁移后只写本结构）
   surfaces: {
-    calendar: { type, color, image, text, clarity },  // type ∈ light|dark|system|color|image
-    expanded: { follow, type, color, image, text, clarity },  // follow='calendar'|null
-    desktop:  { follow, type, color, image, text, clarity },
-    dock:     { type, color, image, text, clarity }   // dock 独立，不跟随
+    calendar: { style, bg, image, text, clarity, tone },  // style ∈ default|minimal|glass|neu|tech|warm；bg ∈ native|image
+    expanded: { follow, style, bg, image, text, clarity, tone },  // follow='calendar'|null
+    desktop:  { follow, style, bg, image, text, clarity, tone },
+    dock:     { style, bg, image, text, clarity, tone }   // dock 独立，不跟随
   },
   opacity: { calendar: 1, desktop: 1, dock: 1 }  // 窗口级透明度；calendar 同时作用于 mini/max
 }
 ```
 
-- `follow='calendar'`（仅 expanded/desktop）：跟随日历表面；取消跟随 = **copy-on-write** 快照（深拷贝日历当前配置含 `clarity`，之后独立编辑）。
-- `text` ∈ `auto|light|dark`：决定 color/image 表面的生效文字明暗（`auto` 用 `isDarkColor` / 图片亮度自动判定）。
-- `clarity`（**v2.4.4 新增**）∈ `'auto'|0~100`：UI 清晰度，联动三层可读性（见下「可读性三层结构」）。`auto` 时由 `clarityForConfig` 按图片复杂度推导 `clamp(round(complexity*100),20,85)`，纯色/原生 → 0。
-- `image.complexity`（**v2.4.4 新增**）0~1：缩略图逐像素相对亮度标准差 / 0.30；导入时主进程计算并缓存（`normalizeImageSpec` 输出，`clamp01`）。
-- 迁移：`skin.__v===2 && skin.surfaces` 直接 `normalizeSkin`；否则 `migrateSkin` 从旧字段（theme/skinMode/nativeSkin/skinColor/desktopFollowCalendar/dockFollowCalendar/mainOpacity/desktopOpacity/dockOpacity）一次性迁移。迁移后 `saveSettings` **只写 `skin`**，停写旧键。`normalizeSkin` 对缺 `clarity` 的旧数据补 `'auto'`（`__v` 保持 2）。
+- `style`（**v3.0.0 新增**）∈ `default|minimal|glass|neu|tech|warm`：**风格材质**（正交维度）；每风格自带原生明暗 `styleNativeTheme`（`tech`→dark，其余→light）。
+- `bg`（**v3.0.0 新增**）∈ `native|image`：**背景来源**（正交维度，可与任意 style 叠加）；旧 `color` 已从用户可选集删除（仅在 `bg=image` 但无图时作为内部兜底态出现）。
+- `tone`（**v3.0.0 新增**）∈ `auto|light|dark|system`：**明暗轴**（整窗 `data-theme`），默认 `auto`（按 style 自带明暗）；与 `style`/`bg`/`text` 均正交。
+- `text` ∈ `auto|light|dark`：**仅文字轴**（决定文字深浅），与整窗明暗**完全解耦**（v3.0.0 修复 v2 把 text 误当整窗明暗的根因）。
+- `clarity` ∈ `'auto'|0~100`：UI 清晰度，联动三层可读性（见下「可读性三层结构」）。`auto` 时由 `clarityForConfig` 按图片复杂度推导 `clamp(round(complexity*100),20,85)`，原生/无图 → 0。
+- `image.complexity` 0~1：缩略图逐像素相对亮度标准差 / 0.30；导入时主进程计算并缓存（`normalizeImageSpec` 输出，`clamp01`）。
+- `follow='calendar'`（仅 expanded/desktop）：跟随日历表面；取消跟随 = **copy-on-write** 快照（深拷贝日历当前配置，之后独立编辑）。
+- **v2→v3 一次性迁移（`migrateSkinV2toV3`）**：`light`→`minimal`/tone:light、`dark`→`minimal`/tone:dark、`system`→`minimal`/tone:system、`color`→`default`/tone:auto（丢自定义色值）、`image`→`default`/tone:auto+bg:image（图片原样保留），写 `__v=3`。已是 v3 的数据走 `normalizeSkinV3` 补齐/兜底。迁移后 `saveSettings` **只写 `skin`**，停写旧键。
 
 **解析链路（主进程唯一入口）**
 
 1. `resolveSurfaceConfig(surface)`：expanded/desktop 若 `follow==='calendar'` 返回 calendar 配置，否则返回自身；dock 独立。
-2. `surfaceTheme(surface)`：推导每表面生效明暗——`light/dark` 直接、`system` 读 `nativeTheme.shouldUseDarkColors`、`color/image` 由 `text` 字段决定（`auto` 时用色值 / 图片亮度判定）。
-3. `surfaceBg(surface)`：背景层三态 `native | color | image`。
-4. `baseTheme()` = `surfaceTheme('calendar')`：托盘、关注列表、提醒、设置等非表面窗口跟随日历表面明暗。
-5. `resolvedSurfaceState(surface)`：下发 `{type,theme,bg,color,image,clarity}`（**v2.4.4 增加 `clarity`** = `clarityForConfig(resolved)`）。主窗发 `{calendar,expanded}`、桌面发 `{desktop}`、浮动发 `{dock}`；非表面窗口仍走 `theme-changed(baseTheme)`。
+2. `styleNativeTheme(style)`：风格自带原生明暗（`tech`→dark，其余→light）。
+3. `surfaceTheme(surface)`：整窗明暗按**固定优先级**推导——① `bg=image` 且有图 → 按照片亮暗（`image.dark`，tone 被忽略但保留设置值）② `tone='light'` ③ `tone='dark'` ④ `tone='system'` 读 `nativeTheme.shouldUseDarkColors` ⑤ `tone='auto'` → `styleNativeTheme(style)`。**与 `text` 完全解耦**。
+4. `surfaceBg(surface)`：背景层类型 `native | color | image`（`color` 仅 `bg=image` 无图兜底时出现，按生效明暗取 `#FCFBF9`/`#1C202C`，**绝不白屏**）。
+5. `baseTheme()` = `surfaceTheme('calendar')`：托盘、关注列表、提醒、设置等非表面窗口跟随日历表面明暗。
+6. `resolvedSurfaceState(surface)`：下发 `{style,tone,theme,text,warn,bg,color,image,clarity}`。其中 `warn = (theme==='light'&&text==='dark')||(theme==='dark'&&text==='light')`（低对比组合标记 → 皮肤窗提示 + 渲染层 `clarity` 下限 35）。主窗发 `{calendar,expanded}`、桌面发 `{desktop}`、浮动发 `{dock}`；非表面窗口仍走 `theme-changed(baseTheme)`。
 
 **图片皮肤（完整实现）**
 
@@ -196,7 +200,7 @@ skin = {
 
 - `template.html` / `dock.html` 增加 `#skinImg` 背景层（`position:absolute; inset:0; z-index:-1`）+ `[data-skin="color"]` / `[data-skin="image"]` 规则；`app.js` / `dock.html` 收到 `skin-state` 后 `applySkinState`（设 `data-theme` + `data-skin` + `--skin-bg-solid` + `applyClarity(root,theme,state.clarity)`）+ `applySkinImage`（crop/zoom → CSS，`layoutSkin`+`realImageSize`）；原生皮肤走 `clearReadability(root)` 清空变量。
 - **状态色不变**：今日雅蓝 / 节假日朱砂红 / 选中深绿维持原 token，不随皮肤改变。
-- **独立皮肤窗 `skin.html`**：设置页只留「皮肤设置」入口（`settings-action('open-skin')`）；皮肤窗 4 界面分段（日历/放大/桌面/浮动）+ 5 类型（浅/深/跟随系统/纯色/图片）+ 色盘 + 图片取景预览（拖入/平移/滚轮 1×~5×）+ 文字明暗 + **UI 清晰度（v2.4.4：`#claritySection` 自动开关 + 0~100 滑杆）** + 图片不透明度 + 透明度 + 跟随开关；经 `skin-set` / `skin-action` / `skin-import` IPC 即时回写。
+- **独立皮肤窗 `skin.html`**：设置页只留「皮肤设置」入口（`settings-action('open-skin')`）；皮肤窗 4 界面分段（日历/放大/桌面/浮动）+ **v3.0.0 起 6 风格（default/minimal/glass/neu/tech/warm）+ 明暗段 tone（自动/浅/深/跟随系统）** + 图片取景预览（拖入/平移/滚轮 1×~5×）+ 文字明暗 + **UI 清晰度（`#claritySection` 自动开关 + 0~100 滑杆）** + 图片不透明度 + 透明度 + 跟随开关；经 `skin-set` / `skin-action` / `skin-import` IPC 即时回写。
 
 ---
 
@@ -332,8 +336,8 @@ var HOLIDAYS_2026 = {
 
 ## 8. 版本信息与作者（集中维护点）
 - 软件名：`简洁桌面日历`　显示名 `productName` / exe 名 `SimpleCalendar`
-- 版本号：`2.4.4`（package.json `version`；同步体现在 exe 文件版本、安装包属性、控制面板）
-- **运行时文件**：`userData/reminders.json`（特别关注）、`userData/settings.json`（v1.7.11 新增：theme/pinned/autoLaunch/dockOn；v2.4.0 新增：skin{__v,surfaces{calendar,expanded,desktop,dock}（每表面含 type/color/image/text + **v2.4.4 clarity**，expanded/desktop 另含 follow），opacity{calendar,desktop,dock}}/dockBoundsByDisplay/dockDisplayId；一次性迁移后旧键 skinMode/nativeSkin/skinColor 等停写）、`userData/calendar.log`（v1.7.11 新增：诊断日志，超 200KB 自动清空；打包后 stderr 不可见，**日志是唯一排查手段**）
+- 版本号：`3.0.0`（package.json `version`；同步体现在 exe 文件版本、安装包属性、控制面板）
+- **运行时文件**：`userData/reminders.json`（特别关注）、`userData/settings.json`（v1.7.11 新增：theme/pinned/autoLaunch/dockOn；v2.4.0 新增、**v3.0.0 升级为 `__v:3`**：skin{__v,surfaces{calendar,expanded,desktop,dock}（每表面含 **v3.0.0 `style`/`bg`/`tone`** + `image`/`text`/`clarity`，expanded/desktop 另含 follow），opacity{calendar,desktop,dock}}/dockBoundsByDisplay/dockDisplayId；v2→v3 一次性迁移后旧 `type`/`color` 及 skinMode/nativeSkin/skinColor 等旧键停写）、`userData/calendar.log`（v1.7.11 新增：诊断日志，超 200KB 自动清空；打包后 stderr 不可见，**日志是唯一排查手段**）
 - 作者：`YG`（`author` 字段；版本信息中的公司/版权靠根级 `copyright` 写入 exe 文件属性）
 - 版权：`Copyright © 2026 YG`
 - 仓库/主页：`https://github.com/kt87on/simple-desktop-calendar`（GitHub 用，可改）

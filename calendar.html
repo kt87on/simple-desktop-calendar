@@ -259,11 +259,241 @@
     --shadow-soft: var(--e-4);
   }
 
+  /* ==========================================================================
+   * v3.0.0 §7 六套「风格」token（风格驱动，叠加在 [data-theme] 之上）
+   * --------------------------------------------------------------------------
+   * 三轴解耦（§12）：data-theme=背景明暗、data-style=风格材质、data-text=文字轴。
+   * 本段只写「风格相关」变量（表面/材质/圆角/阴影/强调/状态明度/字体/动效）。
+   * 明暗两档各自独立成块：浅档 [data-theme="light"][data-style="X"]、
+   * 深档 [data-theme="dark"][data-style="X"]（特异性同为 (0,2,0)，互不越界，
+   * 避免「浅档 token 反压深底」）。状态色守恒：休/异/周末=红、上班=绿/青、
+   * 特别关注=琥珀，仅调明度饱和度不改色相（§8.3）。
+   * 注：default 档沿用既有 :root / [data-theme="dark"] 取值，不改视觉（避免回归）。
+   * ========================================================================== */
+
+  /* ---------- ① 默认（融合）：轻玻璃 18px + 中性双色强调 ---------- */
+  [data-theme="light"][data-style="default"] {
+    --paper: rgba(252, 251, 249, 0.84);
+    --paper-solid: #fcfbf9;
+    --paper-edge: rgba(31, 35, 48, 0.14);
+    --paper-hi: rgba(255, 255, 255, 0.70);
+    --ink: #1f2430; --ink-soft: #4b5563; --ink-faint: #9aa1ad;
+    --accent: #3b6fd4; --accent-strong: #1976d2;
+    --accent-soft: rgba(59, 111, 212, 0.10); --accent-ink: #155ba6;
+    --accent-line: rgba(59, 111, 212, 0.42); --accent-glow: rgba(59, 111, 212, 0.26);
+    --weekend: #d6453f; --holiday-fg: #bf3330; --cinnabar: #d6453f;
+    --workday: #3b6fd4; --focus-amber: #f59e0b;
+    --r-lg: 14px; --blur-card: 18px;
+    --e-4: 0 18px 44px rgba(31, 35, 48, 0.16), 0 4px 12px rgba(31, 35, 48, 0.07),
+           inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    --shadow-soft: var(--e-4);
+  }
+  [data-theme="dark"][data-style="default"] {
+    --paper: rgba(28, 32, 44, 0.88);
+    --paper-solid: #1c202c;
+    --paper-edge: rgba(255, 255, 255, 0.08);
+    --paper-hi: rgba(255, 255, 255, 0.06);
+    --ink: #e8eaf0; --ink-soft: #9aa3b3; --ink-faint: #6a7283;
+    --accent: #6b9bff; --accent-strong: #4a86ef;
+    --accent-soft: rgba(107, 155, 255, 0.16); --accent-ink: #a8c4ff;
+    --accent-line: rgba(107, 155, 255, 0.52); --accent-glow: rgba(107, 155, 255, 0.30);
+    --weekend: #f08b86; --holiday-fg: #f08b86; --cinnabar: #ef6b65;
+    --workday: #6b9bff; --focus-amber: #ffc857;
+    --r-lg: 14px; --blur-card: 18px;
+    --e-4: 0 18px 44px rgba(31, 35, 48, 0.16), 0 4px 12px rgba(31, 35, 48, 0.07),
+           inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    --shadow-soft: var(--e-4);
+  }
+
+  /* ---------- ② 极简：大量留白 + 极细线 + 近黑强调（无模糊） ---------- */
+  [data-theme="light"][data-style="minimal"] {
+    --paper: #ffffff; --paper-solid: #ffffff;
+    --paper-edge: #e8e8ea; --paper-hi: rgba(255, 255, 255, 0.90);
+    --ink: #18181b; --ink-soft: #3f3f46; --ink-faint: #a1a1aa;
+    --accent: #18181b; --accent-strong: #18181b;
+    --accent-soft: rgba(24, 24, 27, 0.08); --accent-ink: #18181b;
+    --accent-line: rgba(24, 24, 27, 0.30); --accent-glow: rgba(24, 24, 27, 0.16);
+    --weekend: #ef4444; --holiday-fg: #ef4444; --cinnabar: #ef4444;
+    --workday: #15803d; --focus-amber: #f59e0b;
+    --r-lg: 16px; --blur-card: 0px;
+    --dur-fast: 120ms; --dur-normal: 200ms; --dur-slow: 300ms;
+    --e-4: 0 10px 28px rgba(16, 24, 40, 0.06);
+    --shadow-soft: var(--e-4);
+  }
+  [data-theme="dark"][data-style="minimal"] {
+    --paper: #18181b; --paper-solid: #18181b;
+    --paper-edge: rgba(255, 255, 255, 0.14); --paper-hi: rgba(255, 255, 255, 0.05);
+    --ink: #f4f4f5; --ink-soft: #c4c4c8; --ink-faint: #8a8a90;
+    --accent: #f4f4f5; --accent-strong: #f4f4f5;
+    --accent-soft: rgba(244, 244, 245, 0.10); --accent-ink: #ffffff;
+    --accent-line: rgba(244, 244, 245, 0.34); --accent-glow: rgba(244, 244, 245, 0.18);
+    --weekend: #f87171; --holiday-fg: #f87171; --cinnabar: #f87171;
+    --workday: #4ade80; --focus-amber: #fbbf24;
+    --r-lg: 16px; --blur-card: 0px;
+    --dur-fast: 120ms; --dur-normal: 200ms; --dur-slow: 300ms;
+    --e-4: 0 20px 50px rgba(0, 0, 0, 0.55);
+    --shadow-soft: var(--e-4);
+  }
+
+  /* ---------- ③ 玻璃拟态：磨砂 + 强模糊 + 高光描边 + 彩色光斑 ---------- */
+  [data-theme="light"][data-style="glass"] {
+    --paper: rgba(255, 255, 255, 0.55); --paper-solid: #ffffff;
+    --paper-edge: rgba(255, 255, 255, 0.70); --paper-hi: rgba(255, 255, 255, 0.85);
+    --ink: #1f2430; --ink-soft: #3d4658; --ink-faint: #6a7385;
+    --accent: #7c6bff; --accent-strong: #7c6bff;
+    --accent-soft: rgba(124, 107, 255, 0.16); --accent-ink: #5a4be0;
+    --accent-line: rgba(124, 107, 255, 0.46); --accent-glow: rgba(124, 107, 255, 0.32);
+    --weekend: #ff6fc4; --holiday-fg: #ff6fc4; --cinnabar: #ff6fc4;
+    --workday: #3fd6a0; --focus-amber: #ffc24b;
+    --r-lg: 24px; --blur-card: 26px;
+    --dur-fast: 160ms; --dur-normal: 240ms; --dur-slow: 360ms;
+    --e-4: 0 20px 54px rgba(18, 8, 58, 0.28);
+    --shadow-soft: var(--e-4);
+  }
+  [data-theme="dark"][data-style="glass"] {
+    --paper: rgba(30, 20, 60, 0.42); --paper-solid: #1e143c;
+    --paper-edge: rgba(255, 255, 255, 0.45); --paper-hi: rgba(255, 255, 255, 0.16);
+    --ink: #ffffff; --ink-soft: rgba(255, 255, 255, 0.72); --ink-faint: rgba(255, 255, 255, 0.50);
+    --accent: #9d8cff; --accent-strong: #9d8cff;
+    --accent-soft: rgba(157, 140, 255, 0.22); --accent-ink: #c6bcff;
+    --accent-line: rgba(157, 140, 255, 0.52); --accent-glow: rgba(157, 140, 255, 0.34);
+    --weekend: #ff9ccf; --holiday-fg: #ff9ccf; --cinnabar: #ff9ccf;
+    --workday: #57e0b0; --focus-amber: #ffc24b;
+    --r-lg: 24px; --blur-card: 26px;
+    --dur-fast: 160ms; --dur-normal: 240ms; --dur-slow: 360ms;
+    --e-4: 0 24px 64px rgba(0, 0, 0, 0.60);
+    --shadow-soft: var(--e-4);
+  }
+  /* glass 专属：更强饱和度（#widget 基础规则特异性 (1,0,0)，这里用 html[data-style] 提升到 (1,1,1) 覆盖为磨砂玻璃质感） */
+  html[data-style="glass"] #widget {
+    -webkit-backdrop-filter: blur(26px) saturate(2.1);
+    backdrop-filter: blur(26px) saturate(2.1);
+  }
+
+  /* ---------- ④ 新拟态：同色系双向阴影，柔和低对比（配 clarity 兜底） ---------- */
+  [data-theme="light"][data-style="neu"] {
+    --paper: #dde4ee; --paper-solid: #dde4ee;
+    --paper-edge: #ffffff; --paper-hi: rgba(255, 255, 255, 0.70);
+    --ink: #414b5c; --ink-soft: #54606f; --ink-faint: #8f98a8;
+    --accent: #3f6ea8; --accent-strong: #3f6ea8;
+    --accent-soft: rgba(63, 110, 168, 0.14); --accent-ink: #3f6ea8;
+    --accent-line: rgba(63, 110, 168, 0.42); --accent-glow: rgba(63, 110, 168, 0.26);
+    --weekend: #c96a63; --holiday-fg: #c96a63; --cinnabar: #c96a63;
+    --workday: #3f8a6a; --focus-amber: #d89a3f;
+    --r-lg: 26px; --blur-card: 0px;
+    --dur-fast: 180ms; --dur-normal: 260ms; --dur-slow: 380ms;
+    --e-4: 20px 20px 40px #b0b9c9, -20px -20px 40px #ffffff;
+    --shadow-soft: var(--e-4);
+  }
+  [data-theme="dark"][data-style="neu"] {
+    --paper: #232a36; --paper-solid: #232a36;
+    --paper-edge: #151a22; --paper-hi: rgba(255, 255, 255, 0.05);
+    --ink: #c7ced9; --ink-soft: #9aa3b3; --ink-faint: #6a7283;
+    --accent: #6fb0d8; --accent-strong: #6fb0d8;
+    --accent-soft: rgba(111, 176, 216, 0.18); --accent-ink: #8fc6e8;
+    --accent-line: rgba(111, 176, 216, 0.46); --accent-glow: rgba(111, 176, 216, 0.30);
+    --weekend: #e08983; --holiday-fg: #e08983; --cinnabar: #e08983;
+    --workday: #6fb79a; --focus-amber: #e0a856;
+    --r-lg: 26px; --blur-card: 0px;
+    --dur-fast: 180ms; --dur-normal: 260ms; --dur-slow: 380ms;
+    --e-4: 20px 20px 40px #151a22, -20px -20px 40px #313a4a;
+    --shadow-soft: var(--e-4);
+  }
+
+  /* ---------- ⑤ 科技感：深底 + 青蓝霓虹 + 网格 + 等宽字（nativeTheme=dark） ---------- */
+  [data-theme="light"][data-style="tech"] {
+    --paper: #f2f8fb; --paper-solid: #f2f8fb;
+    --paper-edge: rgba(34, 211, 238, 0.40); --paper-hi: rgba(255, 255, 255, 0.70);
+    --ink: #0b4351; --ink-soft: #14657a; --ink-faint: #5e93a3;
+    --accent: #0891b2; --accent-strong: #0891b2;
+    --accent-soft: rgba(8, 145, 178, 0.14); --accent-ink: #0e7490;
+    --accent-line: rgba(8, 145, 178, 0.44); --accent-glow: rgba(8, 145, 178, 0.28);
+    --weekend: #ffb454; --holiday-fg: #ffb454; --cinnabar: #ffb454;
+    --workday: #34d399; --focus-amber: #ffce5c;
+    --r-lg: 12px; --blur-card: 0px;
+    --dur-fast: 100ms; --dur-normal: 180ms; --dur-slow: 260ms;
+    --font-sans: "Cascadia Code", "Consolas", ui-monospace, "JetBrains Mono", monospace;
+    --e-4: 0 0 34px rgba(34, 211, 238, 0.12);
+    --shadow-soft: var(--e-4);
+  }
+  [data-theme="dark"][data-style="tech"] {
+    --paper: #0e1622; --paper-solid: #0a1017;
+    --paper-edge: rgba(34, 211, 238, 0.30); --paper-hi: rgba(34, 211, 238, 0.08);
+    --ink: #8ff0ff; --ink-soft: rgba(143, 240, 255, 0.62); --ink-faint: rgba(143, 240, 255, 0.35);
+    --accent: #22d3ee; --accent-strong: #22d3ee;
+    --accent-soft: rgba(34, 211, 238, 0.18); --accent-ink: #5ff0ff;
+    --accent-line: rgba(34, 211, 238, 0.50); --accent-glow: rgba(34, 211, 238, 0.34);
+    --weekend: #ffb454; --holiday-fg: #ffb454; --cinnabar: #ffb454;
+    --workday: #2ee6a6; --focus-amber: #ffce5c;
+    --r-lg: 12px; --blur-card: 0px;
+    --dur-fast: 100ms; --dur-normal: 180ms; --dur-slow: 260ms;
+    --font-sans: "Cascadia Code", "Consolas", ui-monospace, "JetBrains Mono", monospace;
+    --e-4: 0 0 40px rgba(34, 211, 238, 0.14);
+    --shadow-soft: var(--e-4);
+  }
+
+  /* ---------- ⑥ 温润拟物：纸感 + 暖棕 + 衬线字 + 柔和立体 ---------- */
+  [data-theme="light"][data-style="warm"] {
+    --paper: #fffdf7; --paper-solid: #fffdf7;
+    --paper-edge: #e7dbc4; --paper-hi: rgba(255, 255, 255, 0.75);
+    --ink: #4a3f33; --ink-soft: #5b4a36; --ink-faint: #9a8467;
+    --accent: #b5602f; --accent-strong: #b5602f;
+    --accent-soft: rgba(181, 96, 47, 0.14); --accent-ink: #8a4517;
+    --accent-line: rgba(181, 96, 47, 0.44); --accent-glow: rgba(181, 96, 47, 0.28);
+    --weekend: #b3402f; --holiday-fg: #b3402f; --cinnabar: #b3402f;
+    --workday: #4e7a46; --focus-amber: #c9824c;
+    --r-lg: 14px; --blur-card: 0px;
+    --dur-fast: 160ms; --dur-normal: 240ms; --dur-slow: 360ms;
+    --font-sans: "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
+    --e-4: 0 14px 30px rgba(120, 90, 50, 0.20);
+    --shadow-soft: var(--e-4);
+  }
+  [data-theme="dark"][data-style="warm"] {
+    --paper: #2c2419; --paper-solid: #241c12;
+    --paper-edge: #4a3f2c; --paper-hi: rgba(255, 255, 255, 0.05);
+    --ink: #efe4d2; --ink-soft: #c6b79a; --ink-faint: #9a8a6e;
+    --accent: #d98a55; --accent-strong: #d98a55;
+    --accent-soft: rgba(217, 138, 85, 0.18); --accent-ink: #f0b27a;
+    --accent-line: rgba(217, 138, 85, 0.46); --accent-glow: rgba(217, 138, 85, 0.30);
+    --weekend: #e07264; --holiday-fg: #e07264; --cinnabar: #e07264;
+    --workday: #8fb06a; --focus-amber: #e0a060;
+    --r-lg: 14px; --blur-card: 0px;
+    --dur-fast: 160ms; --dur-normal: 240ms; --dur-slow: 360ms;
+    --font-sans: "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
+    --e-4: 0 16px 34px rgba(0, 0, 0, 0.45);
+    --shadow-soft: var(--e-4);
+  }
+
+  /* ==========================================================================
+   * v3.0.0 §3.2 文字轴 data-text（只覆盖「文字相关」变量，绝不碰纸面/强调/状态色）
+   * --------------------------------------------------------------------------
+   * light = 深字（浅底语义）、dark = 浅字；auto/缺失 → 不设属性，跟随 [data-theme]。
+   * 选择器用 :root[...]（特异性 (0,2,0)）并置于全部 [data-style] 之后，
+   * 与 [data-theme][data-style] 同权靠源序取胜 → 文字轴恒压过风格档。
+   * 仅定义 5 个文字变量：--ink / --ink-soft / --ink-faint / --stroke-color / --ink-glow。
+   * （--stroke-color/--ink-glow 在 skin 生效时由 app.js applyClarity 内联写入覆盖，此处为原生底兜底）
+   * ========================================================================== */
+  :root[data-text="light"] {
+    --ink: #1f2430; --ink-soft: #4b5563; --ink-faint: #9aa1ad;
+    --stroke-color: rgba(255, 255, 255, 0.70);
+    --ink-glow: 0 0 0 transparent;
+  }
+  :root[data-text="dark"] {
+    --ink: #e8eaf0; --ink-soft: #9aa3b3; --ink-faint: #6a7283;
+    --stroke-color: rgba(0, 0, 0, 0.55);
+    --ink-glow: 0 0 0 transparent;
+  }
+
   /* ========== v2.4.0 第二轮 皮肤背景层（纯色 / 图片） ==========
-   * 声明在 [data-theme="dark"] 之后。皮肤只改背景层，文字明暗由 data-theme 全量驱动，
+   * 皮肤层只改背景层，文字明暗由 data-theme 全量驱动，
    * 状态色（今日蓝/节假日红/选中绿）仍取生效主题 token。
-   * 纯色 → #widget 铺 --skin-bg-solid；图片 → #widget 透明，由 #skinImg 层铺图。 */
-  [data-skin="color"] body, [data-skin="image"] body { background: transparent; }
+   * 纯色 → #widget 铺 --skin-bg-solid；图片 → #widget 透明，由 #skinImg 层铺图。
+   *
+   * v3.0.0 修四角黑边：body 透明确保透明窗圆角外不露底色。但
+   * [data-theme="dark"] body（源序更后、特异性同为 (0,1,1)）会反压本条，
+   * 深色主题 + 皮肤时圆角外露主题深底 → 四角黑边。
+   * 故皮肤层 body 规则加 html 前缀把特异性提到 (0,1,2)，恒压过主题层 body 底色 */
+  html[data-skin="color"] body, html[data-skin="image"] body { background: transparent; }
   [data-skin="color"] #widget { background: var(--skin-bg-solid); }
   [data-skin="image"] #widget { background: transparent; }
 
@@ -498,6 +728,12 @@
   .zoom-btn:active { transform: scale(0.92); }
   .zoom-btn.active { background-color: var(--accent-soft); color: var(--accent-ink); }
   .zoom-btn svg { display: block; }
+
+  /* v3.0.0 §5 D：主窗换肤键移除 —— 主窗/放大态恒隐藏（.bar-right 为 flex，自动靠拢无缺口）；
+   * 桌面插件把同一节点复用为「锁定键」，故仅 body.desktop-mode 显示，绝不误伤桌面锁。 */
+  #themeBtn { display: none; }
+  body.desktop-mode #themeBtn { display: flex; }
+
   /* v2.3.2 需求3：放大镜内符号随状态切换 —— mini 显示「+」（点击放大）、放大态显示「-」（点击缩小） */
   .zoom-sign-minus { display: none; }
   #widget.max .zoom-sign-minus { display: block; }
@@ -687,6 +923,15 @@
   }
   #remindInput input::placeholder { color: var(--ink-faint); }
   #remindInput input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+  /* ===== v3.0.0 定时（时:分）行：留空=全天；两栏都填才生效 ===== */
+  #remindInput .time-row { display: flex; align-items: center; gap: 4px; }
+  #remindInput .time-row .time-label { font-size: var(--fs-xs); color: var(--ink-soft); }
+  #remindInput .time-row .time-colon { color: var(--ink-faint); }
+  #remindInput .time-row .time-hint { font-size: var(--fs-2xs); color: var(--ink-faint); margin-left: 2px; }
+  #remindInput .time-row input { width: 38px; text-align: center; padding: 0 var(--s-1); flex: 0 0 auto; }
+  /* 隐藏 number 输入框的上下微调箭头（Chromium） */
+  #remindInput .time-row input::-webkit-outer-spin-button,
+  #remindInput .time-row input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   #remindInput .actions { display: flex; gap: var(--s-1); justify-content: flex-end; }
   #remindInput button {
     border: none; border-radius: var(--r-sm); padding: 0 var(--s-3); height: 24px;
@@ -842,6 +1087,7 @@
   #widget.max #remindInput input { height: 34px; font-size: var(--fs-4xl); padding: 0 var(--s-3); border-radius: var(--r-sm); }
   #widget.max #remindInput button { height: 34px; padding: 0 var(--s-5); font-size: var(--fs-md); border-radius: var(--r-sm); }
   #widget.max #remindInput .actions { gap: var(--s-2); }
+  #widget.max #remindInput .time-row input { width: 52px; height: 34px; font-size: var(--fs-md); padding: 0; }
 
   /* 放大模式 resize 手柄（透明无边框窗口在 DWM 下原生 thickFrame 常失效） */
   .resize-handle {
@@ -957,6 +1203,14 @@
       <div class="hint" data-page-node-id="SSTpFxpHdvLBrma1meqAwN">（到日期会弹窗提醒）</div>
       <!-- v1.7.11 需求 1：最多 15 字，placeholder 里直接说明 -->
       <input id="remindText" type="text" maxlength="15" placeholder="请输入：（15字以内）" data-page-node-id="gvzaGfFA51iyRAnjlNUn0m" />
+      <!-- v3.0.0 定时（可选）：留空=全天提醒；两栏都填才生效 -->
+      <div class="time-row" data-page-node-id="Vq7Rd2mYpK1xWcTj8tLfAe">
+        <span class="time-label" data-page-node-id="Zb3NtXk9mP2rQwVh5cLfJa">时间</span>
+        <input id="remindHour" type="number" min="0" max="23" step="1" inputmode="numeric" placeholder="时" data-page-node-id="Hn4Ub2mCpX7yQwRt1vLfKe" />
+        <span class="time-colon" data-page-node-id="Cw8Mn2kTpY5rQxVb3cLfJa">:</span>
+        <input id="remindMinute" type="number" min="0" max="59" step="1" inputmode="numeric" placeholder="分" data-page-node-id="Mk6Tb2nVpY9rQwXc4tLfJa" />
+        <span class="time-hint" data-page-node-id="Th1Nt2mKpY7rQwVb9cLfJa">留空=全天</span>
+      </div>
       <div class="actions" data-page-node-id="6SwwtIsyXDef9fcP8faqAo">
         <button class="btn-cancel" id="remindCancel" data-page-node-id="PDv6j7BLc3qGFcI0f07yLt">取消</button>
         <button class="btn-ok" id="remindOk" data-page-node-id="RiC4zBEzrVQ4wtwUUE5Uz6">确定</button>
@@ -1222,6 +1476,7 @@ var $ = function (id) { return document.getElementById(id); };
 var gridEl, headerEl, yearSel, monthSel, wkSwitchEl, widgetEl, lastLit = -1, bgMonthEl, calendarEl, litGlowEl, themeBtnEl;
 var lastTipKey = '';   // R3：上次推送 tooltip 的日期键，跨午夜才重新推送
 var remindInputEl, remindDateLabelEl, remindTextEl, remindOkEl, remindCancelEl, toastEl;
+var remindHourEl, remindMinuteEl;   // v3.0.0：定时（时/分）输入框，留空=全天
 // v1.7.12：关注列表已改为独立窗口（remindlist.html），主窗口内不再有弹窗 DOM
 var bookBtnEl;
 
@@ -1497,6 +1752,9 @@ function openRemindInput(y, m, d) {
   pendingRemind = { y: y, m: m, d: d };
   if (remindDateLabelEl) remindDateLabelEl.textContent = y + '/' + pad2(m) + '/' + pad2(d);
   if (remindTextEl) remindTextEl.value = '';
+  // v3.0.0：每次打开清空时/分（留空即全天提醒）
+  if (remindHourEl) remindHourEl.value = '';
+  if (remindMinuteEl) remindMinuteEl.value = '';
   if (remindInputEl) {
     remindInputEl.classList.add('show');
     var cell = findCellEl(y, m, d);
@@ -1529,11 +1787,14 @@ function positionRemindInput(cellDiv) {
   remindInputEl.style.left = x + 'px';
   remindInputEl.style.top = y + 'px';
 }
-function localAddReminder(y, m, d, text) {
+function localAddReminder(y, m, d, text, hh, mm) {
   // 浏览器预览（无 Electron api）下的本地内存模拟：单元格同样会变黄，方便预览验证
   reminders.push({
     id: 'local_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
     y: y, m: m, d: d,
+    // v3.0.0：定时（时/分）可选；缺省/越界 = null（全天），与主进程归一一致
+    hh: (typeof hh === 'number' && hh >= 0 && hh <= 23) ? hh : null,
+    mm: (typeof mm === 'number' && mm >= 0 && mm <= 59) ? mm : null,
     text: String(text || '').slice(0, MAX_REMINDER_TEXT),
     createdAt: Date.now(), snoozeUntil: 0, ackedDate: ''
   });
@@ -1553,19 +1814,36 @@ function showToast(msg) {
   }, 2200);
 }
 
+/* v3.0.0：读取时/分输入（可空=全天）。两栏都填且合法才生效；只填一个视为无效 → 全天
+ * （与主进程归一一致：hh==null || mm==null → 全天）。越界/非数字 → 当空处理。 */
+function readRemindTime() {
+  var hh = null, mm = null;
+  if (remindHourEl) {
+    var hv = parseInt(remindHourEl.value, 10);
+    if (isFinite(hv) && hv >= 0 && hv <= 23) hh = hv;
+  }
+  if (remindMinuteEl) {
+    var mv = parseInt(remindMinuteEl.value, 10);
+    if (isFinite(mv) && mv >= 0 && mv <= 59) mm = mv;
+  }
+  if ((hh === null) !== (mm === null)) { hh = null; mm = null; }   // 只填一个 → 全天
+  return { hh: hh, mm: mm };
+}
 function confirmRemindInput() {
   if (!pendingRemind) return;
   var text = (remindTextEl && remindTextEl.value || '').trim();
   if (!text) { if (remindTextEl) remindTextEl.focus(); return; }
   // v1.7.11 需求 1：硬截到 15 字（主进程也会截一次）
   text = text.slice(0, MAX_REMINDER_TEXT);
+  var t = readRemindTime();   // v3.0.0：时/分（可空=全天）
   if (window.api && window.api.addReminder) {
     window.api.addReminder({
-      y: pendingRemind.y, m: pendingRemind.m, d: pendingRemind.d, text: text
+      y: pendingRemind.y, m: pendingRemind.m, d: pendingRemind.d,
+      hh: t.hh, mm: t.mm, text: text
     }).then(function () {}).catch(function () {});
   } else {
     // 浏览器预览：本地内存模拟
-    localAddReminder(pendingRemind.y, pendingRemind.m, pendingRemind.d, text);
+    localAddReminder(pendingRemind.y, pendingRemind.m, pendingRemind.d, text, t.hh, t.mm);
   }
   hideRemindInput();
 }
@@ -1608,32 +1886,13 @@ function confirmRemindInput() {
     renderAll();
   }
 
-  /* ===== 主题：白日 / 黑夜 两态（v1.6：衣服形状按钮 + 太阳/月亮图标） ===== */
-  function syncThemeIcon() {
-    var g = document.getElementById('themeIcon');
-    if (!g) return;
-    if (S.theme === 'dark') {
-      // 黑夜：月亮（新月）
-      g.innerHTML = '<path d="M14.6 12.4 a 3.6 3.6 0 1 0 -2.4 5.6 a 2.7 3.6 0 1 1 2.4 -5.6 z" fill="currentColor" stroke="none"></path>';
-    } else {
-      // 白日：太阳（圆 + 4 道光芒，贴胸口大小）
-      g.innerHTML = '<circle cx="12" cy="13.5" r="2.2" fill="currentColor" stroke="none"></circle>' +
-        '<path d="M12 9.4 L12 10.8"></path>' +
-        '<path d="M12 16.2 L12 17.6"></path>' +
-        '<path d="M8.4 13.5 L7.6 13.5"></path>' +
-        '<path d="M16.4 13.5 L15.6 13.5"></path>';
-    }
-  }
+  /* ===== v3.0.0 主题（背景明暗）：只写 data-theme =====
+   * 换肤键已废弃：主窗由 CSS 隐藏（#themeBtn 仅 body.desktop-mode 显示），
+   * 桌面模式把同一节点复用为「锁定键」。故移除了原 syncThemeIcon()（太阳/月亮图标）
+   * 与 applyTheme() 里对 themeBtnEl 的 title/class 联动——换肤不再走这个按钮。
+   * 背景明暗由主进程 resolved.theme 决定（v3 §3），这里只落到根节点驱动 token。 */
   function applyTheme() {
-    var root = document.documentElement;
-    if (S.theme === 'dark') {
-      root.dataset.theme = 'dark';
-      if (!IS_DESKTOP && themeBtnEl) { themeBtnEl.title = '主题：黑夜（点击切回白日）'; themeBtnEl.classList.add('active'); }
-    } else {
-      root.dataset.theme = 'light';
-      if (!IS_DESKTOP && themeBtnEl) { themeBtnEl.title = '主题：白日（点击切换为黑夜）'; themeBtnEl.classList.remove('active'); }
-    }
-    if (!IS_DESKTOP) syncThemeIcon();   // v2.2.0：桌面模式下换肤键已改为锁键，图标由锁逻辑接管
+    document.documentElement.dataset.theme = (S.theme === 'dark') ? 'dark' : 'light';
   }
 
   /* ===== v2.4.0 第二轮 皮肤（独立背景层 + 自动明暗文字） =====
@@ -1769,21 +2028,39 @@ function confirmRemindInput() {
     root.style.removeProperty('--ink-glow');
     root.style.removeProperty('--stroke-color');
   }
+  /* v3.0.0 §3.3：三轴落地 —— data-theme=背景明暗、data-style=风格材质、data-text=文字轴。
+   * data-text：'light'（深字）/'dark'（浅字）时写属性；'auto' 或缺失 → 删除属性（跟随 data-theme）。
+   * 只动根节点数据属性，绝不在此改 --paper/--accent（那由 [data-theme]/[data-style] 负责，§3.2）。 */
+  function applySkinTone(root, state) {
+    if (state.style) root.dataset.style = state.style;
+    else delete root.dataset.style;
+    if (state.text === 'light' || state.text === 'dark') root.dataset.text = state.text;
+    else delete root.dataset.text;
+  }
+  /* v3.0.0 §3.4：低对比组合兜底 —— warn=true（浅底浅字 / 深底深字）时把 clarity 抬到 ≥35，
+   * 用保护层/光晕把文字从背景里托出来（保留用户选择，不强行反转）。非法 clarity 一律按 0。 */
+  function effectiveClarity(state) {
+    var c = (typeof state.clarity === 'number' && isFinite(state.clarity)) ? state.clarity : 0;
+    if (state.warn === true && c < 35) c = 35;
+    return c;
+  }
   function applySkinState(state) {
     if (!state) return;
     S.theme = (state.theme === 'dark') ? 'dark' : 'light';
-    applyTheme();   // 设 data-theme（决定状态色 token + 文字明暗）
+    applyTheme();   // 设 data-theme（背景明暗 → 状态色 token + 默认文字明暗）
     var root = document.documentElement;
+    applySkinTone(root, state);   // 三轴：data-style + data-text
+    var clarity = effectiveClarity(state);   // warn → 下限 35
     if (state.bg === 'color') {
       root.dataset.skin = 'color';
       root.style.setProperty('--skin-bg-solid', state.color || '#fcfbf9');
-      applyClarity(root, S.theme, state.clarity);
+      applyClarity(root, S.theme, clarity);
       var c0 = document.getElementById('skinImg');
       if (c0) { c0.style.backgroundImage = ''; c0.style.opacity = ''; }
     } else if (state.bg === 'image') {
       root.dataset.skin = 'image';
       root.style.removeProperty('--skin-bg-solid');
-      applyClarity(root, S.theme, state.clarity);
+      applyClarity(root, S.theme, clarity);
       applySkinImage(state.image);
     } else {
       delete root.dataset.skin;
@@ -1905,12 +2182,10 @@ function confirmRemindInput() {
       }
     });
 
-    // 主题切换（白日/黑夜两态）；v2.2.0 桌面模式下换肤键已改为锁定键
+    // v3.0.0：主窗换肤键已废弃（CSS 仅 body.desktop-mode 显示，复用为锁定键）。
+    // 主窗点击不再切主题（背景明暗由主进程按 skin 决定）；桌面模式仍走锁定键逻辑。
     themeBtnEl.addEventListener('click', function () {
       if (IS_DESKTOP) { onLockClick(); return; }
-      S.theme = (S.theme === 'light') ? 'dark' : 'light';
-      applyTheme();
-      if (window.api && window.api.setTheme) window.api.setTheme(S.theme);
     });
 
     // v1.7.12：关注列表按钮点击 → 打开独立窗口（主进程负责去重聚焦）
@@ -2136,12 +2411,14 @@ function confirmRemindInput() {
     if (!remindInputEl) return;
     if (remindOkEl) remindOkEl.addEventListener('click', confirmRemindInput);
     if (remindCancelEl) remindCancelEl.addEventListener('click', hideRemindInput);
-    if (remindTextEl) {
-      remindTextEl.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { e.preventDefault(); confirmRemindInput(); }
-        else if (e.key === 'Escape') { e.preventDefault(); hideRemindInput(); }
-      });
+    function onKey(e) {
+      if (e.key === 'Enter') { e.preventDefault(); confirmRemindInput(); }
+      else if (e.key === 'Escape') { e.preventDefault(); hideRemindInput(); }
     }
+    if (remindTextEl) remindTextEl.addEventListener('keydown', onKey);
+    // v3.0.0：时/分输入框同样支持回车提交 / Esc 取消
+    if (remindHourEl) remindHourEl.addEventListener('keydown', onKey);
+    if (remindMinuteEl) remindMinuteEl.addEventListener('keydown', onKey);
   }
 
   /* ===== v2.2.0 需求4：桌面插件模式 =====
@@ -2217,6 +2494,8 @@ function confirmRemindInput() {
     remindInputEl = $('remindInput');
     remindDateLabelEl = $('remindDateLabel');
     remindTextEl = $('remindText');
+    remindHourEl = $('remindHour');          // v3.0.0：定时（时）
+    remindMinuteEl = $('remindMinute');      // v3.0.0：定时（分）
     remindOkEl = $('remindOk');
     remindCancelEl = $('remindCancel');
     // v1.7.12 关注列表已改独立窗口，主窗口内仅保留书按钮

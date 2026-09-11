@@ -1,0 +1,39 @@
+sequenceDiagram
+    autonumber
+    participant SKIN as skin.html
+    participant M as electron-main.js
+    participant CAL as calendar.html(app.js)
+    participant DOCK as dock.html
+    participant OS as 系统(powerMonitor/nativeTheme)
+
+    Note over M: 启动 + v2 to v3 迁移
+    M->>M: loadSettings(): skin.__v===3 ? normalizeSkinV3 : migrateSkinV2toV3
+    M->>M: surfaceTheme() 解耦 (text 不再决定 theme)
+    M-->>CAL: skin-state({style,theme,text,warn,bg,image,clarity})
+    M-->>DOCK: skin-state(dock)
+
+    Note over SKIN,M: 选风格 + 选背景 (可叠加)
+    SKIN->>M: skin-set(surface,'style','glass')
+    SKIN->>M: skin-set(surface,'bg','image')
+    M->>M: 归一 + saveSettings() + pushSkinToAll()
+    M-->>CAL: skin-state(新 resolved) -> data-style/data-theme/data-text
+
+    Note over SKIN,M: 文字色独立 (问题1)
+    SKIN->>M: skin-set(surface,'text','dark')
+    M->>M: theme 不变(背景决定); text='dark' -> warn 判定
+    M-->>CAL: skin-state(text='dark', warn)
+    CAL->>CAL: data-text='dark' 仅改文字/描边/光晕; warn -> clarity 下限 35
+
+    Note over CAL: 放大窗口换肤键移除 (问题2)
+    CAL->>CAL: #themeBtn 仅 body.desktop-mode 显示(锁键); 主窗/放大恒隐藏
+
+    Note over M,OS: 定时提醒 (问题3)
+    SKIN->>M: add-reminder({y,m,d,hh,mm,text})
+    M->>M: 归一 hh/mm (缺省=全天)
+    OS-->>M: powerMonitor resume / unlock-screen
+    M->>M: checkReminders() -> shouldFire() (到点/全天)
+    M-->>CAL: reminders-changed (含 hh/mm)
+    M-->>CAL: remindlist-data (内容 · HH:MM)
+
+    Note over M,OS: 四角黑角 (问题4, 集成点)
+    M->>M: WIN_BASE(hasShadow:false 候选); bgColorFor(); [data-skin=image] #widget 基色

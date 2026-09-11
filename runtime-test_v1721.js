@@ -611,7 +611,10 @@ function makeSkinHub(skinState, nativeThemeMock) {
   const src = [
     'sanitizeBasename', 'clamp01', 'clampZoom', 'clampImageOpacity', 'normalizeClarity',
     'validHex', 'isDarkColor', 'clampOpacity',
-    'normalizeImageSpec', 'normalizeSkin', 'migrateSkin', 'resolveSurfaceConfig',
+    'normalizeImageSpec', 'normalizeSkin', 'migrateSkin',
+    // v3.0.0：surfaceTheme 依赖 styleNativeTheme（tech→dark，其余→light），必须抽取，否则 ReferenceError
+    'styleNativeTheme',
+    'resolveSurfaceConfig',
     'surfaceTheme', 'solidFallbackFor', 'surfaceBg', 'clarityForConfig', 'baseTheme', 'resolvedSurfaceState'
   ].map(function (n) { return extractFn(mainSrc, n); }).join('\n');
   return new Function('skin', 'nativeTheme', src +
@@ -620,90 +623,91 @@ function makeSkinHub(skinState, nativeThemeMock) {
 }
 
 (function () {
-  const skin = { __v: 2, surfaces: {
-    calendar: { type: 'color', color: '#1f2430', image: null, text: 'auto' },
-    expanded: { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto' },
-    desktop: { follow: null, type: 'dark', color: null, image: null, text: 'auto' },
-    dock: { type: 'light', color: null, image: null, text: 'auto' }
+  const skin = { __v: 3, surfaces: {
+    calendar: { style: 'glass', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'dark' },
+    expanded: { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+    desktop: { follow: null, style: 'neu', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+    dock: { style: 'minimal', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' }
   }, opacity: { calendar: 1, desktop: 1, dock: 1 } };
   const api = makeSkinHub(skin, { shouldUseDarkColors: false });
-  ok('expanded follow=calendar → 返回 calendar 配置', api.resolveSurfaceConfig('expanded').type === 'color');
-  ok('desktop follow=null → 返回自身 dark', api.resolveSurfaceConfig('desktop').type === 'dark');
-  ok('dock 独立 → 返回自身 light', api.resolveSurfaceConfig('dock').type === 'light');
-  ok('baseTheme = calendar 表面生效明暗', api.baseTheme() === 'dark');
+  ok('expanded follow=calendar → 返回 calendar 配置（style=glass）', api.resolveSurfaceConfig('expanded').style === 'glass');
+  ok('desktop follow=null → 返回自身（style=neu）', api.resolveSurfaceConfig('desktop').style === 'neu');
+  ok('dock 独立 → 返回自身（style=minimal）', api.resolveSurfaceConfig('dock').style === 'minimal');
+  ok('baseTheme = calendar 表面生效明暗（tone=dark → dark）', api.baseTheme() === 'dark');
 })();
 
 (function () {
-  const skin = { __v: 2, surfaces: {
-    calendar: { type: 'light', color: null, image: null, text: 'auto' },
-    expanded: { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto' },
-    desktop: { follow: null, type: 'system', color: null, image: null, text: 'auto' },
-    dock: { type: 'color', color: '#1f2430', image: null, text: 'auto' }
+  const skin = { __v: 3, surfaces: {
+    calendar: { style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'light' },
+    expanded: { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+    desktop: { follow: null, style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'system' },
+    dock: { style: 'tech', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' }
   }, opacity: {} };
   const api = makeSkinHub(skin, { shouldUseDarkColors: true });
-  ok('surfaceTheme light → light', api.surfaceTheme('calendar') === 'light');
-  ok('surfaceTheme system + 系统深色 → dark', api.surfaceTheme('desktop') === 'dark');
-  ok('surfaceTheme color 深色 + text=auto → dark', api.surfaceTheme('dock') === 'dark');
+  ok('surfaceTheme tone=light → light', api.surfaceTheme('calendar') === 'light');
+  ok('surfaceTheme tone=system + 系统深色 → dark', api.surfaceTheme('desktop') === 'dark');
+  ok('surfaceTheme tone=auto + style=tech → dark（styleNativeTheme tech）', api.surfaceTheme('dock') === 'dark');
 })();
 
 (function () {
-  const skin = { __v: 2, surfaces: {
-    calendar: { type: 'color', color: '#1f2430', image: null, text: 'light' },
-    expanded: { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto' },
-    desktop: { follow: null, type: 'dark', color: null, image: null, text: 'auto' },
-    dock: { type: 'image', image: { file: 'x.png', snapshot: null, w: 1000, h: 1000, crop: { x: 0, y: 0, w: 1, h: 1 }, zoom: 1, dark: false }, text: 'auto' }
+  const skin = { __v: 3, surfaces: {
+    calendar: { style: 'default', bg: 'native', image: null, text: 'dark', clarity: 'auto', tone: 'auto' },
+    expanded: { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+    desktop: { follow: null, style: 'minimal', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'dark' },
+    dock: { style: 'default', bg: 'image', image: { file: 'x.png', snapshot: null, w: 1000, h: 1000, crop: { x: 0, y: 0, w: 1, h: 1 }, zoom: 1, dark: false }, text: 'auto', clarity: 'auto', tone: 'auto' }
   }, opacity: {} };
   const api = makeSkinHub(skin, { shouldUseDarkColors: false });
-  ok('surfaceTheme color 深色但 text=light（手动深字/浅底）→ light', api.surfaceTheme('calendar') === 'light');
-  ok('surfaceTheme dark → dark', api.surfaceTheme('desktop') === 'dark');
-  ok('surfaceTheme image 亮图 auto → light', api.surfaceTheme('dock') === 'light');
+  ok('surfaceTheme 与 text 解耦：text=dark + tone=auto（default）仍 → light', api.surfaceTheme('calendar') === 'light');
+  ok('surfaceTheme tone=dark → dark', api.surfaceTheme('desktop') === 'dark');
+  ok('surfaceTheme bg=image 亮图 → light（按图片亮度）', api.surfaceTheme('dock') === 'light');
 })();
 
 (function () {
-  const skin = { __v: 2, surfaces: {
-    calendar: { type: 'color', color: '#224466', image: null, text: 'auto' },
-    expanded: { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto' },
-    desktop: { follow: null, type: 'image', image: { file: 'd.png', snapshot: null, w: 1000, h: 1000, crop: { x: 0, y: 0, w: 1, h: 1 }, zoom: 1, dark: false }, text: 'auto' },
-    dock: { type: 'light', color: null, image: null, text: 'auto' }
+  const skin = { __v: 3, surfaces: {
+    calendar: { style: 'default', bg: 'image', image: { file: 'c.png', snapshot: null, w: 1000, h: 1000, crop: { x: 0, y: 0, w: 1, h: 1 }, zoom: 1, dark: false }, text: 'auto', clarity: 'auto', tone: 'auto' },
+    expanded: { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+    desktop: { follow: null, style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+    dock: { style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' }
   }, opacity: {} };
   const api = makeSkinHub(skin, { shouldUseDarkColors: false });
   const b1 = api.surfaceBg('calendar');
-  ok('surfaceBg calendar color → {kind:color,color}', b1.kind === 'color' && b1.color === '#224466', JSON.stringify(b1));
-  ok('surfaceBg expanded follow → 复用 calendar 背景', api.surfaceBg('expanded').kind === 'color');
-  ok('surfaceBg desktop image → {kind:image}', api.surfaceBg('desktop').kind === 'image');
-  ok('surfaceBg dock light → {kind:native}', api.surfaceBg('dock').kind === 'native');
+  ok('surfaceBg calendar bg=image → {kind:image,file}', b1.kind === 'image' && b1.image && b1.image.file === 'c.png', JSON.stringify(b1));
+  ok('surfaceBg expanded follow → 复用 calendar 背景', api.surfaceBg('expanded').kind === 'image');
+  ok('surfaceBg desktop bg=native → {kind:native}', api.surfaceBg('desktop').kind === 'native');
+  ok('surfaceBg dock bg=native → {kind:native}', api.surfaceBg('dock').kind === 'native');
 })();
 
 (function () {
-  const skin = { __v: 2, surfaces: {
-    calendar: { type: 'color', color: '#1f2430', image: null, text: 'auto' },
-    expanded: { follow: 'calendar', type: 'light', color: null, image: null, text: 'auto' },
-    desktop: { follow: null, type: 'dark', color: null, image: null, text: 'auto' },
-    dock: { type: 'image', image: { file: 'd.gif', snapshot: 'd_frame.png', w: 1280, h: 853, crop: { x: 0.2, y: 0.1, w: 0.6, h: 0.8 }, zoom: 1.5, dark: true }, text: 'auto' }
+  const skin = { __v: 3, surfaces: {
+    calendar: { style: 'glass', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+    expanded: { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+    desktop: { follow: null, style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+    dock: { style: 'default', bg: 'image', image: { file: 'd.gif', snapshot: 'd_frame.png', w: 1280, h: 853, crop: { x: 0.2, y: 0.1, w: 0.6, h: 0.8 }, zoom: 1.5, dark: true }, text: 'auto', clarity: 'auto', tone: 'auto' }
   }, opacity: {} };
   const api = makeSkinHub(skin, { shouldUseDarkColors: false });
   const st = api.resolvedSurfaceState('calendar');
-  ok('resolvedSurfaceState calendar → type/theme/bg/color 齐全', st.type === 'color' && st.theme === 'dark' && st.bg === 'color' && st.color === '#1f2430', JSON.stringify(st));
+  ok('resolvedSurfaceState calendar → style/tone/theme/bg 齐全（v3 无 type）',
+    st.style === 'glass' && st.tone === 'auto' && st.theme === 'light' && st.bg === 'native' && st.type === undefined, JSON.stringify(st));
   const dk = api.resolvedSurfaceState('dock');
   ok('resolvedSurfaceState dock image → image 透传 + theme=dark', dk.bg === 'image' && dk.image && dk.image.file === 'd.gif' && dk.theme === 'dark', JSON.stringify(dk));
 })();
 
-/* ============ v2.4.1 C/E：image 类型但尚未导入图片 → 回退纯色 + 不硬切黑夜 ============ */
+/* ============ v3.0.0 / v2.4.1 C/E：bg=image 但尚未导入图片 → 回退纯色 + 不硬切黑夜 ============ */
 (function () {
-  const skin = { __v: 2, surfaces: {
-    calendar: { type: 'image', image: null, color: null, text: 'auto' },
-    expanded: { follow: 'calendar', type: 'image', image: null, color: null, text: 'auto' },
-    desktop: { follow: null, type: 'image', image: null, color: null, text: 'auto' },
-    dock: { type: 'image', image: null, color: null, text: 'dark' }
+  const skin = { __v: 3, surfaces: {
+    calendar: { style: 'default', bg: 'image', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+    expanded: { follow: 'calendar', style: 'default', bg: 'image', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+    desktop: { follow: null, style: 'default', bg: 'image', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
+    dock: { style: 'default', bg: 'image', image: null, text: 'auto', clarity: 'auto', tone: 'dark' }
   }, opacity: {} };
   const api = makeSkinHub(skin, { shouldUseDarkColors: false });
   const b1 = api.surfaceBg('calendar');
-  ok('v2.4.1 surfaceBg image 但无图 → 回退纯色兜底（不透明）', b1.kind === 'color' && b1.color === '#FCFBF9', JSON.stringify(b1));
-  ok('v2.4.1 surfaceTheme image 但无图 + auto → light（不硬切黑夜）', api.surfaceTheme('calendar') === 'light');
+  ok('v2.4.1 surfaceBg bg=image 但无图 → 回退纯色兜底（不透明）', b1.kind === 'color' && b1.color === '#FCFBF9', JSON.stringify(b1));
+  ok('v2.4.1 surfaceTheme bg=image 无图 + tone=auto → light（不硬切黑夜）', api.surfaceTheme('calendar') === 'light');
   const st = api.resolvedSurfaceState('calendar');
-  ok('v2.4.1 resolvedSurfaceState image 无图 → bg=color 而非 image', st.bg === 'color' && st.color === '#FCFBF9' && st.image === null, JSON.stringify(st));
+  ok('v2.4.1 resolvedSurfaceState bg=image 无图 → bg=color 而非 image', st.bg === 'color' && st.color === '#FCFBF9' && st.image === null, JSON.stringify(st));
   const dk = api.surfaceBg('dock');
-  ok('v2.4.1 surfaceBg image 无图 + text=dark → 深色兜底', dk.kind === 'color' && dk.color === '#1C202C', JSON.stringify(dk));
+  ok('v3.0.0 surfaceBg bg=image 无图 + tone=dark → 深色兜底', dk.kind === 'color' && dk.color === '#1C202C', JSON.stringify(dk));
 })();
 
 /* ============ v2.4.1 D：skin:// URL → 文件名（standard 协议尾斜杠兼容） ============ */
@@ -944,13 +948,13 @@ console.log('\n【v2.4.4】normalizeClarity / clarityForConfig / decideDark —�
   ok('normalizeClarity "abc"（非法）→ auto', api.normalizeClarity('abc') === 'auto');
 
   ok('clarityForConfig 手动 60 → 60', api.clarityForConfig({ clarity: 60 }) === 60);
-  ok('clarityForConfig auto + image complexity 0.5 → 50',
-    api.clarityForConfig({ clarity: 'auto', type: 'image', image: { complexity: 0.5 } }) === 50);
-  ok('clarityForConfig auto + image complexity 0.05 → 夹到 20（下限）',
-    api.clarityForConfig({ clarity: 'auto', type: 'image', image: { complexity: 0.05 } }) === 20);
-  ok('clarityForConfig auto + image complexity 0.99 → 夹到 85（上限）',
-    api.clarityForConfig({ clarity: 'auto', type: 'image', image: { complexity: 0.99 } }) === 85);
-  ok('clarityForConfig auto + color → 0', api.clarityForConfig({ clarity: 'auto', type: 'color' }) === 0);
+  ok('clarityForConfig auto + bg=image complexity 0.5 → 50',
+    api.clarityForConfig({ clarity: 'auto', bg: 'image', image: { complexity: 0.5 } }) === 50);
+  ok('clarityForConfig auto + bg=image complexity 0.05 → 夹到 20（下限）',
+    api.clarityForConfig({ clarity: 'auto', bg: 'image', image: { complexity: 0.05 } }) === 20);
+  ok('clarityForConfig auto + bg=image complexity 0.99 → 夹到 85（上限）',
+    api.clarityForConfig({ clarity: 'auto', bg: 'image', image: { complexity: 0.99 } }) === 85);
+  ok('clarityForConfig auto + bg=native → 0', api.clarityForConfig({ clarity: 'auto', bg: 'native' }) === 0);
   ok('clarityForConfig null → 0', api.clarityForConfig(null) === 0);
 
   ok('decideDark light 起点 L=0.44 → 仍 light（未越阈）', api.decideDark(0.44, false) === false);

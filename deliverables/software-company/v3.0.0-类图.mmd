@@ -1,0 +1,87 @@
+classDiagram
+    class SkinConfigV3 {
+        +int __v
+        +SurfaceMap surfaces
+        +OpacityMap opacity
+    }
+    class SurfaceConfigV3 {
+        +string style
+        +string bg
+        +ImageSpec image
+        +string text
+        +string follow
+        +string|number clarity
+    }
+    class ImageSpec {
+        +string file
+        +string snapshot
+        +int w
+        +int h
+        +CropRect crop
+        +float zoom
+        +float opacity
+        +bool dark
+        +float complexity
+    }
+    class CropRect {
+        +float x
+        +float y
+        +float w
+        +float h
+    }
+    class ResolvedSurfaceState {
+        +string style
+        +string theme
+        +string text
+        +bool warn
+        +string bg
+        +string color
+        +ImageSpec image
+        +int clarity
+    }
+    class Reminder {
+        +string id
+        +int y
+        +int m
+        +int d
+        +int hh
+        +int mm
+        +string text
+        +number createdAt
+        +number snoozeUntil
+        +string ackedDate
+    }
+    class MainProcess {
+        +SkinConfigV3 skin
+        +normalizeSkinV3(raw)
+        +migrateSkinV2toV3(v2)
+        +surfaceTheme(surface)
+        +styleNativeTheme(style)
+        +surfaceBg(surface)
+        +resolvedSurfaceState(surface)
+        +applySkinSet(payload)
+        +shouldFire(reminder, now, todayKey)
+        +checkReminders()
+    }
+    class Renderer {
+        +applySkinState(state)
+        +applyClarity(root, theme, clarity)
+    }
+    class SkinWindow {
+        +renderStyleGrid()
+        +renderBgSegment()
+    }
+    class RemindListWindow {
+        +renderContentWithTime()
+    }
+
+    SkinConfigV3 --> SurfaceConfigV3
+    SurfaceConfigV3 --> ImageSpec
+    ImageSpec --> CropRect
+    MainProcess --> SkinConfigV3
+    MainProcess --> SurfaceConfigV3
+    MainProcess --> ResolvedSurfaceState
+    MainProcess --> Reminder
+    Renderer ..> ResolvedSurfaceState
+    SkinWindow ..> MainProcess
+    RemindListWindow ..> Reminder

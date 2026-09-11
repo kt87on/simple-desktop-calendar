@@ -6,11 +6,13 @@
 <title>皮肤设置</title>
 <style>
   /* ==========================================================================
-   * 皮肤设置窗口 · 设计系统 v2.4（第二轮）
+   * 皮肤设置窗口 · 设计系统 v3.0（风格 × 背景 双维度）
    * --------------------------------------------------------------------------
-   * 语义定位：独立的皮肤调校台。4 界面分段 + 5 皮肤类型 + 纯色色盘 + 图片取景 +
-   * 文字明暗 + 透明度 + 跟随开关。主进程是唯一真相，所有编辑走 skin-set 即时回写，
-   * 无保存按钮。视觉复用 settings.html 的 Token 体系（暖纸 + 雅蓝 + 圆角卡）。
+   * 语义定位：独立的皮肤调校台。4 界面分段 + 6 风格材质卡 + 明暗（tone）+ 背景来源
+   * （原生/自选图片）+ 图片取景 + 文字明暗 + UI 清晰度 + 透明度 + 跟随开关。
+   * 三轴正交可叠加：风格（style）× 明暗（tone）× 背景（bg），如「玻璃拟态 + 深色 + 我的照片」。
+   * 主进程是唯一真相，所有编辑走 skin-set 即时回写，无保存按钮。
+   * 视觉复用 settings.html 的 Token 体系（暖纸 + 雅蓝 + 圆角卡）。
    * 自身不应用皮肤背景，只跟随基准主题 baseTheme() → data-theme。
    * ========================================================================== */
 
@@ -153,7 +155,7 @@
     letter-spacing: 1.4px;
   }
 
-  /* 类型 / 文字明暗 分段按钮网格 */
+  /* 分段按钮网格（背景来源 / 文字明暗） */
   .type-grid {
     display: flex; flex-wrap: wrap; gap: var(--s-1); padding: 0 var(--s-4);
   }
@@ -169,6 +171,103 @@
   .type-grid button:disabled { opacity: 0.45; cursor: default; }
   .type-grid.text { padding: 0 var(--s-4); }
   .type-grid.text button { flex: 1; }
+
+  /* v3 明暗段（tone）：bg=image 时明暗由图片亮度自动判定 → 该段置灰并给一句提示 */
+  .tone-tip {
+    padding: 6px var(--s-4) 0; text-align: center;
+    font-size: var(--fs-2xs); color: var(--ink-faint); line-height: 1.45;
+  }
+
+  /* 风格网格（6 风格材质卡 + 预览小样） */
+  .style-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--s-2);
+    padding: 0 var(--s-4);
+  }
+  .style-card {
+    position: relative; display: flex; flex-direction: column; gap: 6px;
+    padding: 8px 8px 7px; cursor: pointer; font-family: inherit;
+    border: 1px solid var(--ctl-edge); border-radius: var(--r-md);
+    background: var(--ctl-bg);
+    transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  }
+  .style-card:hover { border-color: var(--accent); }
+  .style-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .style-card .style-name {
+    font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--ink);
+    text-align: center; letter-spacing: 0.2px;
+  }
+  .style-card .badge {
+    position: absolute; top: 5px; right: 5px; z-index: 3;
+    font-size: var(--fs-2xs); font-weight: var(--fw-bold); line-height: 1;
+    padding: 2px 5px; border-radius: var(--r-pill);
+    color: #fff; background: var(--accent);
+  }
+
+  /* 预览小样：用内联 CSS 画出该风格的代表性表面（底色 + 圆角 + 阴影/模糊/边框） */
+  .swatch {
+    position: relative; height: 44px; border-radius: 9px;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    overflow: hidden;
+  }
+  .swatch .dot { width: 16px; height: 16px; border-radius: 50%; flex: 0 0 auto; }
+  .swatch .bar { width: 26px; height: 4px; border-radius: var(--r-pill); flex: 0 0 auto; }
+
+  /* ① 默认（融合：现代极简排版 + 柔和玻璃质感/柔影） */
+  .sw-default {
+    background: linear-gradient(180deg, #ffffff, #fafbfc);
+    border: 1px solid rgba(31, 35, 48, 0.10);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 4px 10px rgba(16, 24, 40, 0.08);
+  }
+  .sw-default .dot { background: #3b6fd4; }
+  .sw-default .bar { background: rgba(31, 35, 48, 0.14); }
+
+  /* ② 极简（大量留白 + 极细线 + 近黑强调） */
+  .sw-minimal { background: #ffffff; border: 1px solid #e8e8ea; }
+  .sw-minimal .dot { background: #18181b; }
+  .sw-minimal .bar { background: #e4e4e7; }
+
+  /* ③ 玻璃拟态（磨砂玻璃 + 强模糊 + 高光描边 + 彩色光斑） */
+  .sw-glass {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.12)),
+      linear-gradient(155deg, #7c6bff, #2fc6ff 70%, #ff6fc4);
+    border: 1px solid rgba(255, 255, 255, 0.70);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  }
+  .sw-glass .dot { background: rgba(255, 255, 255, 0.92); }
+  .sw-glass .bar { background: rgba(255, 255, 255, 0.60); }
+
+  /* ④ 新拟态（同色系双向阴影凸/凹） */
+  .sw-neu {
+    background: #dde4ee; border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: inset 3px 3px 7px #b0b9c9, inset -3px -3px 7px #ffffff;
+  }
+  .sw-neu .dot { background: #dde4ee; box-shadow: 2px 2px 5px #b0b9c9, -2px -2px 5px #ffffff; }
+  .sw-neu .bar { background: #c3ccda; }
+
+  /* ⑤ 科技感（深底 + 青蓝霓虹 + 网格 + 四角切角） */
+  .sw-tech {
+    background:
+      linear-gradient(rgba(34, 211, 238, 0.06) 1px, transparent 1px) 0 0 / 11px 11px,
+      linear-gradient(90deg, rgba(34, 211, 238, 0.06) 1px, transparent 1px) 0 0 / 11px 11px,
+      linear-gradient(160deg, #0e1622, #0a1017);
+    border: 1px solid rgba(34, 211, 238, 0.50);
+  }
+  .sw-tech::before, .sw-tech::after {
+    content: ""; position: absolute; width: 8px; height: 8px; pointer-events: none;
+  }
+  .sw-tech::before { top: 3px; left: 3px; border-top: 2px solid #22d3ee; border-left: 2px solid #22d3ee; }
+  .sw-tech::after { bottom: 3px; right: 3px; border-bottom: 2px solid #22d3ee; border-right: 2px solid #22d3ee; }
+  .sw-tech .dot { background: #22d3ee; box-shadow: 0 0 8px rgba(34, 211, 238, 0.8); }
+  .sw-tech .bar { background: rgba(143, 240, 255, 0.35); }
+
+  /* ⑥ 温润拟物（纸感 + 暖棕 + 衬线字 + 柔和立体） */
+  .sw-warm {
+    background: linear-gradient(#fffdf7, #faf3e6); border: 1px solid #e7dbc4;
+    box-shadow: inset 0 1px 0 #ffffff, 0 3px 8px rgba(120, 90, 50, 0.16);
+  }
+  .sw-warm .dot { background: radial-gradient(circle at 32% 28%, #d98a55, #b5602f); }
+  .sw-warm .bar { background: #e6d9c0; }
 
   /* 普通行 / 跟随开关 */
   .row {
@@ -192,25 +291,6 @@
   }
   .switch.on { background: var(--accent); border-color: var(--accent); }
   .switch.on .knob { transform: translateX(18px); }
-
-  /* 色盘 */
-  .palette-grid {
-    display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px;
-    padding: 0 var(--s-4);
-  }
-  .palette-swatch {
-    aspect-ratio: 1; border-radius: var(--r-xs); cursor: pointer; border: 1px solid var(--ctl-edge);
-    transition: transform var(--dur-instant) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
-  }
-  .palette-swatch:hover { border-color: var(--accent); transform: scale(1.08); }
-  .palette-custom {
-    display: flex; align-items: center; gap: var(--s-2); margin: 10px var(--s-4) 0;
-  }
-  .palette-custom input[type="color"] {
-    width: 40px; height: 26px; padding: 0; border: 1px solid var(--ctl-edge); border-radius: var(--r-sm);
-    background: var(--ctl-bg); cursor: pointer;
-  }
-  .palette-tip { font-size: var(--fs-2xs); color: var(--ink-faint); }
 
   /* 图片导入 + 取景 */
   .drop-zone {
@@ -243,7 +323,7 @@
   .crop-tip { padding: 6px var(--s-4) 0; text-align: center; font-size: var(--fs-2xs); color: var(--ink-faint); }
   .crop-empty { padding: 20px 0; text-align: center; font-size: var(--fs-sm); color: var(--ink-faint); }
 
-  /* 透明度 */
+  /* 透明度 / 清晰度 */
   .slider { padding: 9px var(--s-4) 11px; }
   .slider .slider-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
   .slider .label { font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--ink); }
@@ -253,6 +333,23 @@
 
   /* 跟随时置灰（除透明度外） */
   .dimmed { opacity: 0.5; pointer-events: none; }
+
+  /* v3 低对比提示条（§3.4）：背景明暗 × 文字轴 冲突时的克制轻提示 */
+  .warn-tip {
+    display: flex; align-items: flex-start; gap: 7px;
+    margin: 8px var(--s-4) 0; padding: 8px 10px;
+    border-radius: var(--r-sm);
+    background: rgba(245, 158, 11, 0.10);
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    color: #b45309; font-size: var(--fs-2xs); line-height: 1.5;
+  }
+  .warn-tip svg { width: 13px; height: 13px; flex: 0 0 auto; margin-top: 1px; color: #d97706; }
+  html[data-theme="dark"] .warn-tip {
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.34);
+    color: #fbbf24;
+  }
+  html[data-theme="dark"] .warn-tip svg { color: #fbbf24; }
 
   /* v2.4.4 UI 清晰度：auto 档下滑杆视觉置灰（沿用 .dimmed），但「拖动滑杆 = 切手动」
    * 必须仍然可用 → 只把 range 本体重新开放指针事件。外层 #claritySection.dimmed
@@ -307,13 +404,55 @@
       </div>
       <div class="cur-surface" id="curSurface">当前界面：日历界面</div>
 
-      <div class="group-title">皮肤类型</div>
-      <div class="type-grid" id="typeGrid">
-        <button data-type="light">白天</button>
-        <button data-type="dark">黑夜</button>
-        <button data-type="system">跟随系统</button>
-        <button data-type="color">纯色</button>
-        <button data-type="image">自选图片</button>
+      <!-- 6 风格材质卡（style × bg 双维度之一：风格。与背景来源正交，可叠加） -->
+      <div class="group-title">皮肤风格</div>
+      <div class="style-grid" id="styleGrid">
+        <button class="style-card" data-style="default">
+          <span class="badge">默认</span>
+          <span class="swatch sw-default"><i class="dot"></i><i class="bar"></i></span>
+          <span class="style-name">默认</span>
+        </button>
+        <button class="style-card" data-style="minimal">
+          <span class="swatch sw-minimal"><i class="dot"></i><i class="bar"></i></span>
+          <span class="style-name">极简</span>
+        </button>
+        <button class="style-card" data-style="glass">
+          <span class="swatch sw-glass"><i class="dot"></i><i class="bar"></i></span>
+          <span class="style-name">玻璃拟态</span>
+        </button>
+        <button class="style-card" data-style="neu">
+          <span class="swatch sw-neu"><i class="dot"></i><i class="bar"></i></span>
+          <span class="style-name">新拟态</span>
+        </button>
+        <button class="style-card" data-style="tech">
+          <span class="swatch sw-tech"><i class="dot"></i><i class="bar"></i></span>
+          <span class="style-name">科技感</span>
+        </button>
+        <button class="style-card" data-style="warm">
+          <span class="swatch sw-warm"><i class="dot"></i><i class="bar"></i></span>
+          <span class="style-name">温润拟物</span>
+        </button>
+      </div>
+
+      <!-- 明暗轴（tone）：风格默认 / 浅色 / 深色 / 跟随系统。与风格、背景正交。
+           值经 skinSet(surface,'tone',v) 即时落盘。bg=image 时明暗由图片亮度自动判定 →
+           该段置灰 + 提示，但 tone 取值保留（切回原生背景时仍在）。 -->
+      <div id="toneSection">
+        <div class="group-title">明暗</div>
+        <div class="type-grid text" id="toneGrid">
+          <button data-tone="auto">风格默认</button>
+          <button data-tone="light">浅色</button>
+          <button data-tone="dark">深色</button>
+          <button data-tone="system">跟随系统</button>
+        </div>
+        <div class="tone-tip" id="toneTip" style="display:none">已选图片背景，明暗由图片亮度自动判定</div>
+      </div>
+
+      <!-- 背景来源（style × bg 双维度之二：与风格正交，可叠加，如「玻璃拟态 + 我的照片」） -->
+      <div class="group-title">背景来源</div>
+      <div class="type-grid" id="bgGrid">
+        <button data-bg="native">原生</button>
+        <button data-bg="image">自选图片</button>
       </div>
 
       <div class="row" id="followRow" style="display:none">
@@ -321,17 +460,8 @@
         <div class="switch" id="followSwitch" role="switch" tabindex="0"><span class="knob"></span></div>
       </div>
 
-      <div id="colorSection" style="display:none">
-        <div class="group-title">纯色</div>
-        <div class="palette-grid" id="paletteGrid"></div>
-        <div class="palette-custom">
-          <input type="color" id="colorInput" value="#3b6fd4">
-          <span class="palette-tip">自定义取色</span>
-        </div>
-      </div>
-
       <div id="imageSection" style="display:none">
-        <div class="group-title">自选图片</div>
+        <div class="group-title">图片取景</div>
         <div class="drop-zone" id="dropZone">拖拽图片到此处，或点击选择文件</div>
         <div class="crop-wrap" id="cropWrap" style="display:none">
           <div id="cropBox"><div id="cropImg"></div></div>
@@ -344,18 +474,27 @@
         </div>
       </div>
 
-      <div id="textSection" style="display:none">
+      <!-- 文字轴：auto / light(深字) / dark(浅字)。v3 起对所有风格通用，常驻显示。
+           低对比冲突（warn）时在其下方给出轻提示。 -->
+      <div id="textSection">
         <div class="group-title">文字明暗</div>
         <div class="type-grid text" id="textGrid">
           <button data-text="auto">自动</button>
           <button data-text="light">深字</button>
           <button data-text="dark">浅字</button>
         </div>
+        <div class="warn-tip" id="warnTip" style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 9v4"></path><path d="M12 17h.01"></path>
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+          </svg>
+          <span>当前文字与背景对比偏低，建议切换文字明暗或提高 UI 清晰度</span>
+        </div>
       </div>
 
-      <!-- v2.4.4 UI 清晰度：仅纯色 / 自选图片显示（与 textSection 同步显隐）。
+      <!-- v2.4.4 UI 清晰度：v3 起对所有风格通用（风格 × 背景可叠加），常驻显示。
            一个 clarity 值联动保护层浓度 + 文字光晕；auto 由主进程按图片复杂度推导。 -->
-      <div id="claritySection" style="display:none">
+      <div id="claritySection">
         <div class="group-title">UI 清晰度</div>
         <div class="row">
           <div class="txt">
@@ -393,9 +532,6 @@
         desktop: '桌面插件界面',
         expanded: '放大界面'
       };
-      var PRESETS = ['#fcfbf9', '#eef1f6', '#dbe7f5', '#cfe0f0', '#d6e4d6',
-                     '#f5efe0', '#f6e0dc', '#e6e0f0', '#1f2430', '#1c202c',
-                     '#3b6fd4', '#d6453f'];
 
       var S = { surface: 'calendar', skin: null, resolved: null, viewport: null };
       // 取景交互态（针对当前 surface 的图片）
@@ -405,8 +541,13 @@
       function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
       function pct(v) { return Math.round(Number(v) * 100) + '%'; }
 
+      /* surface 配置兜底（v3：style × bg 双维度）。
+       * 缺字段一律按契约默认值补齐，保证 UI 在无数据/旧数据下不崩。 */
       function getConfig(surface) {
-        return (S.skin && S.skin.surfaces && S.skin.surfaces[surface]) || { type: 'light', color: null, image: null, text: 'auto', follow: (surface === 'desktop' || surface === 'expanded') ? 'calendar' : null };
+        return (S.skin && S.skin.surfaces && S.skin.surfaces[surface]) ||
+          { style: 'default', bg: 'native', image: null, text: 'auto', tone: 'auto',
+            clarity: 'auto',
+            follow: (surface === 'desktop' || surface === 'expanded') ? 'calendar' : null };
       }
       function isFollowing(surface) {
         var c = getConfig(surface);
@@ -429,13 +570,13 @@
       }
       /* 主进程推导出的 clarity 数字（auto 时滑杆显示它）。
        * 优先用 skin-config-state 的 resolved[surface].clarity；若主进程尚未下发该字段，
-       * 按设计 §3.2 契约自算兜底：image → clamp(round(complexity*100), 20, 85)；纯色/原生 → 0。 */
+       * 按设计契约自算兜底：bg=image → clamp(round(complexity*100), 20, 85)；原生 → 0。 */
       function clarityResolved(surface, effCfg) {
         var r = (S.resolved && S.resolved[surface]) ? S.resolved[surface] : null;
         if (r && typeof r.clarity === 'number' && isFinite(r.clarity)) {
           return clamp(Math.round(r.clarity), 0, 100);
         }
-        if (!effCfg || effCfg.type !== 'image') return 0;
+        if (!effCfg || effCfg.bg !== 'image') return 0;
         var cp = (effCfg.image && typeof effCfg.image.complexity === 'number' && isFinite(effCfg.image.complexity))
           ? effCfg.image.complexity : 0;
         return clamp(Math.round(cp * 100), 20, 85);
@@ -456,14 +597,20 @@
       function setField(surface, field, value) {
         if (api && api.skinSet) api.skinSet(surface, field, value);
       }
-      function setType(type) {
-        setField(S.surface, 'type', type);
+      // v3：style 风格材质 / bg 背景来源（两者正交）
+      function setStyle(style) {
+        setField(S.surface, 'style', style);
       }
-      function setColor(hex) {
-        setField(S.surface, 'color', hex);
+      function setBg(bg) {
+        setField(S.surface, 'bg', bg);
       }
+      // 文字轴：auto | light(深字) | dark(浅字)
       function setText(text) {
         setField(S.surface, 'text', text);
+      }
+      // 明暗轴（tone）：auto(风格默认) | light(浅色) | dark(深色) | system(跟随系统)
+      function setTone(tone) {
+        setField(S.surface, 'tone', tone);
       }
       function setOpacity(val) {
         setField(S.surface, 'opacity', val);
@@ -476,7 +623,7 @@
       /* ---- 取景数学（正向：crop+zoom → CSS background；反向：拖/缩 → crop+zoom） ---- */
       function currentImage() {
         var c = getConfig(S.surface);
-        return (c.type === 'image' && c.image) ? c.image : null;
+        return (c.bg === 'image' && c.image) ? c.image : null;
       }
       function applyCropPreview() {
         var img = currentImage();
@@ -541,7 +688,7 @@
         var cfg = getConfig(surface);
         var following = isFollowing(surface);
 
-        // 主题回显
+        // 主题回显（皮肤窗自身跟随基准主题 baseTheme）
         document.documentElement.setAttribute('data-theme', (S.resolved && S.resolved.calendar && S.resolved.calendar.theme === 'dark') ? 'dark' : 'light');
 
         // 顶部 tabs
@@ -560,52 +707,70 @@
         // 生效配置：follow 时显示日历的实际值（但控件置灰）
         var effCfg = following ? getConfig('calendar') : cfg;
 
-        // 类型
-        var effType = effCfg.type;
-        setActive('typeGrid', 'data-type', effType);
+        // resolved[surface]：低对比 warn / 明暗 tone 等「主进程推导结果」都从这里读
+        var r = (S.resolved && S.resolved[surface]) ? S.resolved[surface] : null;
 
-        // 文字明暗
-        setActive('textGrid', 'data-text', effCfg.text);
+        // 风格（6 风格材质卡）
+        setActive('styleGrid', 'data-style', effCfg.style || 'default');
+
+        // 背景来源（原生 / 自选图片）
+        var effBg = (effCfg.bg === 'image') ? 'image' : 'native';
+        setActive('bgGrid', 'data-bg', effBg);
+
+        // 文字明暗（light=深字 / dark=浅字）
+        setActive('textGrid', 'data-text', effCfg.text || 'auto');
+
+        // 明暗轴（tone）：优先回显主进程 resolved[surface].tone，缺省回退配置值，再缺省 auto
+        var LEGAL_TONE = { light: 1, dark: 1, system: 1 };
+        var resTone = (r && LEGAL_TONE[r.tone]) ? r.tone
+          : (LEGAL_TONE[effCfg.tone] ? effCfg.tone : 'auto');
+        setActive('toneGrid', 'data-tone', resTone);
+        // bg=image 时明暗由图片亮度自动判定 → 该段置灰 + 提示（tone 取值保留不清空）
+        var toneAuto = (effBg === 'image');
+        $('toneTip').style.display = toneAuto ? 'block' : 'none';
+        $('toneSection').classList.toggle('dimmed', following || toneAuto);
 
         // 透明度（follow 不影响透明度）
         $('opacityRange').value = opacityFor(surface);
         $('opacityVal').textContent = pct(opacityFor(surface));
 
-        // 显隐各区块
-        var isColor = (effType === 'color');
-        var isImage = (effType === 'image');
-        $('colorSection').style.display = isColor ? 'block' : 'none';
-        $('imageSection').style.display = isImage ? 'block' : 'none';
-        $('textSection').style.display = (isColor || isImage) ? 'block' : 'none';
-        $('claritySection').style.display = (isColor || isImage) ? 'block' : 'none';
+        // 图片取景区：仅「自选图片」时展开
+        $('imageSection').style.display = (effBg === 'image') ? 'block' : 'none';
 
-        // UI 清晰度回显：auto → 滑杆置灰 + 显示主进程推导值；手动 → 显示手动值
+        // UI 清晰度回显：auto → 滑杆置灰 + 显示生效值；手动 → 显示生效值
         var rawClarity = clarityRaw(effCfg);
         var clarityAutoOn = (rawClarity === 'auto');
-        var resClarity = clarityResolved(surface, effCfg);
-        var shownClarity = clarityAutoOn ? resClarity : rawClarity;
+        /* v3.0.0 §3.4：warn=true（浅底浅字 / 深底深字）时渲染层会把生效 clarity 抬到 ≥35
+         * （见 app.js effectiveClarity()），而主进程下发的 resolved.clarity 是「基础推导值」、
+         * 不含这个下限。皮肤窗必须回显「生效值」而非「推导值」，否则出现
+         * 「皮肤窗显示 自动 20、日历窗口实际生效 35」的不一致。
+         * 注意：保护层只在 color/image 背景生效（原生无 [data-skin]，template.html 明确不触发），
+         * 故 native 背景不做抬升 —— 否则会显示一个实际并不存在的值。 */
+        var warnActive = !!(r && r.warn) && (effBg !== 'native');
+        function liftClarity(v) { return (warnActive && v < 35) ? 35 : v; }
+        var resClarity = liftClarity(clarityResolved(surface, effCfg));
+        var shownClarity = clarityAutoOn ? resClarity : liftClarity(rawClarity);
         $('clarityAuto').classList.toggle('on', clarityAutoOn);
         $('clarityRange').value = shownClarity;
         $('clarityVal').textContent = clarityAutoOn ? ('自动 ' + resClarity) : String(shownClarity);
         $('claritySlider').classList.toggle('dimmed', clarityAutoOn);
 
-        // follow 时除透明度外置灰
-        $('typeGrid').classList.toggle('dimmed', following);
-        $('colorSection').classList.toggle('dimmed', following);
+        // 低对比提示条（§3.4）：resolved[surface].warn === true 时显示
+        $('warnTip').style.display = (r && r.warn) ? 'flex' : 'none';
+
+        // follow 时除透明度外置灰（明暗段另受 bg=image 影响，已在上面单独处理）
+        $('styleGrid').classList.toggle('dimmed', following);
+        $('bgGrid').classList.toggle('dimmed', following);
         $('imageSection').classList.toggle('dimmed', following);
         $('textSection').classList.toggle('dimmed', following);
         $('claritySection').classList.toggle('dimmed', following);
-
-        // 色盘回显（纯色）
-        $('colorInput').value = isColor ? (cfg.color || '#fcfbf9') : '#3b6fd4';
 
         // 图片取景
         renderCrop();
       }
       function renderCrop() {
         var cfg = getConfig(S.surface);
-        var following = isFollowing(S.surface);
-        var img = (cfg.type === 'image' && cfg.image) ? cfg.image : null;
+        var img = (cfg.bg === 'image' && cfg.image) ? cfg.image : null;
         var hasImg = !!img;
         $('dropZone').style.display = 'block';
         $('cropWrap').style.display = hasImg ? 'flex' : 'none';
@@ -630,15 +795,26 @@
         })(tabBtns[t]);
       }
 
-      // 类型
-      var typeBtns = document.querySelectorAll('#typeGrid button');
-      for (var j = 0; j < typeBtns.length; j++) {
+      // 风格（6 材质卡）
+      var styleBtns = document.querySelectorAll('#styleGrid button');
+      for (var j = 0; j < styleBtns.length; j++) {
         (function (b) {
           b.addEventListener('click', function () {
             if (b.disabled) return;
-            setType(b.getAttribute('data-type'));
+            setStyle(b.getAttribute('data-style'));
           });
-        })(typeBtns[j]);
+        })(styleBtns[j]);
+      }
+
+      // 背景来源（原生 / 自选图片）
+      var bgBtns = document.querySelectorAll('#bgGrid button');
+      for (var m = 0; m < bgBtns.length; m++) {
+        (function (b) {
+          b.addEventListener('click', function () {
+            if (b.disabled) return;
+            setBg(b.getAttribute('data-bg'));
+          });
+        })(bgBtns[m]);
       }
 
       // 文字明暗
@@ -652,27 +828,21 @@
         })(textBtns[k]);
       }
 
+      // 明暗轴（tone）
+      var toneBtns = document.querySelectorAll('#toneGrid button');
+      for (var q = 0; q < toneBtns.length; q++) {
+        (function (b) {
+          b.addEventListener('click', function () {
+            if (b.disabled) return;
+            setTone(b.getAttribute('data-tone'));
+          });
+        })(toneBtns[q]);
+      }
+
       // 跟随开关
       $('followSwitch').addEventListener('click', function () {
         var following = isFollowing(S.surface);
         setField(S.surface, 'follow', following ? null : 'calendar');
-      });
-
-      // 色盘
-      var paletteGrid = $('paletteGrid');
-      for (var p = 0; p < PRESETS.length; p++) {
-        (function (hex) {
-          var b = document.createElement('button');
-          b.type = 'button';
-          b.className = 'palette-swatch';
-          b.style.background = hex;
-          b.title = hex;
-          b.addEventListener('click', function () { setColor(hex); });
-          paletteGrid.appendChild(b);
-        })(PRESETS[p]);
-      }
-      $('colorInput').addEventListener('input', function () {
-        setColor($('colorInput').value);
       });
 
       // 透明度
