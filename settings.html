@@ -12,7 +12,7 @@
    * 本页仅保留入口按钮。主进程是唯一真相：弹窗只渲染 onSettingsState 推送的状态，
    * 每个操作实时回写，无需「保存」。
    * 视觉沿用 exit.html 的 Token 体系（暖纸 + 雅蓝 + 圆角卡），补齐 switch/seg/slider。
-   * v2.4.0：重排为「功能区 / 桌面插件区 / 浮动插件区 / 日历窗口区」四分区。
+   * v2.4.0：重排为「功能区 / 桌面插件区 / 浮窗区 / 日历窗口区」四分区。
    * v3.0.0：皮肤入口文案随皮肤模型 v3 调整（「风格」×「背景来源」语言；旧
    *         「纯色/跟随系统/黑夜」类型已并入 v3 的双维度模型）。
    * ========================================================================== */
@@ -274,8 +274,8 @@
         <div class="switch" data-toggle="desktopLocked" role="switch" tabindex="0"><span class="knob"></span></div>
       </div>
 
-      <!-- ============ 浮动插件区 ============ -->
-      <div class="section">浮动插件区</div>
+      <!-- ============ 浮窗区 ============ -->
+      <div class="section">浮窗区</div>
 
       <div class="row">
         <div class="txt"><div class="label">挂件条总开关</div><div class="hint">关闭后插件与托盘图标都不显示</div></div>
@@ -283,7 +283,7 @@
       </div>
 
       <div class="row" data-dep="dockOn">
-        <div class="txt"><div class="label">显示形态</div><div class="hint">浮动插件 / 托盘图标</div></div>
+        <div class="txt"><div class="label">显示形态</div><div class="hint">浮窗 / 托盘图标</div></div>
         <div class="seg" data-seg="dockMode">
           <button data-v="dock">插件</button>
           <button data-v="icon">图标</button>

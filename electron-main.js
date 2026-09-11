@@ -601,8 +601,13 @@ function skinConfigState() {
   };
 }
 function pushSkinConfigState() {
+  /* v3.2.0 C2：同一份 skinConfigState() 同时下发给「皮肤设置窗」与「自选图片」独立窗口。 */
+  var payload = skinConfigState();
   if (skinWin && !skinWin.isDestroyed()) {
-    try { skinWin.webContents.send('skin-config-state', skinConfigState()); } catch (e) {}
+    try { skinWin.webContents.send('skin-config-state', payload); } catch (e) {}
+  }
+  if (skinCustomWin && !skinCustomWin.isDestroyed()) {
+    try { skinCustomWin.webContents.send('skin-config-state', payload); } catch (e) {}
   }
 }
 
@@ -936,6 +941,49 @@ function applySkinSet(payload) {
   saveSettings();
   pushThemeToAll();     // baseTheme 可能变化：托盘反色 + 关注列表 + 设置窗主题跟随
   pushSkinToAll();
+  refreshTrayMenu();
+}
+
+/* v3.2.0 C1：「原生皮肤」= 四界面全局统一（需求 1 根因修复）。
+ * 背景：用户真实数据里 dock.follow === null（他 2026-09-11 给浮窗单独导入过图片 →
+ *       触发 applySkinSet 的 C2「手调即豁免跟随」把浮窗 follow 置为 null，设计如此），
+ *       于是「换原生皮肤浮窗不跟随」——不是随机 bug，而是「浮窗已独立」+「用户不知情」的合成效果。
+ *       产品决策已拍板：点原生皮肤 = 日历 / 浮窗 / 桌面插件 / 放大界面四个界面全部切成该风格。
+ *
+ * ① 为什么是「单次原子写入」而不是循环调用 4×3 次 skin-set（applySkinSet）：
+ *    会触发 12 次 saveSettings() 与 12 轮 pushThemeToAll/pushSkinToAll 推送，既慢又刷盘频繁；
+ *    中途还可能被并发读（渲染层/托盘）读到「一半新一半旧」的中间态；
+ *    浮窗更会经历多次中间态，外观出现闪烁/跳变。单次原子写入是唯一正确的口径。
+ * ② 为什么 image = null 但**不删** userData/skins/* 盘上文件：
+ *    仅解除配置引用即可满足「切原生」语义；保留盘上文件，用户之后仍可在「自选图片」里
+ *    重新指定同一张图（重新选择后 importSkinImage/取景回写会重建引用）。删文件会让用户再也找不回。
+ * ③ 为什么要把 expanded/desktop/dock 三面的 follow 一并写回 'calendar'：
+ *    否则被 C2 置过 null 的面仍不跟随，resolveSurfaceConfig 继续返回其自身（旧）配置 →
+ *    等于这次修复对它们无效。写回 'calendar' 才是「四界面全局统一」的语义落点。
+ * 注意：本函数**刻意写成顶层函数**，且**不被 applySkinSet 引用**。tests/qa-v244.js 会孤立 eval
+ *       applySkinSet 的源码，任何 applySkinSet → applyNativeStyleAll 的跨函数引用都会 ReferenceError。 */
+function applyNativeStyleAll(style) {
+  var st = normStyle(style);            // 非法 style → 'default'（normStyle 既有语义），不写脏数据
+  var names = ['calendar', 'expanded', 'desktop', 'dock'];
+  for (var i = 0; i < names.length; i++) {
+    var c = skin.surfaces[names[i]];
+    if (!c) continue;
+    c.style = st;
+    c.bg = 'native';                   // 四界面一律回原生背景来源
+    c.image = null;                    // 仅解除引用（盘上文件保留，见注释②）
+    /* expanded/desktop/dock 额外把跟随写回日历，根治「曾被 C2 置 null → 不跟随」的残留（见注释③） */
+    if (names[i] === 'expanded' || names[i] === 'desktop' || names[i] === 'dock') {
+      c.follow = 'calendar';
+    }
+  }
+  /* 收尾序列与 applySkinSet 末尾（recomputeTheme/saveSettings/pushThemeToAll/pushSkinToAll/
+   * pushSkinConfigState/refreshTrayMenu）保持一致，避免两处收尾逻辑漂移。
+   * 注：pushThemeToAll() 内部已会调用 pushSkinConfigState()，此处显式再调一次是幂等的。 */
+  recomputeTheme();
+  saveSettings();
+  pushThemeToAll();
+  pushSkinToAll();
+  pushSkinConfigState();
   refreshTrayMenu();
 }
 
@@ -2087,6 +2135,7 @@ function toggleDesktop() {
  * 弹窗只渲染收到的状态，保证与菜单、主窗实时一致。 */
 let settingsWin = null;
 let skinWin = null;             // v2.4.0 第二轮：独立皮肤设置窗口
+let skinCustomWin = null;       // v3.2.0 C2：独立「自选图片」窗口（skincustom.html）
 function settingsSnapshot() {
   return {
     theme: baseTheme(),        // 设置窗自身主题跟随日历表面基准
@@ -2139,7 +2188,7 @@ function openSkinWindow() {
     return;
   }
   const wa = screen.getPrimaryDisplay().workAreaSize;
-  const W = 520, H = 620;
+  const W = 520, H = 640;   // v3.2.0 C4：高度 620 → 640。skin.html 改版后「原生皮肤」入口展开 6 行迷你预览，#body 需纵向滚动，故加高。
   skinWin = new BrowserWindow(winBase({
     width: W, height: H,
     x: Math.round((wa.width - W) / 2),
@@ -2155,6 +2204,34 @@ function openSkinWindow() {
     try { skinWin.show(); pushSkinConfigState(); } catch (e) {}
   });
   skinWin.on('closed', function () { skinWin = null; });
+}
+
+/* v3.2.0 C2：「自选图片」独立窗口（skincustom.html）。范式照 openSkinWindow() 与 openReminderListWindow()：
+ * 单例复用（已存在则 focus + 回推状态）、winBase + 置顶 screen-saver、ready-to-show 才 show、closed 置 null；
+ * 尺寸 500×660（C4），与 skinWin 相互独立、互不影响。初始界面从 query.surface 传入，缺省 calendar。 */
+function openSkinCustomWindow(initialSurface) {
+  if (skinCustomWin && !skinCustomWin.isDestroyed()) {
+    try { skinCustomWin.focus(); } catch (e) {}
+    pushSkinConfigState();
+    return;
+  }
+  const wa = screen.getPrimaryDisplay().workAreaSize;
+  const W = 500, H = 660;
+  skinCustomWin = new BrowserWindow(winBase({
+    width: W, height: H,
+    x: Math.round((wa.width - W) / 2),
+    y: Math.round((wa.height - H) / 2),
+    resizable: false,
+    alwaysOnTop: true, skipTaskbar: true,
+    show: false,
+    webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.js') }
+  }));
+  skinCustomWin.setAlwaysOnTop(true, 'screen-saver');
+  skinCustomWin.loadFile(path.join(__dirname, 'skincustom.html'), { query: { theme: baseTheme(), surface: initialSurface || 'calendar' } });
+  skinCustomWin.once('ready-to-show', function () {
+    try { skinCustomWin.show(); pushSkinConfigState(); } catch (e) {}
+  });
+  skinCustomWin.on('closed', function () { skinCustomWin = null; });
 }
 
 function buildTrayMenu() {
@@ -3006,7 +3083,17 @@ ipcMain.on('skin-set', function (evt, surface, field, value) {
 ipcMain.on('skin-action', function (evt, action, payload) {
   try {
     if (action === 'close') {
+      /* v3.2.0 C2：close 仍**只关**皮肤设置窗 skinWin（保持既有行为不变）。 */
       if (skinWin && !skinWin.isDestroyed()) { try { skinWin.close(); } catch (e) {} }
+    } else if (action === 'close-custom') {
+      /* v3.2.0 C2：新「自选图片」窗口的 ✕ / Esc → 只关 skinCustomWin。 */
+      if (skinCustomWin && !skinCustomWin.isDestroyed()) { try { skinCustomWin.close(); } catch (e) {} }
+    } else if (action === 'apply-native-style') {
+      /* v3.2.0 C1：点原生皮肤 = 四界面全部切成该风格（全局统一，含此前独立的浮窗）。 */
+      applyNativeStyleAll(payload && payload.style);
+    } else if (action === 'open-custom') {
+      /* v3.2.0 C2：开「自选图片」独立新窗口（surface 缺省 calendar）。 */
+      openSkinCustomWindow(payload && payload.surface);
     } else if (action === 'choose-file') {
       var surface = (payload && payload.surface) || 'calendar';
       dialog.showOpenDialog({
@@ -3020,11 +3107,15 @@ ipcMain.on('skin-action', function (evt, action, payload) {
             /* v3.1.0 C2（同类缺陷补齐）：点选导入图片也是一次「手动调整」，改走统一的 applySkinSet 写入口
              * —— 复用其 C2「手调即豁免跟随」逻辑（若该界面正跟随日历，先取消跟随再落图，否则图片会被
              * resolveSurfaceConfig 忽略），并复用其收尾副作用（recomputeTheme/save/下发/托盘），避免两处漂移。
-             * 对应验收：单独给浮动插件设一张图片 → 只有浮动插件变。 */
+             * 对应验收：单独给浮窗设一张图片 → 只有浮窗变。 */
             applySkinSet({ surface: surface, field: 'image', value: res.image });
           }
+          /* v3.2.0 C2：导入结果同时回传给皮肤设置窗与「自选图片」窗口（发起方可能是任一）。 */
           if (skinWin && !skinWin.isDestroyed()) {
             try { skinWin.webContents.send('skin-import-result', res); } catch (e) {}
+          }
+          if (skinCustomWin && !skinCustomWin.isDestroyed()) {
+            try { skinCustomWin.webContents.send('skin-import-result', res); } catch (e) {}
           }
         }
       });
@@ -3793,6 +3884,7 @@ app.on('before-quit', function () {
   if (desktopWin) { try { desktopWin.destroy(); } catch (e) {} desktopWin = null; }
   if (settingsWin) { try { settingsWin.destroy(); } catch (e) {} settingsWin = null; }
   if (skinWin) { try { skinWin.destroy(); } catch (e) {} skinWin = null; }
+  if (skinCustomWin) { try { skinCustomWin.destroy(); } catch (e) {} skinCustomWin = null; }
   if (remindlistWin) { try { remindlistWin.destroy(); } catch (e) {} remindlistWin = null; }
   if (_rlSaveTimer) { clearTimeout(_rlSaveTimer); _rlSaveTimer = null; }
   if (_desktopSaveTimer) { clearTimeout(_desktopSaveTimer); _desktopSaveTimer = null; }

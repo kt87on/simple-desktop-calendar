@@ -831,9 +831,9 @@ ok('[关键] app.js 背景定位用取景中心对齐 (vp.w/2 - centerX*s)',
   /vp\.w \/ 2 - centerX \* s/.test(fs.readFileSync('app.js', 'utf8')));
 ok('[关键] dock.html dockLayoutSkin 同样用全图 cover 基准公式',
   /function dockLayoutSkin\(el, IW, IH, crop, zoom\)[\s\S]{0,600}Math\.max\(vp\.w \/ iw, vp\.h \/ ih\)/.test(dockSrc));
-ok('[关键] skin.html 反向换算 crop/zoom 落盘（saveCrop）',
-  /crop\.center\.x - vw \/ 2/.test(fs.readFileSync('skin.html', 'utf8')) &&
-  /crop\.s \/ crop\.s0/.test(fs.readFileSync('skin.html', 'utf8')));
+ok('[关键] skincustom.html 反向换算 crop/zoom 落盘（saveCrop，v3.2.0 迁自 skin.html）',
+  /crop\.center\.x - vw \/ 2/.test(fs.readFileSync('skincustom.html', 'utf8')) &&
+  /crop\.s \/ crop\.s0/.test(fs.readFileSync('skincustom.html', 'utf8')));
 
 /* ============ v2.4.0 A3：pickDockRestore（按显示器 ID 记忆插件落点） ============ */
 console.log('\n【v2.4.0 A3】pickDockRestore —— 多屏插件位置记忆');

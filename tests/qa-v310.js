@@ -8,7 +8,7 @@
  *   §C C6 · 关注列表四列（日期/内容/定时/删除）+ 时间独立成格
  *   §D C7 · 关注列表直接录入 → 双向同步链路
  *   §E C8 · 提醒弹窗置顶调用序列
- *   §F C1 · 皮肤窗「原生风格只写 calendar」+ 6 行列表 + 自选图片浮层
+ *   §F C1/C3/C5 · skin.html 两入口 + 6 行风格行 + skincustom.html per-surface（v3.2.0 结构迁移）
  *   §G     · 浮动插件六风格 token 同步
  *
  * 设计原则（与 tests/qa-v300.js 同源）：
@@ -28,6 +28,7 @@ const APP = readRoot('app.js');
 const CAL = readRoot('calendar.html');
 const REMINDLIST = readRoot('remindlist.html');
 const SKIN = readRoot('skin.html');
+const SKINCUSTOM = readRoot('skincustom.html');
 const DOCK = readRoot('dock.html');
 
 /* ================= 断言计数 ================= */
@@ -350,25 +351,53 @@ function richCalendar() {
 })();
 
 /* ============================================================
- * §F C1 · 皮肤窗：6 行原生风格列表 + 自选图片浮层 + 只写 calendar
+ * §F C1/C3/C5 · v3.2.0：skin.html 两入口 + skincustom.html per-surface
+ * ------------------------------------------------------------
+ * v3.2.0 结构大改：原 skin.html 的「6 行风格 + 自选图片浮层 + per-surface 细调」拆成
+ *   · skin.html：只剩两个入口（原生皮肤 / 自选图片），6 行风格行；点风格 → apply-native-style
+ *   · skincustom.html（新建）：4 界面分段 + 取景/文字/清晰度/透明度/跟随（独立新窗口）
+ * 故本节的 per-surface 断言改读 SKINCUSTOM；「风格行」「全局原子写」留在 SKIN。
  * ============================================================ */
 (function () {
-  // 6 行风格列表
   const styles = ['default', 'minimal', 'glass', 'neu', 'tech', 'warm'];
-  eq(countOcc(SKIN, 'class="style-row" data-style='), 6, '§F 主视图 6 行原生风格（style-row）');
+
+  /* ---- skin.html：6 行风格行 + 两入口 + 全局原子写 ---- */
+  eq(countOcc(SKIN, 'class="style-row" data-style='), 6, '§F skin.html 主视图 6 行原生风格（style-row）');
   styles.forEach(function (s) {
-    ok(SKIN.indexOf('data-style="' + s + '"') >= 0, '§F 含风格行 data-style="' + s + '"');
+    ok(SKIN.indexOf('data-style="' + s + '"') >= 0, '§F skin.html 含风格行 data-style="' + s + '"');
   });
-  ok(SKIN.indexOf('id="styleList"') >= 0, '§F 风格列表容器 #styleList');
-  // 自选图片入口 + 窗内浮层（不新开窗口）
-  ok(SKIN.indexOf('id="overlay"') >= 0 && SKIN.indexOf('id="overlayClose"') >= 0,
-    '§F 自选图片浮层 #overlay + #overlayClose（窗内 overlay）');
-  ok(SKIN.indexOf('class="overlay" id="overlay"') >= 0 || SKIN.indexOf('class="overlay-body"') >= 0,
-    '§F 浮层含 .overlay-body（细调内容容器）');
-  // 原生风格只写 calendar
-  ok(SKIN.indexOf('function setCalendarStyle(style) {') >= 0, '§F 存在 setCalendarStyle');
-  ok(SKIN.indexOf("setField('calendar', 'style', style);") >= 0,
-    "§F setCalendarStyle 只写 calendar 的 style（C1：原生风格全局、不逐界面）");
+  ok(SKIN.indexOf('id="nativeList"') >= 0, '§F skin.html 风格列表容器 #nativeList');
+  ok(SKIN.indexOf('id="entryNative"') >= 0 && SKIN.indexOf('id="entryCustom"') >= 0,
+    '§F skin.html 两个入口 #entryNative / #entryCustom');
+  // v3.2.0 C1：点风格 = 主进程一次原子写 4 个面（apply-native-style）；旧 setCalendarStyle 只写 calendar，已删
+  ok(SKIN.indexOf("skinAction('apply-native-style'") >= 0,
+    "§F skin.html 点风格行 → skinAction('apply-native-style')（C1 全局统一）");
+  ok(SKIN.indexOf("skinAction('open-custom'") >= 0,
+    "§F skin.html 点自选图片 → skinAction('open-custom')（C2 开独立新窗口）");
+  // 旧 per-surface 结构必须已删除（防止旧浮层残留）
+  ok(SKIN.indexOf('id="overlay"') < 0 && SKIN.indexOf('id="styleList"') < 0 &&
+     SKIN.indexOf('data-surface=') < 0 && SKIN.indexOf('data-tone="') < 0,
+    '§F skin.html 已删除旧浮层/per-surface（无 overlay / styleList / data-surface / data-tone）');
+
+  /* ---- skincustom.html：per-surface 控件落位 ---- */
+  ok(SKINCUSTOM.indexOf('data-surface="calendar"') >= 0 && SKINCUSTOM.indexOf('data-surface="dock"') >= 0 &&
+     SKINCUSTOM.indexOf('data-surface="desktop"') >= 0 && SKINCUSTOM.indexOf('data-surface="expanded"') >= 0,
+    '§F skincustom.html 含 4 界面分段（calendar/dock/desktop/expanded）');
+  ok(SKINCUSTOM.indexOf('var FOLLOWABLE = { expanded: 1, desktop: 1, dock: 1 };') >= 0,
+    '§F skincustom.html FOLLOWABLE 含 dock（浮窗可跟随）');
+  ok(SKINCUSTOM.indexOf('id="followRow"') >= 0 && SKINCUSTOM.indexOf('id="followSwitch"') >= 0,
+    '§F skincustom.html 跟随开关 #followRow / #followSwitch');
+  ok(SKINCUSTOM.indexOf('id="imageSection"') >= 0 && SKINCUSTOM.indexOf('id="dropZone"') >= 0 &&
+     SKINCUSTOM.indexOf('id="cropBox"') >= 0,
+    '§F skincustom.html 图片取景区 #imageSection / #dropZone / #cropBox');
+  ok(SKINCUSTOM.indexOf('SURFACE_LABEL') >= 0 && SKINCUSTOM.indexOf("dock: '浮窗界面'") >= 0,
+    '§F skincustom.html SURFACE_LABEL.dock = 「浮窗界面」（C6 命名）');
+  ok(SKINCUSTOM.indexOf("skinAction('close-custom'") >= 0,
+    "§F skincustom.html ✕/Esc → skinAction('close-custom')");
+  // 删除项：背景来源 / 明暗 整段不得存在
+  ok(SKINCUSTOM.indexOf('id="bgGrid"') < 0 && SKINCUSTOM.indexOf('id="toneGrid"') < 0 &&
+     SKINCUSTOM.indexOf('data-tone="') < 0,
+    '§F skincustom.html 已删除「背景来源」「明暗」（无 bgGrid / toneGrid / data-tone）');
 })();
 
 /* ============================================================

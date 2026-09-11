@@ -41,7 +41,7 @@ const whenReadyBody = main.slice(main.indexOf('app.whenReady'), main.indexOf("ap
 // =====================================================================
 // 版本号
 // =====================================================================
-check('版本号=3.1.0', pkg.version === '3.1.0', 'package.json version=' + pkg.version);
+check('版本号=3.2.0', pkg.version === '3.2.0', 'package.json version=' + pkg.version);
 
 /* 护栏：使用说明.html 随安装包发给用户（build.extraFiles → 安装完成页「查看说明文档」），
  * 其声明的版本必须与 package.json 一致，防止文档版本漂移（历史遗留 v2.4.4）。 */
@@ -673,23 +673,35 @@ check('[v2.4.0 R2 A6] dock 日期拆「星期 + 日期」两 span + gap 放宽',
   /id="dockWeek"/.test(dock) && /id="dockDateNum"/.test(dock) &&
   /#dockDate\s*\{[\s\S]{0,300}gap: 6px/.test(dock));
 
-/* ---- 皮肤窗口 + 设置入口 ---- */
+/* ---- 皮肤窗口 + 自选图片窗口 + 设置入口 ---- */
+/* v3.2.0：skin.html 主视图收成两个入口（原生皮肤 / 自选图片），
+ * 所有 per-surface 控件（界面分段/取景/文字/清晰度/透明度/跟随/背景来源/明暗）迁至
+ * 独立新窗口 skincustom.html。两文件的断言按「谁真正拥有该结构」分别落位。 */
 const skinHtml = read('skin.html');
+const skinCustomHtml = read('skincustom.html');
 check('[v2.4.0 R2] skin.html 存在', skinHtml.length > 0);
-check('[v3.0.0] skin.html 4 界面分段 + 6 风格 + 明暗段（tone）',
-  /data-surface="calendar"/.test(skinHtml) && /data-surface="dock"/.test(skinHtml) &&
-  /data-surface="desktop"/.test(skinHtml) && /data-surface="expanded"/.test(skinHtml) &&
+check('[v3.2.0] skin.html 两入口（原生皮肤 / 自选图片）+ 6 风格行 + 展开列表',
+  /id="entryNative"/.test(skinHtml) && /id="entryCustom"/.test(skinHtml) &&
+  /id="nativeList"/.test(skinHtml) &&
   /data-style="default"/.test(skinHtml) && /data-style="minimal"/.test(skinHtml) &&
   /data-style="glass"/.test(skinHtml) && /data-style="neu"/.test(skinHtml) &&
-  /data-style="tech"/.test(skinHtml) && /data-style="warm"/.test(skinHtml) &&
-  /data-tone="auto"/.test(skinHtml) && /data-tone="light"/.test(skinHtml) &&
-  /data-tone="dark"/.test(skinHtml) && /data-tone="system"/.test(skinHtml));
-check('[v3.0.0] skin.html 取景 + 文字明暗 + 透明度 + 跟随开关 + 清晰度',
-  /dropZone/.test(skinHtml) && /cropBox/.test(skinHtml) &&
-  /data-text="auto"/.test(skinHtml) && /opacityRange/.test(skinHtml) && /followSwitch/.test(skinHtml) &&
-  /claritySection/.test(skinHtml) && /clarityRange/.test(skinHtml));
-check('[v2.4.0 R2] skin.html 走 skin-set 即时回写 + skin-import + choose-file',
-  /skinSet\(/.test(skinHtml) && /skinImport\(/.test(skinHtml) && /skinAction\('choose-file'/.test(skinHtml));
+  /data-style="tech"/.test(skinHtml) && /data-style="warm"/.test(skinHtml));
+check('[v3.2.0] skin.html 主视图不含任何 per-surface 控件（无界面分段/明暗段/浮层）',
+  !/data-surface=/.test(skinHtml) && !/data-tone="/.test(skinHtml) &&
+  !/id="bgGrid"/.test(skinHtml) && !/id="overlay"/.test(skinHtml));
+check('[v3.2.0] skincustom.html 存在', skinCustomHtml.length > 0);
+check('[v3.2.0] skincustom.html 4 界面分段（calendar/dock/desktop/expanded）+ 取景/文字/清晰度/透明度/跟随',
+  /data-surface="calendar"/.test(skinCustomHtml) && /data-surface="dock"/.test(skinCustomHtml) &&
+  /data-surface="desktop"/.test(skinCustomHtml) && /data-surface="expanded"/.test(skinCustomHtml) &&
+  /dropZone/.test(skinCustomHtml) && /cropBox/.test(skinCustomHtml) &&
+  /data-text="auto"/.test(skinCustomHtml) && /opacityRange/.test(skinCustomHtml) && /followSwitch/.test(skinCustomHtml) &&
+  /claritySection/.test(skinCustomHtml) && /clarityRange/.test(skinCustomHtml));
+check('[v3.2.0] skincustom.html 已删除「背景来源」「明暗」两项',
+  !/id="bgGrid"/.test(skinCustomHtml) && !/id="toneGrid"/.test(skinCustomHtml) && !/data-tone="/.test(skinCustomHtml));
+check('[v3.2.0] skincustom.html 走 skin-set 即时回写 + skin-import + choose-file',
+  /skinSet\(/.test(skinCustomHtml) && /skinImport\(/.test(skinCustomHtml) && /skinAction\('choose-file'/.test(skinCustomHtml));
+check('[v3.2.0] skin.html 调 apply-native-style（全局统一）+ open-custom（开独立窗口）',
+  /skinAction\('apply-native-style'/.test(skinHtml) && /skinAction\('open-custom'/.test(skinHtml));
 
 check('[v2.4.0 R2] settings.html 仅留「皮肤设置」入口（无内联皮肤选择器）',
   /btnSkin/.test(settingsCode) && /open-skin/.test(settingsCode) &&
@@ -697,10 +709,11 @@ check('[v2.4.0 R2] settings.html 仅留「皮肤设置」入口（无内联皮�
   !/data-surface=/.test(settingsCode) && !/skinReset/.test(settingsCode));
 check('[v2.4.0 R2] settings.html 保留四分区',
   /功能区/.test(settingsCode) && /桌面插件区/.test(settingsCode) &&
-  /浮动插件区/.test(settingsCode) && /日历窗口区/.test(settingsCode));
+  /浮窗区/.test(settingsCode) && /日历窗口区/.test(settingsCode));
 
-check('[v2.4.0 R2] package.json build.files 含 skin.html',
-  /"skin\.html"/.test(JSON.stringify((pkg.build && pkg.build.files) || [])));
+check('[v3.2.0] package.json build.files 含 skin.html + skincustom.html',
+  /"skin\.html"/.test(JSON.stringify((pkg.build && pkg.build.files) || [])) &&
+  /"skincustom\.html"/.test(JSON.stringify((pkg.build && pkg.build.files) || [])));
 
 /* =====================================================================
  * v2.4.3：图片皮肤文字描边 + 图片不透明度 + 功能栏按钮调淡
@@ -761,14 +774,14 @@ check('[v3.0.0] dock.html dockApplyClarity 写/清可读性变量（clarity 经 
 check('[v2.4.3] dock.html dockApplyImage 直接写元素 style.opacity',
   /el\.style\.opacity = \(typeof image\.opacity === 'number' && isFinite\(image\.opacity\)\) \? String\(image\.opacity\) : '1'/.test(dockCode));
 
-/* ---- skin.html：图片不透明度滑块 ---- */
-check('[v2.4.3] skin.html 图片不透明度滑块（20%~100%）',
-  /id="imageOpacityRange"/.test(skinHtml) && /min="0\.2"/.test(skinHtml) && /max="1"/.test(skinHtml) &&
-  /id="imageOpacityVal"/.test(skinHtml));
-check('[v2.4.3] skin.html 图片不透明度即时回写 file+opacity',
-  /setField\(S\.surface, 'image', \{ file: img\.file, opacity: v \}\)/.test(skinHtml));
-check('[v2.4.3] skin.html renderCrop 回显 opacity 值',
-  /imageOpacityRange'\)\.value = op/.test(skinHtml) && /imageOpacityVal'\)\.textContent = pct\(op\)/.test(skinHtml));
+/* ---- skincustom.html：图片不透明度滑块（v3.2.0：自选图片独立窗口） ---- */
+check('[v2.4.3] skincustom.html 图片不透明度滑块（20%~100%）',
+  /id="imageOpacityRange"/.test(skinCustomHtml) && /min="0\.2"/.test(skinCustomHtml) && /max="1"/.test(skinCustomHtml) &&
+  /id="imageOpacityVal"/.test(skinCustomHtml));
+check('[v2.4.3] skincustom.html 图片不透明度即时回写 file+opacity',
+  /setField\(S\.surface, 'image', \{ file: img\.file, opacity: v \}\)/.test(skinCustomHtml));
+check('[v2.4.3] skincustom.html renderCrop 回显 opacity 值',
+  /imageOpacityRange'\)\.value = op/.test(skinCustomHtml) && /imageOpacityVal'\)\.textContent = pct\(op\)/.test(skinCustomHtml));
 
 /* =====================================================================
  * v2.4.4：JPEG EXIF 方向修正 + 可读性三层结构（分区采样 / 局部保护 / 光晕 / clarity 滑杆）
@@ -848,18 +861,22 @@ check('[v2.4.4] dock.html dockApplyClarity / dockClearReadability 三层可读�
   /function dockClearReadability\(root\)/.test(dockCode) &&
   /setProperty\('--protect-mid'/.test(dockCode));
 
-/* ---- skin.html：「UI 清晰度」滑杆 + 自动开关 + 联调回显 ---- */
-check('[v3.0.0] skin.html #claritySection（与 textSection 同步置灰）',
-  /id="claritySection"/.test(skinHtml) &&
-  /claritySection'\)\.classList\.toggle\('dimmed', following\)/.test(skinHtml));
-check('[v2.4.4] skin.html 清晰度滑杆 #clarityRange 0~100 step5 + #clarityVal',
-  /id="clarityRange"/.test(skinHtml) && /min="0" max="100" step="5"/.test(skinHtml) && /id="clarityVal"/.test(skinHtml));
-check('[v2.4.4] skin.html 「自动」开关 #clarityAuto（切换 auto ⇄ 手动）',
-  /id="clarityAuto"/.test(skinHtml) && /setClarity\('auto'\)/.test(skinHtml));
-check('[v2.4.4] skin.html 清晰度即时回写 skin-set(\'clarity\')',
-  /setField\(S\.surface, 'clarity', val\)/.test(skinHtml));
-check('[v2.4.4] skin.html 回显 resolved.clarity + complexity 兜底',
-  /clarityResolved\(surface, effCfg\)/.test(skinHtml) && /complexity/.test(skinHtml));
+/* ---- skincustom.html：「UI 清晰度」滑杆 + 自动开关 + 联调回显（v3.2.0 迁自 skin.html） ---- */
+/* v3.2.0 语义变更：移除了「跟随主界面时置灰 image/text/clarity 整块」这条规则
+ * （主进程 C2「手调即豁免跟随」使任何写入自动转独立，置灰会挡掉正确操作、形成死角）。
+ * 现仅保留一处 .dimmed：清晰度 auto 档把 claritySlider 置灰（与 follow 无关）。 */
+check('[v3.2.0] skincustom.html #claritySection 存在 + claritySlider 的 dimmed 绑定 clarityAutoOn',
+  /id="claritySection"/.test(skinCustomHtml) &&
+  /\$\('claritySlider'\)\.classList\.toggle\('dimmed', clarityAutoOn\)/.test(skinCustomHtml) &&
+  !/claritySection'\)\.classList\.toggle\('dimmed'/.test(skinCustomHtml));
+check('[v2.4.4] skincustom.html 清晰度滑杆 #clarityRange 0~100 step5 + #clarityVal',
+  /id="clarityRange"/.test(skinCustomHtml) && /min="0" max="100" step="5"/.test(skinCustomHtml) && /id="clarityVal"/.test(skinCustomHtml));
+check('[v2.4.4] skincustom.html 「自动」开关 #clarityAuto（切换 auto ⇄ 手动）',
+  /id="clarityAuto"/.test(skinCustomHtml) && /setClarity\('auto'\)/.test(skinCustomHtml));
+check('[v2.4.4] skincustom.html 清晰度即时回写 skin-set(\'clarity\')',
+  /setField\(S\.surface, 'clarity', val\)/.test(skinCustomHtml));
+check('[v2.4.4] skincustom.html 回显 resolved.clarity + complexity 兜底',
+  /clarityResolved\(surface, effCfg\)/.test(skinCustomHtml) && /complexity/.test(skinCustomHtml));
 
 
 let pass = 0, fail = 0;
