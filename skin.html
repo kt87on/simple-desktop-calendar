@@ -160,7 +160,8 @@
     width: 16px; height: 16px; flex: 0 0 auto; color: var(--ink-faint);
     transition: transform var(--dur-normal) var(--ease-out);
   }
-  #entryNative[aria-expanded="true"] .chev { transform: rotate(180deg); }
+  #entryNative[aria-expanded="true"] .chev,
+  #entryShape[aria-expanded="true"] .chev { transform: rotate(180deg); }
 
   /* ===== 6 行原生风格列表（动画展开/收起）=====
    * 为什么用 max-height + opacity 而非 height:auto：CSS 无法对 height:auto 过渡，
@@ -172,8 +173,13 @@
                 opacity var(--dur-fast) var(--ease-out);
   }
   .native-list.open { max-height: 420px; opacity: 1; }
+  /* 「浮窗样式」列表每行比风格行高（缩略格 88×48），故单独给更大的展开高度
+   * （id 选择器特异性高于 .native-list.open，无需 !important）。 */
+  #shapeList.open { max-height: 520px; }
 
-  .style-row {
+  /* .shape-row（入口 ③ 的造型行）与 .style-row 共用同一套行外观：
+   * 两者都是「左侧一枚预览 + 右侧名称」的可点整行，外观必须一致，故合并选择器而非复制一份。 */
+  .style-row, .shape-row {
     display: flex; align-items: center; gap: var(--s-3);
     width: 100%; min-height: 46px; padding: 8px 10px; margin: 0 0 var(--s-2);
     border: 1px solid var(--ctl-edge); border-radius: var(--r-md);
@@ -184,9 +190,9 @@
                 box-shadow var(--dur-fast) var(--ease-out),
                 background-color var(--dur-fast) var(--ease-out);
   }
-  .style-row:hover { border-color: var(--accent); }
+  .style-row:hover, .shape-row:hover { border-color: var(--accent); }
   /* 选中态：仅当「日历面 = 该风格」且「日历面 bg = native」时由 JS 施加 */
-  .style-row.active {
+  .style-row.active, .shape-row.active {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent-soft);
     background: var(--accent-soft);
@@ -298,6 +304,173 @@
   .style-row[data-style="warm"] .style-name { color: #8a4517; }
   html[data-theme="dark"] .style-row[data-style="warm"] .style-name { color: #f0b27a; }
 
+  /* ===== 入口 ③「浮窗样式」：6 款造型的等比缩略图 =====
+   * 为什么用 transform: scale() 而不是「按小尺寸重画一遍」：
+   *   造型的真实卡片尺寸从 44px 到 174px 不等，若各自另写一套小尺寸样式，
+   *   线宽/圆角/间距都要人工换算一次，极易在某一款上把「5px 墨线」直接画到
+   *   0.3 倍的小圆上而糊成一坨黑饼。**按真实尺寸布局 + 整体缩放**，
+   *   所有几何量（含边框、圆角、内外间距）自动同比缩小，天然不失真。
+   *   scale = min(88 / 真实宽, 48 / 真实高)，即最长边贴合 88×48 视口。
+   * 缩略格底板固定为中性灰蓝（不随本窗深浅主题变）—— 与 .pv-* 迷你预览条同一思路：
+   *   恒定提供一块能同时衬出「白色机身」与「深色翻牌」的中性底，保证六款都一眼可辨。 */
+  .shape-thumb {
+    position: relative; flex: 0 0 auto; width: 88px; height: 48px;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; border-radius: var(--r-sm);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0) 58%),
+                linear-gradient(150deg, #d5dce7, #a8b3c5);
+    box-shadow: inset 0 0 0 1px rgba(31, 35, 48, 0.10);
+  }
+  /* 缩略图内层：尺寸一律写「真实卡片像素」，靠 scale 缩到视口内。
+   * flex:0 0 auto 不可省 —— 否则 150×150 的圆环会在 88×48 的 flex 容器里被压扁（破坏等比）。 */
+  .sh { position: relative; flex: 0 0 auto; transform-origin: 50% 50%; }
+  .sh-rect    { width: 114px; height: 48px;  transform: scale(0.771); }  /* 114×(任务栏高-2) */
+  .sh-pixel   { width: 156px; height: 64px;  transform: scale(0.563); }
+  .sh-rainbow { width: 116px; height: 44px;  transform: scale(0.758); }
+  .sh-ring    { width: 150px; height: 150px; transform: scale(0.315); }
+  .sh-flip    { width: 196px; height: 104px; transform: scale(0.448); }
+  .sh-toon    { width: 158px; height: 174px; transform: scale(0.275); }
+  .shape-name { font-weight: var(--fw-semibold); }
+  /* 「圆角卡片」的跟随提示：造型跟随主界面时它其实是主界面皮肤的派生，不是独立造型 */
+  .shape-tag {
+    margin-left: auto; flex: 0 0 auto; white-space: nowrap;
+    padding: 2px 8px; border-radius: var(--r-pill);
+    background: var(--accent-soft); color: var(--accent-ink);
+    font-size: var(--fs-2xs); font-weight: var(--fw-semibold); letter-spacing: 0.3px;
+  }
+
+  /* ① 圆角卡片：现行浮窗的缩影（浅灰扁平圆角矩形 + 左侧一条强调色短线） */
+  .sh-rect {
+    border-radius: 10px;
+    background: linear-gradient(180deg, #ffffff, #f4f2ee);
+    border: 1px solid rgba(31, 35, 48, 0.12);
+    box-shadow: 0 2px 8px rgba(31, 35, 48, 0.20);
+  }
+  .sh-rect i {
+    position: absolute; left: 10px; top: 50%; margin-top: -2px;
+    width: 34px; height: 4px; border-radius: 2px; background: #3b6fd4;
+  }
+
+  /* ② 像素方屏：珍珠白机身 + 内嵌近黑屏 + 青蓝点阵块 + 屏内蓝光 */
+  .sh-pixel {
+    border-radius: 14px; padding: 5px;
+    background: linear-gradient(158deg, #f7f8fb, #c9d1de 55%, #eaedf4);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  }
+  .sh-pixel .scr {
+    width: 100%; height: 100%; border-radius: 10px;
+    background: radial-gradient(120% 130% at 50% 0%, #0a121b, #04070b 72%);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.9), inset 0 0 15px rgba(0, 150, 255, 0.14);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sh-pixel .pm { display: flex; align-items: center; gap: 4.5px; }
+  /* 一个字模的占位盒：宽 = 3 格 + 2 缝 = 3×3.2 + 2×1.3 = 12.2px，高 = 5 格 + 4 缝 = 21.2px */
+  .sh-pixel .pm i { position: relative; width: 12.2px; height: 21.2px; }
+  /* 用 box-shadow 逐格「盖章」出 3×5 点阵数字（此处是「8」的字形）：
+   * 格子 3.2px、间距 1.3px；只盖亮格，灭格自然留空。box-shadow 会继承元素的圆角，故每格都带 .8px 圆角。 */
+  .sh-pixel .pm i b {
+    position: absolute; left: 0; top: 0; width: 3.2px; height: 3.2px;
+    border-radius: 0.8px; background: #b3ecff;
+    box-shadow: 4.5px 0 0 #b3ecff, 9px 0 0 #b3ecff,
+                0 4.5px 0 #b3ecff, 9px 4.5px 0 #b3ecff,
+                0 9px 0 #b3ecff, 4.5px 9px 0 #b3ecff, 9px 9px 0 #b3ecff,
+                0 13.5px 0 #b3ecff, 9px 13.5px 0 #b3ecff,
+                0 18px 0 #b3ecff, 4.5px 18px 0 #b3ecff, 9px 18px 0 #b3ecff;
+  }
+  /* 冒号位：只占 1 格宽，第 2、4 行各点一粒 */
+  .sh-pixel .pm i.cl { width: 3.2px; }
+  .sh-pixel .pm i.cl b { background: transparent; box-shadow: 0 4.5px 0 #b3ecff, 0 13.5px 0 #b3ecff; }
+
+  /* ③ 虹彩流光：近乎透明的玻璃薄片 + 彩虹渐变条 */
+  .sh-rainbow {
+    border-radius: 13px;
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.03));
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.26);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  }
+  .sh-rainbow .b1 {
+    width: 74px; height: 9px; border-radius: 3px;
+    background: linear-gradient(100deg, #ff4f7d, #ffa63d 22%, #4fe08f 44%, #38bdf8 64%, #a855f7 84%, #ff4f7d);
+    box-shadow: 0 0 7px rgba(255, 120, 180, 0.55);
+  }
+  .sh-rainbow .b2 {
+    width: 46px; height: 5px; border-radius: 2px; opacity: 0.8;
+    background: linear-gradient(100deg, #ff9db8, #ffd79a 30%, #a9f0c6 55%, #a5dcf9 75%, #d3a8e0);
+  }
+
+  /* ④ 极简圆环：磨砂玻璃圆盘 + 一圈亮环
+   * 亮环用 conic-gradient + 环形遮罩（mask）画：环宽 = 2×(1-0.92)×138 ≈ 22px，
+   * 缩到 0.315 倍后约 2px —— 与真实造型的环宽同比，不会变成实心圆。 */
+  .sh-ring {
+    border-radius: 50%;
+    background: radial-gradient(circle at 36% 26%, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0.07) 58%, rgba(255, 255, 255, 0.03));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42), inset 0 0 0 1px rgba(255, 255, 255, 0.20),
+                0 4px 12px rgba(20, 32, 56, 0.30);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sh-ring .rl {
+    width: 138px; height: 138px; border-radius: 50%;
+    background: conic-gradient(from -90deg, rgba(255, 255, 255, 0.95) 0 300deg, rgba(255, 255, 255, 0.20) 300deg 360deg);
+    -webkit-mask: radial-gradient(closest-side, transparent 0 91%, #000 92%);
+            mask: radial-gradient(closest-side, transparent 0 91%, #000 92%);
+  }
+
+  /* ⑤ 翻页时牌：顶部日期条 + 三块深色翻牌，中缝线是翻页折痕 */
+  .sh-flip {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px;
+  }
+  .sh-flip .hdr {
+    width: 104px; height: 5px; border-radius: 2px;
+    background: rgba(255, 255, 255, 0.92); box-shadow: 0 0 4px rgba(0, 0, 0, 0.35);
+  }
+  .sh-flip .tiles { display: flex; gap: 9px; }
+  .sh-flip .tile {
+    position: relative; width: 58px; height: 72px; border-radius: 10px;
+    background: linear-gradient(180deg, #3b4046, #2c3035 49.6%, #24282c 50.4%, #1d2124);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  }
+  .sh-flip .tile::before {
+    content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px;
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  /* ⑥ 绘本台钟：暖墨线圆 + 奶黄表圈 + 奶白盘 + 一短一长两根墨色指针（+ 简笔小短脚） */
+  .sh-toon .body {
+    position: absolute; left: 6px; top: 5px; width: 146px; height: 146px;
+    border-radius: 50%; border: 5px solid #3E3229; background: #FFF6E2;
+  }
+  /* 色块整体偏 2px，只会在墨线里侧露出一圈忽宽忽窄的暖黄 —— 简笔画「涂出界」的惯用手法 */
+  .sh-toon .body::before {
+    content: ''; position: absolute; inset: 1px; border-radius: inherit;
+    background: #FFD07A; transform: translate(2px, 2px);
+  }
+  .sh-toon .face {
+    position: absolute; left: 17px; top: 16px; width: 112px; height: 112px;
+    border-radius: 50%; border: 4px solid #3E3229; background: #FFFDF4;
+  }
+  .sh-toon .face::before {
+    content: ''; position: absolute; inset: 2px; border-radius: inherit;
+    background: #FFEFD0; transform: translate(2px, 2px);
+  }
+  /* 指针锚在盘心：left/bottom 50% 把「针尾」落在盘心，transform-origin 取针尾，旋转即绕心 */
+  .sh-toon .hand {
+    position: absolute; left: 50%; bottom: 50%; transform-origin: 50% 100%;
+    border-radius: 99px; background: #3E3229; z-index: 3;
+  }
+  .sh-toon .h-h { width: 7px;   height: 20px; margin-left: -3.5px;  transform: rotate(253deg); }
+  .sh-toon .h-m { width: 5.5px; height: 27px; margin-left: -2.75px; transform: rotate(156deg); }
+  .sh-toon .cap {
+    position: absolute; left: 50%; top: 50%; width: 11px; height: 11px;
+    margin: -5.5px 0 0 -5.5px; border-radius: 50%; background: #3E3229; z-index: 4;
+  }
+  .sh-toon .feet { position: absolute; left: 50%; bottom: 0; margin-left: -31px; width: 62px; height: 19px; }
+  .sh-toon .feet i {
+    position: absolute; bottom: 0; width: 18px; height: 19px;
+    border: 4px solid #3E3229; border-top: none; border-radius: 0 0 9px 9px; background: #9FDCC3;
+  }
+  .sh-toon .feet i:first-child { left: 0; }
+  .sh-toon .feet i:last-child { right: 0; }
+
   /* 轻量提示条 */
   #toast {
     position: absolute; z-index: 70; left: 50%; bottom: var(--s-4);
@@ -391,6 +564,56 @@
           自选图片
         </span>
       </button>
+
+      <!-- 入口 ③：浮窗样式 —— 点击动画展开/收起 #shapeList -->
+      <button id="entryShape" class="entry" aria-expanded="false" aria-controls="shapeList">
+        <span class="entry-main">
+          <svg class="entry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="9" height="9" rx="2.2"></rect>
+            <circle cx="16.5" cy="16.5" r="4.5"></circle>
+          </svg>
+          浮窗样式
+        </span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M6 9l6 6 6-6"></path>
+        </svg>
+      </button>
+
+      <!-- 6 款造型：每行左侧一枚「真实造型等比缩小」的缩略图（88×48 视口），右侧造型名。
+           缩略图只保留轮廓 + 主色 + 材质暗示 —— 目的是让六款一眼可辨，不追求像素级还原。 -->
+      <div id="shapeList" class="native-list" aria-hidden="true">
+        <!-- ① 圆角卡片：默认造型，跟随主界面（跟随态 resolved 恒为 rect，故它也是跟随时的唯一可选项） -->
+        <button class="shape-row" data-shape="rect" aria-pressed="false">
+          <span class="shape-thumb"><span class="sh sh-rect"><i></i></span></span>
+          <span class="style-name shape-name">圆角卡片</span>
+          <span class="shape-tag">跟随主界面</span>
+        </button>
+        <!-- ② 像素方屏 -->
+        <button class="shape-row" data-shape="pixel" aria-pressed="false">
+          <span class="shape-thumb"><span class="sh sh-pixel"><span class="scr"><span class="pm"><i><b></b></i><i><b></b></i><i class="cl"><b></b></i><i><b></b></i><i><b></b></i></span></span></span></span>
+          <span class="style-name shape-name">像素方屏</span>
+        </button>
+        <!-- ③ 虹彩流光 -->
+        <button class="shape-row" data-shape="rainbow" aria-pressed="false">
+          <span class="shape-thumb"><span class="sh sh-rainbow"><span class="b1"></span><span class="b2"></span></span></span>
+          <span class="style-name shape-name">虹彩流光</span>
+        </button>
+        <!-- ④ 极简圆环 -->
+        <button class="shape-row" data-shape="ring" aria-pressed="false">
+          <span class="shape-thumb"><span class="sh sh-ring"><span class="rl"></span></span></span>
+          <span class="style-name shape-name">极简圆环</span>
+        </button>
+        <!-- ⑤ 翻页时牌 -->
+        <button class="shape-row" data-shape="flip" aria-pressed="false">
+          <span class="shape-thumb"><span class="sh sh-flip"><span class="hdr"></span><span class="tiles"><span class="tile"></span><span class="tile"></span><span class="tile"></span></span></span></span>
+          <span class="style-name shape-name">翻页时牌</span>
+        </button>
+        <!-- ⑥ 绘本台钟 -->
+        <button class="shape-row" data-shape="toon" aria-pressed="false">
+          <span class="shape-thumb"><span class="sh sh-toon"><span class="body"><span class="face"><span class="hand h-h"></span><span class="hand h-m"></span><span class="cap"></span></span></span><span class="feet"><i></i><i></i></span></span></span>
+          <span class="style-name shape-name">绘本台钟</span>
+        </button>
+      </div>
     </div>
 
     <div id="toast" role="status" aria-live="polite"></div>
@@ -408,6 +631,7 @@
 
       /* 展开态：用 JS 变量镜像 DOM 的 .open / aria-expanded，供 Esc 逻辑判断 */
       var nativeOpen = false;
+      var shapeOpen = false;
 
       function $(id) { return document.getElementById(id); }
 
@@ -422,9 +646,21 @@
         toastTimer = setTimeout(function () { el.classList.remove('show'); toastTimer = null; }, 2200);
       }
 
-      /* ---- 原生风格列表展开/收起 ----
+      /* ---- 「浮窗样式」列表展开/收起（与原生风格列表同一套 class 切换写法）----
        * 为什么用 class 切换而非 JS 直接量高动画：交给 CSS transition 处理（见 .native-list），
        * JS 只负责状态翻转与 aria 同步，逻辑最薄、最不容易出错。 */
+      function setShapeOpen(open) {
+        shapeOpen = !!open;
+        var list = $('shapeList');
+        var entry = $('entryShape');
+        if (list) {
+          list.classList.toggle('open', shapeOpen);
+          list.setAttribute('aria-hidden', shapeOpen ? 'false' : 'true');
+        }
+        if (entry) entry.setAttribute('aria-expanded', shapeOpen ? 'true' : 'false');
+      }
+
+      /* ---- 原生风格列表展开/收起 ---- */
       function setNativeOpen(open) {
         nativeOpen = !!open;
         var list = $('nativeList');
@@ -454,6 +690,20 @@
           var on = !!activeStyle && rows[i].getAttribute('data-style') === activeStyle;
           rows[i].classList.toggle('active', on);
           rows[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+
+        /* 浮窗造型回显（契约 C8）：唯一真相是主进程 **resolve 之后** 的 resolved.dock.shape。
+         * 关键：浮窗处于「跟随主界面」时，主进程 resolve 出的一定是 'rect'
+         * （日历面的 shape 恒为 'rect'，见 C2 的脏数据护栏）—— 因此这时高亮必然落在
+         * 「圆角卡片」行，与用户实际看到的浮窗一致；即使 skin.surfaces.dock.shape 里存着
+         * 'toon'（那是「独立造型」的偏好值，此刻被 resolve 盖掉）也不看它。 */
+        var rd = (S.resolved && S.resolved.dock) ? S.resolved.dock : null;
+        var activeShape = rd ? (rd.shape || 'rect') : null;
+        var shapeRows = document.querySelectorAll('#shapeList .shape-row[data-shape]');
+        for (var m = 0; m < shapeRows.length; m++) {
+          var sOn = !!activeShape && shapeRows[m].getAttribute('data-shape') === activeShape;
+          shapeRows[m].classList.toggle('active', sOn);
+          shapeRows[m].setAttribute('aria-pressed', sOn ? 'true' : 'false');
         }
 
         /* 「自选图片」入口：任一面用了图片背景即点亮 */
@@ -487,6 +737,21 @@
         if (api && api.skinAction) api.skinAction('open-custom', { surface: 'calendar' });
       });
 
+      // 入口 ③：点「浮窗样式」→ 展开/收起列表
+      $('entryShape').addEventListener('click', function () { setShapeOpen(!shapeOpen); });
+
+      // 6 造型行：点击 → 只写 dock 面的 shape 一个字段。
+      // 复用既有 skin-set 通道（不新增 IPC、不走 skinAction）：主进程的「手调即豁免跟随」逻辑
+      // 会把 shape 当作实质字段处理 —— 浮窗在跟随时选造型即自动独立，正是契约 C2/C3 的语义。
+      var shapeBtns = document.querySelectorAll('#shapeList .shape-row[data-shape]');
+      for (var n = 0; n < shapeBtns.length; n++) {
+        (function (b) {
+          b.addEventListener('click', function () {
+            if (api && api.skinSet) api.skinSet('dock','shape',b.getAttribute('data-shape'));
+          });
+        })(shapeBtns[n]);
+      }
+
       // 关闭：先收起展开，再关窗
       function closeWin() {
         if (api && api.skinAction) api.skinAction('close');
@@ -495,6 +760,8 @@
       $('btnClose').addEventListener('click', closeWin);
       document.addEventListener('keydown', function (e) {
         if (e.key !== 'Escape') return;
+        /* Esc 逐层回收：形状列表 → 风格列表 → 关窗（离用户最近的一层先收） */
+        if (shapeOpen) { setShapeOpen(false); return; }
         if (nativeOpen) { setNativeOpen(false); return; }
         closeWin();
       });

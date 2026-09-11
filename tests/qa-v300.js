@@ -103,7 +103,13 @@ const FN_NAMES = [
   // 图片 / 皮肤归一化
   'normalizeClarity', 'normalizeImageSpec', 'normalizeSkin',
   // v3 白名单 + 单面/整体归一化
-  'normStyle', 'normBg', 'normTone', 'normalizeSurfaceV3', 'normalizeSkinV3',
+  // v3.3.0 C2：normalizeSurfaceV3 新增 shape 归一 → 跨函数调用 normShape（内联白名单，单独抽取即可自洽）。
+  // 不加入本名单会在隔离作用域 ReferenceError（同 tests/qa-v244.js 的 FN_NAMES 维护义务）。
+  'normStyle', 'normBg', 'normTone', 'normShape',
+  // v3.3.0 X4：normalizeSkinV3 / migrateSkinV2toV3 新增 normDockScale 调用
+  //（同款内联白名单，只依赖 Math/Number，单独抽取即可自洽）。
+  'normDockScale',
+  'normalizeSurfaceV3', 'normalizeSkinV3',
   // v2→v3 迁移
   'migrateSkinV2toV3',
   // 中枢解析
@@ -478,7 +484,8 @@ function imgSpec(over) {
   eq(d.image, null, '§8 native 时 image=null');
   eq(d.clarity, 0, '§8 native 时 clarity=0');
   deepEq(Object.keys(d).sort(),
-    ['bg', 'clarity', 'color', 'image', 'style', 'text', 'theme', 'tone', 'warn'].sort(),
+    // v3.3.0 C3：resolvedSurfaceState 新增 shape 字段（浮窗造型下发）
+    ['bg', 'clarity', 'color', 'image', 'shape', 'style', 'text', 'theme', 'tone', 'warn'].sort(),
     '§8 下发字段集合完整');
 
   // warn 真值表：浅底+浅字 / 深底+深字

@@ -172,10 +172,20 @@ ok('左下角 → 仍能定位成功且不超界',
 /* ============ 需求1：点击热区（isInCard） ============ */
 console.log('\n【需求1】isInCard —— 只有插件可视小方框内才算命中');
 
-const isInCard = new Function('cardEl',
-  extractFn(dockSrc, 'isInCard') + '; return isInCard;')(
-  // 窗口 116×50，卡片内缩 2px → 可视方框 (2,2)-(114,48)
-  { getBoundingClientRect: function () { return { left: 2, top: 2, right: 114, bottom: 48 }; } });
+/* v3.3.0 C7.6：isInCard 新增按 dockShape 分支（ring/toon 圆形判定）→ 隔离执行台必须把
+ * dockShape / cardW / cardH 一并传入，否则 ReferenceError。 */
+function isInCardWith(shape, box, cw, ch) {
+  return new Function('cardEl', 'dockShape', 'cardW', 'cardH',
+    extractFn(dockSrc, 'isInCard') + '; return isInCard;')(
+    { getBoundingClientRect: function () { return box; } },
+    shape, cw, ch);
+}
+/* 【夹具说明】本用例复用 v1.7.21 用户报的 bug 几何：窗口 116×50、卡片四周均匀内缩 2px
+ *   → 输入盒 (2,2)-(114,48)，cardW=112 / cardH=46。它只是一组**输入盒**，用于验证 isInCard 的
+ *   纯矩形边界（rect 分支只读 r.left/right/top/bottom，见 dock.html:1058，不读 cardW/cardH）。
+ * 注：v3.3.0 注册表里 rect 内边距是 2/2/0/0（右/下归零，卡片贴死窗口右下），真实盒应为
+ *   (2,2)-(116,winH) → cardW=114 / cardH=winH-2，由运行时 applyDockSize 决定，不在本条覆盖范围。 */
+const isInCard = isInCardWith('rect', { left: 2, top: 2, right: 114, bottom: 48, width: 112, height: 46 }, 112, 46);
 
 ok('方框正中 (58,25) → 命中', isInCard(58, 25) === true);
 ok('【用户报的 bug】方框下方透明区 (58,60) → 不命中', isInCard(58, 60) === false);
@@ -196,6 +206,39 @@ ok('y=49 整条水平线（x 从 -20 到 140）零命中', leakBelow === 0, '泄
 let leakRow = 0;
 for (let x = -20; x < 140; x++) { if (isInCard(x, 30)) leakRow++; }
 ok('y=30 命中像素数 = 112（恰好是方框宽度）', leakRow === 112, '实际 ' + leakRow);
+
+/* v3.3.0 C7.6：ring / toon 改圆形判定 —— 四个角是透明区，必须不命中；
+ * 半径 = min(cardW, cardH)/2 - 2；rect 仍按矩形（回归保护）。 */
+(function () {
+  const SQ = { left: 0, top: 0, right: 150, bottom: 150, width: 150, height: 150 };   // 150×150 的卡片盒
+  const ring = isInCardWith('ring', SQ, 150, 150);
+  const toon = isInCardWith('toon', SQ, 150, 150);
+  const rect150 = isInCardWith('rect', SQ, 150, 150);
+
+  ok('ring 圆心 (75,75) → 命中', ring(75, 75) === true);
+  ok('ring 圆内偏上 (75,10) → 命中', ring(75, 10) === true);
+  ok('ring 左上角 (4,4) → 不命中（圆形热区，v1.7.21 同类问题回归护栏）', ring(4, 4) === false);
+  ok('ring 右上角 (146,4) → 不命中', ring(146, 4) === false);
+  ok('ring 左下角 (4,146) → 不命中', ring(4, 146) === false);
+  ok('ring 右下角 (146,146) → 不命中', ring(146, 146) === false);
+  ok('toon 圆心 (75,75) → 命中', toon(75, 75) === true);
+  ok('toon 左上角 (4,4) → 不命中（圆表盘）', toon(4, 4) === false);
+  ok('toon 右下角 (146,146) → 不命中', toon(146, 146) === false);
+  ok('rect 同方框左上角 (4,4) → 仍命中（矩形判定未被改动）', rect150(4, 4) === true);
+  ok('rect 同方框右下角 (149,149) → 命中', rect150(149, 149) === true);
+})();
+
+/* v3.3.0 C7.6 补充：真实 toon 盒 158×174（**非正方**）→ 半径 = min(158,174)/2-2 = 77。
+ * 上面 150×150 全是正方盒，min() 取哪条边看不出差别；只有非正方盒才能证明用的是 min 而非 max/长边。 */
+(function () {
+  const TOON = { left: 0, top: 0, right: 158, bottom: 174, width: 158, height: 174 };
+  const toonReal = isInCardWith('toon', TOON, 158, 174);
+  const cx = 79, cy = 87;   // 盒中心 (left+width/2, top+height/2)
+  ok('toon 真实盒 158×174 圆心 (79,87) → 命中', toonReal(cx, cy) === true);
+  ok('toon 真实盒 距心 76（≤ 半径 77）→ 命中', toonReal(cx + 76, cy) === true);
+  ok('toon 真实盒 距心 78（> 半径 77，且在盒内）→ 不命中', toonReal(cx + 78, cy) === false);
+  ok('toon 真实盒 角 (4,4) → 不命中', toonReal(4, 4) === false);
+})();
 
 /* ============ 需求3 回归：拖到窗口外松手不能卡死 ============ */
 console.log('\n【需求3 回归】endDrag —— 拖到窗口外松手后不能粘住鼠标');
@@ -276,7 +319,9 @@ console.log('\n【v1.7.22.3】挂件条"卡在半空"回归修复');
 
 /* 测试 1：loadSettings 校验 —— 异常尺寸必须丢弃，否则脏 dockBounds 会被 setBounds 进去撑大窗口。
  * 把 loadSettings 函数抠出来，注入 mock fs / 全局状态变量，模拟"读到脏 dockBounds"。 */
-function makeLoadSettings(fakeJson) {
+function makeLoadSettings(fakeJson, geo, scale) {
+  geo = geo || { winW: DOCK_W, winH: DOCK_H };   // 默认：rect 生效造型（116×任务栏高 50）
+  const S = (typeof scale === 'number') ? scale : 1;   // v3.3.0 X4：缩放系数，等价 normDockScale(skin.dockScale)
   const state = { themeMode: 'light', pinned: true, autoLaunch: true, dockOn: true,
     dockMode: 'dock', dockPinned: true, isWin11: false, dockBounds: null,
     lastRemindlistBounds: null };
@@ -284,11 +329,16 @@ function makeLoadSettings(fakeJson) {
     fs: { readFileSync: function () { return fakeJson; } },
     settingsFile: function () { return '/fake/path/settings.json'; },
     log: function () {},
-    DOCK_W: DOCK_W, DOCK_H: DOCK_H
+    GEO: geo
   };
   /* 注意：函数体里的所有状态变量都必须写 this.xxx —— new Function 创建的函数直接
-   * 写 `dockBounds = ...` 会落到 global 上而非 this 绑定的 state 对象上。 */
-  const fn = new Function('fs', 'settingsFile', 'log', 'DOCK_W', 'DOCK_H',
+   * 写 `dockBounds = ...` 会落到 global 上而非 this 绑定的 state 对象上。
+   * v3.3.0 C6：校验判据由写死的 [DOCK_W±4]×[36,60] 改为「与生效造型期望窗口尺寸 ±8」，
+   * 故这里注入 GEO（等价于主进程的 dockGeometry(...) 结果）。
+   * v3.3.0 X4：期望尺寸再乘缩放系数 S —— 主进程落盘的 dockBounds 是**真实 DIP 尺寸**，
+   * 校验两侧必须同为 DIP（`expW = Math.round(geo.winW * s)`）。本镜像必须与原实现逐行一致，
+   * 否则「被测试的代码」与「跑着的代码」就分家了（镜像失真 = 假绿）。 */
+  const fn = new Function('fs', 'settingsFile', 'log', 'GEO', 'S',
     'function loadSettings(){' +
     '  try{var f=settingsFile();if(!f)return;var o=JSON.parse(fs.readFileSync(f,"utf8"));' +
     '  if(o&&typeof o==="object"){' +
@@ -298,8 +348,9 @@ function makeLoadSettings(fakeJson) {
     '    this.dockPinned=o.dockPinned!==false;' +
     '    this.isWin11=o.isWin11===true;' +
     '    if(o.dockBounds&&typeof o.dockBounds.x==="number"&&typeof o.dockBounds.y==="number"){' +
-    '      var bw=o.dockBounds.width||DOCK_W;var bh=o.dockBounds.height||DOCK_H;' +
-    '      var wOk=Math.abs(bw-DOCK_W)<=4;var hOk=bh>=36&&bh<=60;' +
+    '      var expW=Math.round(GEO.winW*S);var expH=Math.round(GEO.winH*S);' +
+    '      var bw=o.dockBounds.width||expW;var bh=o.dockBounds.height||expH;' +
+    '      var wOk=Math.abs(bw-expW)<=8;var hOk=Math.abs(bh-expH)<=8;' +
     '      if(wOk&&hOk){this.dockBounds={x:o.dockBounds.x,y:o.dockBounds.y,width:bw,height:bh};}' +
     '      else{try{log("invalid dockBounds "+bw+"x"+bh);}catch(_){} this.dockBounds=null;}' +
     '    }' +
@@ -307,7 +358,7 @@ function makeLoadSettings(fakeJson) {
     '      this.lastRemindlistBounds=o.remindlistBounds;}' +
     '  }}catch(e){}' +
     '}\nreturn loadSettings;'
-  )(ctx.fs, ctx.settingsFile, ctx.log, ctx.DOCK_W, ctx.DOCK_H);
+  )(ctx.fs, ctx.settingsFile, ctx.log, ctx.GEO, S);
   // 用闭包绑定状态 + 函数
   return { run: function () { fn.call(state, ctx); }, state: state };
 }
@@ -345,6 +396,43 @@ function makeLoadSettings(fakeJson) {
   ok('缺 x/y → 不写入（外层守卫拦截）', t.state.dockBounds === null,
     '实际=' + JSON.stringify(t.state.dockBounds));
 })();
+(function () {
+  /* v3.3.0 C6：特殊造型（绘本台钟 182×198）的合法落点必须被接受 ——
+   * 旧判据 [DOCK_W±4]×[36,60] 会把它当脏数据丢掉（窗口回默认落点、用户位置丢失）。 */
+  const toon = '{"dockBounds":{"x":1068,"y":700,"width":182,"height":198}}';
+  const t = makeLoadSettings(toon, { winW: 182, winH: 198 });
+  t.run();
+  ok('v3.3.0 C6 造型 toon 的落点 182×198 → 保留（旧判据会误丢）',
+    t.state.dockBounds && t.state.dockBounds.width === 182 && t.state.dockBounds.height === 198,
+    '实际=' + JSON.stringify(t.state.dockBounds));
+  // 反向：同一落点在 rect 生效造型下（期望 116×50）必须被丢弃
+  const t2 = makeLoadSettings(toon, { winW: DOCK_W, winH: DOCK_H });
+  t2.run();
+  ok('v3.3.0 C6 182×198 在 rect 造型下（期望 116×50）→ 丢弃',
+    t2.state.dockBounds === null, '实际=' + JSON.stringify(t2.state.dockBounds));
+  // 容差边界：±8 内接受、±9 外丢弃（rect 116×50）
+  const t3 = makeLoadSettings('{"dockBounds":{"x":0,"y":0,"width":124,"height":58}}');
+  t3.run();
+  ok('v3.3.0 C6 rect 落点 124×58（+8 容差内）→ 保留', t3.state.dockBounds !== null,
+    '实际=' + JSON.stringify(t3.state.dockBounds));
+  const t4 = makeLoadSettings('{"dockBounds":{"x":0,"y":0,"width":125,"height":50}}');
+  t4.run();
+  ok('v3.3.0 C6 rect 落点 125×50（超 +8）→ 丢弃', t4.state.dockBounds === null,
+    '实际=' + JSON.stringify(t4.state.dockBounds));
+  /* v3.3.0 X4：期望尺寸乘缩放系数 s —— 落盘 dockBounds 是真实 DIP，校验侧不同乘就会把
+   * 用户的合法落点当脏数据静默丢弃（浮窗跳回默认位）。toon 基础 182×198，s=1.5 → 273×297。 */
+  const t5 = makeLoadSettings('{"dockBounds":{"x":900,"y":600,"width":273,"height":297}}',
+    { winW: 182, winH: 198 }, 1.5);
+  t5.run();
+  ok('v3.3.0 X4 toon 基础 182×198 在 s=1.5 下落盘 273×297 → 保留（校验侧同乘 s）',
+    !!t5.state.dockBounds && t5.state.dockBounds.width === 273 && t5.state.dockBounds.height === 297,
+    '实际=' + JSON.stringify(t5.state.dockBounds));
+  const t6 = makeLoadSettings('{"dockBounds":{"x":900,"y":600,"width":182,"height":198}}',
+    { winW: 182, winH: 198 }, 1.5);
+  t6.run();
+  ok('v3.3.0 X4 同一落点 182×198 在 s=1.5 下 → 丢弃（基础值≠DIP，不得放行）',
+    t6.state.dockBounds === null, '实际=' + JSON.stringify(t6.state.dockBounds));
+})();
 
 /* 测试 2：clampDockToWorkArea 在脏数据下的"卡在半空"行为对比
  * 演示：不修的话，350×178 撑大窗口后卡片只能去到 maxX-118 位置（看似"过不去"）；
@@ -369,8 +457,13 @@ ok('[关键] ready-to-show 恢复位置 → pickDockRestore 选落点 + dockClam
   /ready-to-show[\s\S]{0,1200}pickDockRestore\([\s\S]{0,700}dockClamped\(restoreRect\.x, restoreRect\.y\)/.test(mainSrc));
 ok('[关键] applyDockMode 恢复位置 → 同样 pickDockRestore + dockClamped',
   /applyDockMode[\s\S]{0,1200}pickDockRestore\([\s\S]{0,700}dockClamped\(restoreRect\.x, restoreRect\.y\)/.test(mainSrc));
-ok('[关键] loadSettings 第一道防线：宽度差 <=4 + 高度 [36,60] 才放行',
-  /Math\.abs\(bw - DOCK_W\) <= 4/.test(mainSrc) && /bh >= 36 && bh <= 60/.test(mainSrc));
+ok('[关键] v3.3.0 C6 loadSettings 第一道防线：与「生效造型期望窗口尺寸 × 缩放 s」±8 才放行',
+  /const geo = dockGeometry\(resolveSurfaceConfig\('dock'\)\.shape\)/.test(mainSrc) &&
+  /const s = normDockScale\(skin && skin\.dockScale\)/.test(mainSrc) &&
+  /const expW = Math\.round\(geo\.winW \* s\)/.test(mainSrc) &&
+  /const expH = Math\.round\(geo\.winH \* s\)/.test(mainSrc) &&
+  /Math\.abs\(bw - expW\) <= 8/.test(mainSrc) && /Math\.abs\(bh - expH\) <= 8/.test(mainSrc) &&
+  !/Math\.abs\(bw - DOCK_W\) <= 4/.test(mainSrc) && !/bh >= 36 && bh <= 60/.test(mainSrc));
 
 /* ============ v1.7.22.5 修复：拖拽"底部边界上移"根因 ============ */
 console.log('\n【v1.7.22.5】拖拽绝对定位（mouse - offset，禁止 b.y + dy 累加漂移）');
@@ -563,11 +656,16 @@ ok('[关键] dockW/dockH 意图尺寸变量已声明',
 ok('[关键] dockClamped() 存在且内部用 dockW/dockH',
   /function dockClamped\(x, y\)/.test(mainSrc) &&
   /clampDockToWorkArea\(\{ x: x, y: y, width: dockW, height: dockH \}\)/.test(mainSrc));
-ok('[关键] 建窗用 dockW/dockH（dockH 由 taskbarHeight 夹取而来）',
-  /dockH = Math\.max\(40, Math\.min\(tb, 56\)\);/.test(mainSrc) &&
+ok('[关键] 建窗用 dockW/dockH（尺寸由 syncDockGeometry → dockGeometry 按生效造型算）',
+  /function createDock\(\)[\s\S]{0,900}syncDockGeometry\(\);/.test(mainSrc) &&
   /width: dockW, height: dockH,/.test(mainSrc));
-ok('[关键] pushDockSize 下发意图尺寸（不再把撑大的尺寸发给页面渲染卡片）',
-  /send\('dock-size', \{ w: dockW, h: dockH \}\)/.test(mainSrc));
+ok('[关键] v3.3.0 C1 rect 的任务栏 clamp 移入 dockGeometry（hMode=taskbar → 40~56）',
+  /hMode === 'taskbar'\)\s*\?\s*Math\.max\(40,\s*Math\.min\(taskbarHeight\(\),\s*56\)\)/.test(mainSrc));
+ok('[关键] v3.3.0 C5 pushDockSize 保留 w/h 且新增 padL/T/R/B（卡片尺寸两侧同一减法）',
+  /send\('dock-size', \{[\s\S]{0,240}w: geo\.winW, h: geo\.winH,[\s\S]{0,240}padL: geo\.padL, padT: geo\.padT, padR: geo\.padR, padB: geo\.padB/.test(mainSrc) &&
+  /* v3.3.0 X4 反向：w/h 必须发**基础值**（geo.winW/winH），不得发已乘 s 的意图尺寸 dockW/dockH ——
+   * S1 下 CSS 视口 = 窗口 DIP / zoom = 基础尺寸，下发 DIP 会让卡片按放大后尺寸摆而被裁。 */
+  !/send\('dock-size', \{[\s\S]{0,240}w: dockW, h: dockH,/.test(mainSrc));
 ok('[关键] placeMainNearDock 传意图矩形（弹窗不错位）',
   /placeMainNearDock\(\{ x: db\.x, y: db\.y, width: dockW, height: dockH \}\)/.test(mainSrc));
 ok('[关键·反向] 已无 placeMainNearDock(dockWin.getBounds()) 直传',
@@ -829,8 +927,9 @@ ok('[关键] app.js layoutSkin 用全图 cover 基准 Math.max(vp.w/iw, vp.h/ih)
   /function layoutSkin\(el, IW, IH, crop, zoom\)[\s\S]{0,600}Math\.max\(vp\.w \/ iw, vp\.h \/ ih\)/.test(fs.readFileSync('app.js', 'utf8')));
 ok('[关键] app.js 背景定位用取景中心对齐 (vp.w/2 - centerX*s)',
   /vp\.w \/ 2 - centerX \* s/.test(fs.readFileSync('app.js', 'utf8')));
-ok('[关键] dock.html dockLayoutSkin 同样用全图 cover 基准公式',
-  /function dockLayoutSkin\(el, IW, IH, crop, zoom\)[\s\S]{0,600}Math\.max\(vp\.w \/ iw, vp\.h \/ ih\)/.test(dockSrc));
+ok('[关键] dock.html dockLayoutSkin 同样用全图 cover 基准公式（视口改读当前卡片尺寸）',
+  /function dockLayoutSkin\(el, IW, IH, crop, zoom\)[\s\S]{0,1200}Math\.max\(vp\.w \/ iw, vp\.h \/ ih\)/.test(dockSrc) &&
+  /var vp = \{ w: cardW \|\| sizeW, h: cardH \|\| sizeH \}/.test(dockSrc));
 ok('[关键] skincustom.html 反向换算 crop/zoom 落盘（saveCrop，v3.2.0 迁自 skin.html）',
   /crop\.center\.x - vw \/ 2/.test(fs.readFileSync('skincustom.html', 'utf8')) &&
   /crop\.s \/ crop\.s0/.test(fs.readFileSync('skincustom.html', 'utf8')));

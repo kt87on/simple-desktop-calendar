@@ -3,6 +3,7 @@
 //       + v1.7.20 崩溃修复与浮动方案回归保护
 //       + v1.7.17 十条需求回归保护
 // 改完主进程 / 渲染层必跑；与 smoke-test.js（mock Electron 双形态运行时冒烟）配套。
+// v3.3.0：C6 三条断言保持独立（失败可定位），不合并计数。
 
 const fs = require('fs');
 const path = require('path');
@@ -41,7 +42,7 @@ const whenReadyBody = main.slice(main.indexOf('app.whenReady'), main.indexOf("ap
 // =====================================================================
 // 版本号
 // =====================================================================
-check('版本号=3.2.0', pkg.version === '3.2.0', 'package.json version=' + pkg.version);
+check('版本号=3.3.0', pkg.version === '3.3.0', 'package.json version=' + pkg.version);
 
 /* 护栏：使用说明.html 随安装包发给用户（build.extraFiles → 安装完成页「查看说明文档」），
  * 其声明的版本必须与 package.json 一致，防止文档版本漂移（历史遗留 v2.4.4）。 */
@@ -164,10 +165,26 @@ check('[需求3] 插件位置持久化（读）',
   /if \(o\.dockBounds && typeof o\.dockBounds\.x === 'number'/.test(mainCode));
 
 /* v1.7.22.3 修复（"卡在半空"回归）：loadSettings 校验尺寸合理区间 + 恢复位置时强制用真实尺寸 */
-check('[v1.7.22.3] loadSettings 校验 dockBounds 宽度在 DOCK_W±4',
-  /Math\.abs\(bw - DOCK_W\) <= 4/.test(mainCode));
-check('[v1.7.22.3] loadSettings 校验 dockBounds 高度在 [36, 60]',
-  /bh >= 36 && bh <= 60/.test(mainCode));
+/* v3.3.0 C6：窗口尺寸随造型变（绘本台钟 182×198 等），旧的写死 [DOCK_W±4]×[36,60] 会把特殊造型的
+ * 合法落点当脏数据丢掉 → 改为与「当前生效造型的期望窗口尺寸」比对，容差 ±8px。 */
+/* v3.3.0 C6：三条断言对应三个**不同的不变量**（① 期望尺寸的来源必须是 dockGeometry(...) 而非字面量；
+ * ② ±8 判据；③ 旧 [DOCK_W±4]×[36,60] 判据已删）。故意保持独立、不合并计数 ——
+ * 失败时可定位到具体是哪一个不变量破了（失败可定位性 > 计数整洁）。
+ * v3.3.0 X4：落盘的 dockBounds 写的是**真实 DIP 尺寸**，故校验侧必须乘同一个缩放系数 s
+ * （normDockScale），两侧同为 DIP；否则用户一改缩放，合法落点会被当成脏数据静默丢弃。
+ * ⇒ 下面 ① 里把「来源是 dockGeometry」与「乘同一个 s」一并钉住（只增不减，未放松语义）。 */
+check('[v3.3.0 C6] loadSettings 期望尺寸取自 dockGeometry(resolveSurfaceConfig(dock).shape)',
+  /const geo = dockGeometry\(resolveSurfaceConfig\('dock'\)\.shape\)/.test(mainCode) &&
+  /const s = normDockScale\(skin && skin\.dockScale\)/.test(mainCode) &&
+  /const expW = Math\.round\(geo\.winW \* s\)/.test(mainCode) &&
+  /const expH = Math\.round\(geo\.winH \* s\)/.test(mainCode) &&
+  /const bw = o\.dockBounds\.width \|\| expW/.test(mainCode) &&
+  /const bh = o\.dockBounds\.height \|\| expH/.test(mainCode));
+check('[v3.3.0 C6] loadSettings 校验 dockBounds 宽/高按生效造型期望尺寸 ±8',
+  /Math\.abs\(bw - expW\) <= 8/.test(mainCode) &&
+  /Math\.abs\(bh - expH\) <= 8/.test(mainCode));
+check('[v3.3.0 C6] 旧硬编码 [DOCK_W±4]×[36,60] 判据已删除',
+  !/Math\.abs\(bw - DOCK_W\) <= 4/.test(mainCode) && !/bh >= 36 && bh <= 60/.test(mainCode));
 check('[v1.7.22.3] loadSettings 异常尺寸记日志并丢弃（dockBounds=null）',
   /ignore invalid dockBounds size/.test(mainCode) && /dockBounds = null;/.test(mainCode));
 /* v1.7.22.3 原语义是"尺寸用 dockWin.getBounds()"（防磁盘脏数据撑大窗口）；
@@ -357,14 +374,19 @@ check('[v1.7.22.6] makeTrayIcon 保留且标注"勿删"（历史托盘崩溃 bug
  * ===================================================================== */
 check('[v1.7.22.7] 意图尺寸 dockW/dockH 状态变量已声明',
   /let dockW = DOCK_W;/.test(mainCode) && /let dockH = DOCK_H;/.test(mainCode));
-check('[v1.7.22.7] createDock 用 dockW/dockH 建窗（不再直接用 DOCK_W/局部变量 H）',
-  /dockH = Math\.max\(40, Math\.min\(tb, 56\)\);/.test(mainCode) &&
-  /width: dockW, height: dockH,/.test(mainCode));
+check('[v1.7.22.7] createDock 用 dockW/dockH 建窗（尺寸改由 syncDockGeometry 按生效造型算）',
+  /function createDock\(\)[\s\S]{0,900}syncDockGeometry\(\);[\s\S]{0,900}width: dockW, height: dockH,/.test(mainCode));
+check('[v3.3.0 C1] rect 的任务栏 clamp 移入 dockGeometry（hMode=taskbar → 40~56）',
+  /hMode === 'taskbar'\)\s*\?\s*Math\.max\(40,\s*Math\.min\(taskbarHeight\(\),\s*56\)\)/.test(mainCode));
 check('[v1.7.22.7] dockClamped 是插件定位的唯一入口',
   /function dockClamped\(x, y\)/.test(mainCode) &&
   /clampDockToWorkArea\(\{ x: x, y: y, width: dockW, height: dockH \}\)/.test(mainCode));
-check('[v1.7.22.7] pushDockSize 下发意图尺寸（不再把撑大的尺寸发给页面）',
-  /dockWin\.webContents\.send\('dock-size', \{ w: dockW, h: dockH \}\)/.test(mainCode));
+check('[v3.3.0 C5] pushDockSize 载荷保留 w/h 且新增 padL/T/R/B（卡片尺寸两侧同一减法）',
+  /send\('dock-size', \{[\s\S]{0,240}w: geo\.winW, h: geo\.winH,[\s\S]{0,240}padL: geo\.padL, padT: geo\.padT, padR: geo\.padR, padB: geo\.padB/.test(mainCode) &&
+  /* v3.3.0 X4 反向：w/h 必须是**基础值** geo.winW/geo.winH，不得发已乘 s 的意图尺寸 dockW/dockH。
+   * 理由：S1 路线下 CSS 视口 = 窗口 DIP / zoom = 基础尺寸 ⇒ 渲染层本就该看到基础几何；
+   * 若下发 DIP 值，dock.html 会用放大后的尺寸摆卡片，而视口只有基础大小 ⇒ 卡片溢出被裁。 */
+  !/send\('dock-size', \{[\s\S]{0,240}w: dockW, h: dockH,/.test(mainCode));
 check('[v1.7.22.7] [关键·反向] pushDockSize 已不读 getBounds()',
   !/function pushDockSize[\s\S]{0,300}getBounds\(\)/.test(mainCode));
 check('[v1.7.22.7] placeMainNearDock 传意图矩形（弹窗不错位）',
@@ -406,10 +428,21 @@ check('[回归] 需求9 放大图标（v2.3.2 改为放大镜 + 镜片内加号/
   /zoom-sign-plus/.test(tmpl) && /zoom-sign-minus/.test(tmpl) &&
   /<circle cx="11" cy="11" r="7"/.test(tmpl));
 check('[回归] 需求10 角标注', />注</.test(appjs) && !/chip-focus[\s\S]{0,120}>关</.test(appjs));
-check('[回归] 固定像素布局（applyDockSize）仍在',
-  /function applyDockSize\(\)/.test(dock) && /style\.height = \(sizeH - padT - padB\)/.test(dock));
-check('[v1.7.22.4] applyDockSize 右下 inset=0（卡片底/右贴窗口边缘）',
-  /var padL = 2, padT = 2, padR = 0, padB = 0/.test(dock));
+check('[回归] 固定像素布局（applyDockSize）仍在（卡片尺寸 = 窗口尺寸 - 四边内边距）',
+  /function applyDockSize\(\)/.test(dock) && /cardH = sizeH - padT - padB;/.test(dock) &&
+  /cardW = sizeW - padL - padR;/.test(dock) && /cardEl\.style\.height = cardH \+ 'px'/.test(dock));
+check('[v1.7.22.4][v3.3.0 C5] 缺省 pad 仍为 2/2/0/0（rect 右下归零贴死窗口边），且被 dock-size 载荷覆盖',
+  /var padL = 2, padT = 2, padR = 0, padB = 0/.test(dock) &&
+  /padL = \(typeof s\.padL === 'number'\) \? s\.padL : 2/.test(dock));
+check('[v3.3.0 C7.5] dock.html 不再写死 116×50 视口（dockLayoutSkin 读当前卡片尺寸）',
+  !/vp = \{ w: 116, h: 50 \}/.test(dock) &&
+  /var vp = \{ w: cardW \|\| sizeW, h: cardH \|\| sizeH \}/.test(dock));
+check('[v3.3.0 C7] dock.html 六套造型：data-shape 六值 + #shapeLayer + applyShape',
+  /<html[^>]*data-shape=/.test(dock) && /id="shapeLayer"/.test(dock) &&
+  /function applyShape\(/.test(dock) &&
+  ['rect', 'pixel', 'rainbow', 'ring', 'flip', 'toon'].every(function (s) {
+    return dock.indexOf('data-shape="' + s + '"') >= 0;
+  }));
 check('[回归] dock-size 通道仍在',
   /onDockSize/.test(dock) && /onDockSize/.test(preload) && /'dock-size'/.test(preload));
 
@@ -571,9 +604,26 @@ check('[v2.4.2] bgColorFor 始终返回透明（窗口不再做方形色块底�
   /function bgColorFor\(surface\)\s*\{\s*return '#00000000';/.test(mainCode));
 
 /* ---- 皮肤写操作 + IPC + 独立皮肤窗口 ---- */
-check('[v2.4.0 R2] applySkinSet 统一写入口 + copy-on-write 物化（取消跟随深拷贝日历配置）',
+/* v3.3.0 C4：物化语义有意变更 —— 取消跟随时**不再**继承日历的背景来源与图片（旧行为会让
+ * 「不跟主界面」的浮窗显示主界面的图，正是本轮用户报告的缺陷）。这里断言新契约，而非放宽。 */
+check('[v3.3.0 C4] applySkinSet 统一写入口 + copy-on-write 物化（取消跟随不继承图片/bg）',
   /function applySkinSet\(payload\)/.test(mainCode) && /c\.follow = 'calendar';/.test(mainCode) &&
-  /JSON\.parse\(JSON\.stringify\(cal\.image\)\)/.test(mainCode));
+  /function materializeFromCalendar\(\)/.test(mainCode) &&
+  /c\.bg = 'native';/.test(mainCode) && /c\.image = null;/.test(mainCode));
+check('[v3.3.0 C4] [关键·反向] 物化不再深拷贝日历图片（旧 JSON.parse(JSON.stringify(cal.image)) 已删）',
+  !/JSON\.parse\(JSON\.stringify\(cal\.image\)\)/.test(mainCode));
+check('[v3.3.0 C2] followableFields 含 shape（浮窗选造型 = 主动脱离跟随）',
+  /followableFields = \{[^}]*shape: 1[^}]*\}/.test(mainCode));
+check('[v3.3.0 C1] 主进程顶层造型注册表 DOCK_SHAPES + normShape + dockGeometry',
+  /var DOCK_SHAPES = \{/.test(mainCode) && /var DOCK_SHAPE_KEYS = \['rect', 'pixel', 'rainbow', 'ring', 'flip', 'toon'\];/.test(mainCode) &&
+  /function normShape\(v\)/.test(mainCode) && /function dockGeometry\(shapeKey\)/.test(mainCode));
+/* C5：syncDockGeometry 的三个调用点缺一不可（建窗前 / applySkinSet / applyNativeStyleAll，且都在 pushSkinToAll 前） */
+check('[v3.3.0 C5] syncDockGeometry 三调用点齐备',
+  /function createDock\(\)[\s\S]{0,400}syncDockGeometry\(\);/.test(mainCode) &&
+  /function applySkinSet\(payload\)[\s\S]{0,6000}syncDockGeometry\(\);[\s\S]{0,200}pushSkinToAll\(\);/.test(mainCode) &&
+  /function applyNativeStyleAll\(style\)[\s\S]{0,2000}syncDockGeometry\(\);[\s\S]{0,200}pushSkinToAll\(\);/.test(mainCode));
+check('[v3.3.0 C3] resolvedSurfaceState 下发 shape: c.shape',
+  /shape: c\.shape/.test(mainCode));
 check('[v2.4.0 R2] skin-set / skin-action / skin-import IPC 注册',
   /ipcMain\.on\('skin-set'/.test(mainCode) && /ipcMain\.on\('skin-action'/.test(mainCode) &&
   /ipcMain\.handle\('skin-import'/.test(mainCode));

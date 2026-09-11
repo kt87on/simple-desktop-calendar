@@ -85,6 +85,11 @@ function extractFnBoundary(src, name) {
 const SET_FNS = [
   'clamp01', 'clampZoom', 'clampImageOpacity', 'clampOpacity',
   'sanitizeBasename', 'normStyle', 'normBg', 'normTone',
+  // v3.3.0 C2：applySkinSet 的 shape 分支调用 normShape（内联白名单，单独抽取即可自洽）
+  'normShape',
+  // v3.3.0 X4：normalizeSkinV3 / migrateSkinV2toV3 新增 normDockScale 调用
+  //（同款内联白名单，只依赖 Math/Number，单独抽取即可自洽）。
+  'normDockScale',
   'normalizeClarity', 'normalizeImageSpec', 'resolveSurfaceConfig', 'applySkinSet'
 ];
 let SET_SRC = '';
@@ -103,6 +108,9 @@ const makeSet = new Function('skinObj', 'hooks',
     'var pushSkinToAll = hooks.pushSkinToAll;',
     'var refreshTrayMenu = hooks.refreshTrayMenu;',
     'var applyOpacity = hooks.applyOpacity;',
+    /* v3.3.0 C5：applySkinSet 末尾调用顶层 syncDockGeometry()（依赖 dockWin/dockW/dockH，
+     * 非本测试被测对象）→ 注入空桩，避免隔离作用域 ReferenceError。 */
+    'var syncDockGeometry = hooks.syncDockGeometry || function () {};',
     SET_SRC,
     'return { applySkinSet: applySkinSet, resolveSurfaceConfig: resolveSurfaceConfig };'
   ].join('\n')
@@ -158,22 +166,24 @@ function richCalendar() {
  * ============================================================ */
 (function () {
   // A1：跟随中的面被手调 style → 先物化日历快照 + follow=null，再写入本次值
+  /* v3.3.0 C4 有意变更：物化**不再继承日历的背景来源与图片**（旧行为会让「不跟主界面」的浮窗
+   * 显示主界面的图，正是本轮用户报告的缺陷）—— 故 bg 预期 native、image 预期 null；
+   * style/text/clarity/tone 仍继承，shape 刻意不复制。这是断言新契约，不是放宽。 */
   {
     let skin = v3skin({
       calendar: richCalendar(),
-      expanded: { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' }
+      expanded: { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto', shape: 'toon' }
     });
-    const calImageRef = skin.surfaces.calendar.image;
     runSet(skin, { surface: 'expanded', field: 'style', value: 'warm' });
     const e = skin.surfaces.expanded;
     eq(e.follow, null, '§A1 手调 style → follow 置 null（豁免跟随）');
     eq(e.style, 'warm', '§A1 本次写入的值生效（warm）');
-    eq(e.bg, 'image', '§A1 其余字段物化为日历快照（bg=image）');
+    eq(e.bg, 'native', '§A1 v3.3.0 C4 物化后 bg=native（不再继承日历的 image 背景来源）');
+    eq(e.image, null, '§A1 v3.3.0 C4 物化后 image=null（不复制日历图片引用）');
     eq(e.text, 'dark', '§A1 物化 text 快照');
     eq(e.clarity, 70, '§A1 物化 clarity 快照');
     eq(e.tone, 'dark', '§A1 物化 tone 快照');
-    ok(e.image && e.image.file === 'cal.jpg', '§A1 物化 image 快照');
-    ok(e.image !== calImageRef, '§A1 物化 image 为深拷贝（不共享日历的 image 引用）');
+    eq(e.shape, 'toon', '§A1 v3.3.0 C4 物化不复制 shape（本面造型 toon 保留）');
   }
 
   // A2：物化后再改日历风格，该面不再跟随
@@ -242,6 +252,8 @@ function richCalendar() {
     eq(skin.surfaces.dock.follow, null, "§A6 field='follow' value=null → 取消跟随");
     eq(skin.surfaces.dock.style, 'tech', '§A6 取消跟随时物化日历快照（style=tech）');
     eq(skin.surfaces.dock.tone, 'dark', '§A6 物化 tone');
+    eq(skin.surfaces.dock.bg, 'native', '§A6 v3.3.0 C4 取消跟随时 bg=native（不继承图片背景）');
+    eq(skin.surfaces.dock.image, null, '§A6 v3.3.0 C4 取消跟随时 image=null（图片框回空态）');
   }
 
   // A7：非可跟随面（calendar）手调风格不触发物化副作用（follow 恒不存在）

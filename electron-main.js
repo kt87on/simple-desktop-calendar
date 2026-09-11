@@ -80,19 +80,28 @@ function loadSettings() {
       // v1.7.22 需求3：Windows 版本标记（启动时检测后写回；读旧值仅作兜底，随后会被真实检测覆盖）
       isWin11 = o.isWin11 === true;
       // v1.7.21 需求2/3：插件上次位置，切回插件模式时恢复（并在应用时夹回工作区）。
-      /* v1.7.22.3 修复（"卡在半空"回归第一道防线）：校验 dockBounds 尺寸是否落在
-       * 合理范围 [DOCK_W±4] × [36, 60] —— 旧版曾把窗口 bounds 错写成 350×178（疑似
-       * 嵌入循环里的主窗/嵌入子窗大小），启动时直接被 setBounds 进去就会撑大窗口、压缩
-       * 可拖动范围。这里丢弃异常尺寸 → positionDock() 走默认落点（工作区右下角贴任务栏）。 */
+      /* v1.7.22.3 修复（"卡在半空"回归第一道防线）：校验 dockBounds 尺寸是否合理 —— 旧版曾把
+       * 窗口 bounds 错写成 350×178（疑似嵌入循环里的主窗/嵌入子窗大小），启动时直接被 setBounds
+       * 进去就会撑大窗口、压缩可拖动范围。这里丢弃异常尺寸 → positionDock() 走默认落点。
+       * v3.3.0 C6：判据由写死的 [DOCK_W±4] × [36,60] 改为「与当前生效造型的期望窗口尺寸比对」——
+       * 因为窗口尺寸现在随造型变（如绘本台钟 182×198），旧判据会把特殊造型的合法落点当脏数据丢掉；
+       * 且旧判据对 rect 之外的脏尺寸也拦不住。容差取 ±8px，容忍任务栏高度/DPI 的轻微抖动。
+       * v3.3.0 X4：期望尺寸再乘缩放系数 s —— 落盘的 dockBounds（:3056 附近）写的是**真实 DIP 尺寸**，
+       * 校验两侧必须同为 DIP，否则用户一改缩放，合法落点就会被当成脏数据静默丢弃（浮窗跳到默认位）。
+       * 注意：skin 的迁移在本段之前（上面 :67-73），故此处读到的已是生效 skin，可安全取值。 */
       if (o.dockBounds && typeof o.dockBounds.x === 'number' && typeof o.dockBounds.y === 'number') {
-        const bw = o.dockBounds.width || DOCK_W;
-        const bh = o.dockBounds.height || DOCK_H;
-        const wOk = Math.abs(bw - DOCK_W) <= 4;
-        const hOk = bh >= 36 && bh <= 60;
+        const geo = dockGeometry(resolveSurfaceConfig('dock').shape);
+        const s = normDockScale(skin && skin.dockScale);
+        const expW = Math.round(geo.winW * s);
+        const expH = Math.round(geo.winH * s);
+        const bw = o.dockBounds.width || expW;
+        const bh = o.dockBounds.height || expH;
+        const wOk = Math.abs(bw - expW) <= 8;
+        const hOk = Math.abs(bh - expH) <= 8;
         if (wOk && hOk) {
           dockBounds = { x: o.dockBounds.x, y: o.dockBounds.y, width: bw, height: bh };
         } else {
-          try { log('loadSettings: ignore invalid dockBounds size ' + bw + 'x' + bh + ' (expect ~' + DOCK_W + 'x' + DOCK_H + ')'); } catch (_) {}
+          try { log('loadSettings: ignore invalid dockBounds size ' + bw + 'x' + bh + ' (expect ~' + expW + 'x' + expH + ')'); } catch (_) {}
           dockBounds = null;
         }
       }
@@ -274,7 +283,11 @@ function resolvedSurfaceState(surface) {
     bg: bg.kind,
     color: (bg.kind === 'color') ? bg.color : null,
     image: (bg.kind === 'image') ? bg.image : null,
-    clarity: clarityForConfig(c)
+    clarity: clarityForConfig(c),
+    /* v3.3.0 契约 C3（跟随语义与造型）中的字段：下发 resolve 之后的造型
+     * （跟随态 → 日历配置的 'rect'）。dock.html 只认这个字段，
+     * 渲染层不自行判断 follow —— 避免主/渲染两处各判一套跟随语义而漂移。 */
+    shape: c.shape
   };
 }
 
@@ -451,8 +464,11 @@ function normTone(v) {
  *   - dock            → 'calendar'，但**仅当该面 pristine（六项全出厂默认）时才真正采用**，
  *                       否则回落 null（见下）—— 避免把「v3.0.0 已自定过浮动插件、但数据里没有
  *                       follow 字段」的用户的既有配置静默覆盖掉（v3.1.0 C1 迁移回归修复）。
- * 用户显式取消跟随会写入 follow:null，故显式 null 一律保留为 null。 */
-function normalizeSurfaceV3(s, isFollowable, followDefault) {
+ * 用户显式取消跟随会写入 follow:null，故显式 null 一律保留为 null。
+ * v3.3.0 C2：新增第 4 参 isDock —— 造型（shape）只有浮动插件面允许持非 'rect' 值，
+ *   calendar/expanded/desktop 一律写死 'rect'（脏数据护栏，保证浮窗跟随链拿到的恒是 rect）。
+ *   缺参（false/undefined）按非 dock 处理，故老调用方三参调用行为不变。 */
+function normalizeSurfaceV3(s, isFollowable, followDefault, isDock) {
   s = s || {};
   var bg = normBg(s.bg);
   var image = (bg === 'image') ? normalizeImageSpec(s.image) : null;
@@ -463,7 +479,12 @@ function normalizeSurfaceV3(s, isFollowable, followDefault) {
     image: image,
     text: (s.text === 'light' || s.text === 'dark') ? s.text : 'auto',
     clarity: normalizeClarity(s.clarity),
-    tone: normTone(s.tone)
+    tone: normTone(s.tone),
+    /* v3.3.0 C2：造型（六款浮窗样式）。只有 dock 面可持非 rect 值 —— calendar/expanded/desktop
+     * 一律写死 'rect'：日历本来就是圆角卡片，且这样能保证「浮窗跟随 → resolveSurfaceConfig
+     * 返回日历配置 → shape='rect'」这条链恒成立，不会因日历被写脏造型而让跟随中的浮窗变形。
+     * 旧数据（v3.2.x 及更早）无 shape 字段 → normShape(undefined) 回落 'rect'。 */
+    shape: isDock ? normShape(s.shape) : 'rect'
   };
   if (isFollowable) {
     if (s.follow === 'calendar') c.follow = 'calendar';        // 显式跟随
@@ -473,7 +494,9 @@ function normalizeSurfaceV3(s, isFollowable, followDefault) {
        * 若该面六项全为出厂默认（pristine）→ 视为「未手动调整过」→ 默认统一（'calendar'）；
        * 否则说明用户早已独立配置过浮动插件（如单独设过风格/图片），必须保留其独立性（null）——
        * 否则那份配置数据虽在，却会被 resolveSurfaceConfig 静默忽略（浮动插件突然变成日历的样子）。
-       * 口径与调用点解耦：pristine 只在此处判定（该函数被 x-extract 孤立测试，故内联而非顶层）。 */
+       * 口径与调用点解耦：pristine 只在此处判定（该函数被 x-extract 孤立测试，故内联而非顶层）。
+       * v3.3.0：pristine 仍只看这六项、不含 shape —— 造型只能由 applySkinSet 的 shape 分支写入，
+       *   而那条路径必然先物化（follow 被写成显式 null），故「有 shape 却无 follow 字段」不会出现。 */
       var pristine = (c.style === 'default') && (c.bg === 'native') && !c.image &&
         (c.text === 'auto') && (c.clarity === 'auto') && (c.tone === 'auto');
       c.follow = (followDefault === 'calendar' && pristine) ? 'calendar' : null;
@@ -489,13 +512,17 @@ function normalizeSkinV3(raw) {
     var n = names[i];
     var s = (raw && raw.surfaces && raw.surfaces[n]) || {};
     // v3.1.0 C1：dock 也带 follow，默认 'calendar'（旧 v3.0.0 数据无此字段 → 默认统一）
-    out.surfaces[n] = normalizeSurfaceV3(s, (n === 'expanded' || n === 'desktop' || n === 'dock'), (n === 'dock') ? 'calendar' : null);
+    // v3.3.0 C2：第 4 参 isDock=true 仅给 dock —— 只有它允许持非 'rect' 的 shape。
+    out.surfaces[n] = normalizeSurfaceV3(s, (n === 'expanded' || n === 'desktop' || n === 'dock'), (n === 'dock') ? 'calendar' : null, n === 'dock');
   }
   if (raw && raw.opacity && typeof raw.opacity === 'object') {
     out.opacity.calendar = clampOpacity(raw.opacity.calendar, 1);
     out.opacity.desktop = clampOpacity(raw.opacity.desktop, 1);
     out.opacity.dock = clampOpacity(raw.opacity.dock, 1);
   }
+  /* v3.3.0 X4：缩放系数归一化（缺字段/脏值 → 1）。放在这里而非 normalizeSurfaceV3 内 ——
+   * dockScale 是**面之外**的顶层几何字段，与 surfaces 无关。 */
+  out.dockScale = normDockScale(raw && raw.dockScale);
   return out;
 }
 
@@ -531,7 +558,10 @@ function migrateSkinV2toV3(v2) {
       bg: bg,
       image: image,
       text: (s.text === 'light' || s.text === 'dark') ? s.text : 'auto',   // 原样保留
-      clarity: normalizeClarity(s.clarity)                                 // 原样保留
+      clarity: normalizeClarity(s.clarity),                                // 原样保留
+      /* v3.3.0 C2：v2 数据没有 shape 字段 → 全部回落 'rect'（normShape 白名单兜底）；
+       * 只有 dock 面允许持非 rect，护栏口径与 normalizeSurfaceV3 完全一致。 */
+      shape: (n === 'dock') ? normShape(s.shape) : 'rect'
     };
     if (n === 'expanded' || n === 'desktop') {
       c.follow = (s.follow === 'calendar') ? 'calendar' : null;            // 原样保留
@@ -555,6 +585,8 @@ function migrateSkinV2toV3(v2) {
     out.opacity.desktop = clampOpacity(src.opacity.desktop, 1);
     out.opacity.dock = clampOpacity(src.opacity.dock, 1);
   }
+  /* v3.3.0 X4：缩放系数归一化。v2/更老数据均无此字段 → normDockScale(undefined) → 1（保持原尺寸）。 */
+  out.dockScale = normDockScale(src && src.dockScale);
   return out;
 }
 
@@ -594,10 +626,26 @@ function skinConfigState() {
   var resolved = {};
   var names = ['calendar', 'expanded', 'desktop', 'dock'];
   for (var i = 0; i < names.length; i++) resolved[names[i]] = resolvedSurfaceState(names[i]);
+  /* v3.3.0 X3：dock 的取景框纵横比必须用「生效造型的真实卡片尺寸」——
+   *   v3.3.0 起卡片尺寸随造型变（ring 150×150、toon 158×174…），而这张表一直写死 116×50，
+   *   于是「自选图片」窗的取景框按错误的盒子给用户看，取到的区域与浮窗实际渲染的并不一致。
+   *   为什么直接用 dockGeometry 的 cardW/cardH：卡片尺寸的定义就是 win - pad（C1 两侧同一条减法），
+   *   这里再自己减一遍 pad 就会变成第三处口径，日后必然漂移。
+   * 为什么是 resolve 之后的 shape：跟随态解析到日历面（shape 恒为 'rect'），取景框自然回到 rect 比例。
+   * 为什么不乘缩放系数：缩放是等比放大，不改变纵横比；取景框若跟着缩放跳，用户每调一次缩放
+   *   取景区域就会变一次，属明显错误。故这里一律报**基础卡片**尺寸。
+   * 性能：dockGeometry 会调 taskbarHeight()，它是纯内存读（screen.getPrimaryDisplay + 算术 + try/catch 兜 48），
+   *   无 IO/子进程，放在这个每次推送皮肤都会走的函数里可接受。 */
+  var dockGeo = dockGeometry(resolveSurfaceConfig('dock').shape);
   return {
     skin: skin,
     resolved: resolved,
-    viewport: { calendar: { w: 340, h: 430 }, expanded: { w: 340, h: 430 }, desktop: { w: 340, h: 370 }, dock: { w: 116, h: 50 } }
+    viewport: {
+      calendar: { w: 340, h: 430 },
+      expanded: { w: 340, h: 430 },
+      desktop: { w: 340, h: 370 },
+      dock: { w: dockGeo.cardW, h: dockGeo.cardH }
+    }
   };
 }
 function pushSkinConfigState() {
@@ -846,7 +894,9 @@ function importSkinImage(surface, srcPath) {
 }
 
 /* v2.4.0 第二轮 / v3.0.0：皮肤写操作统一入口（skin.html → skin-set）。
- * field ∈ style/bg/tone/text/follow/opacity/image。处理 follow 取消时的 copy-on-write 物化。
+ * field ∈ style/shape/bg/tone/text/follow/opacity/image。处理 follow 取消时的 copy-on-write 物化。
+ * v3.3.0 X3（导入图片即回圆角卡片）：
+ *   field==='image' 且写的是浮窗面时，同一次写入里把造型收回 'rect'（见下方 image 分支注释）。
  * 注意：此处**不做** normalizeSkinV3 的整体回落 —— bg='image' 允许「已选图片但尚未导入」的过渡态
  * （渲染层走 solidFallbackFor 兜底不白屏）；仅在 loadSettings 归一化时对无图 bg=image 回落 native。 */
 function applySkinSet(payload) {
@@ -858,37 +908,56 @@ function applySkinSet(payload) {
   var c = skin.surfaces[surface];
   if (!c) return;
 
-  /* v3.1.0 C2：取消跟随 / 手动调整的 copy-on-write 物化（本函数内部小工具，供两处复用，避免逻辑漂移）。
-   * 以日历当前配置为初始快照（6 项：style/bg/image/text/clarity/tone），并把当前面 c 的 follow 置为 null。
-   * image 深拷贝，避免跟随者的图片对象与日历共享引用（改一处动两处）。闭包引用本函数的 c。
+  /* v3.1.0 C2 / v3.3.0 C4：取消跟随 / 手动调整的 copy-on-write 物化（本函数内部小工具，供两处复用，避免逻辑漂移）。
+   * 把当前面 c 的 follow 置为 null，并从日历快照 style/text/clarity/tone 四项。
    * 说明：刻意定义为 applySkinSet 的内部函数（而非顶层）—— 既满足「复用同一段物化逻辑」，
    *       又让其保持自洽可整体抽取（如 tests/qa-v244.js 会孤立 eval applySkinSet 源码）。 */
   function materializeFromCalendar() {
     var cal = skin.surfaces.calendar;
     c.follow = null;
     c.style = cal.style;
-    c.bg = cal.bg;
-    c.image = cal.image ? JSON.parse(JSON.stringify(cal.image)) : null;
+    /* v3.3.0 C4【R3 缺陷修复本体】：背景来源与图片**都不再继承**，本面回落到原生皮肤。
+     *   为什么：图片是「用户自己挑的内容」，不是样式属性。跟随态的图片由日历提供；一旦取消跟随，
+     *   本面就应回到「还没选图」的空白态 —— 否则用户会看到一张不是自己选的图（主界面的图），
+     *   误以为已经设置过。v3.3.0 用户报告的「不跟主界面时图片框里还是主界面的图」正是这个现象。
+     *   注意不是删文件：盘上 userData/skins/* 原样保留，用户随时能重新选回。
+     * 背景来源必须一起回落：bg='image' + image=null 会走 solidFallbackFor 变成一块纯色兜底，
+     * 那不是「回到原生皮肤」，是「变成一块灰板」。 */
+    c.bg = 'native';
+    c.image = null;
     c.text = cal.text;
     c.clarity = cal.clarity;   // v2.4.4：清晰度一并物化快照
     c.tone = cal.tone;         // v3.0.0 R5：明暗轴一并物化快照（漏复制会丢明暗设置）
+    /* v3.3.0 C4：shape 刻意不复制 —— 造型是浮窗自己的身份，不是日历的派生属性。
+     * 复制会让「选过绘本台钟 → 开跟随 → 再关跟随」把台钟造型弄丢。 */
   }
 
   /* v3.1.0 C2：手调即豁免跟随（修复隐藏缺陷）。
    * 当某个「跟随中」的界面（expanded/desktop/dock，follow==='calendar'）被手动改任一实质字段
-   * （style/bg/image/text/clarity/tone）时，**先**取消跟随（物化日历快照 + follow=null）再写入本次值。
+   * （style/bg/image/text/clarity/tone/shape）时，**先**取消跟随（物化日历快照 + follow=null）再写入本次值。
    * 否则 resolveSurfaceConfig 仍返回日历配置 → 用户这次的手动设置被静默忽略。
    * - field==='follow' 不在本名单：显式取消/恢复跟随由下方分支专管（行为保持不变）。
-   * - 写 calendar 永远不进入本分支：写日历绝不影响任何界面的 follow。 */
-  var followableFields = { style: 1, bg: 1, image: 1, text: 1, clarity: 1, tone: 1 };
+   * - 写 calendar 永远不进入本分支：写日历绝不影响任何界面的 follow。
+   * v3.3.0 C2：把 shape 纳入本名单 —— 浮窗选造型 = 主动脱离跟随，这正是用户说的
+   *   「不跟主界面就是现在这种，跟主界面就统一」。但非 dock 面本就不允许持造型（见 C2 护栏），
+   *   对它写 shape 是纯 no-op，不能因此把该面的 follow 破掉，故用 (field !== 'shape' || surface === 'dock')
+   *   把这条豁免限定在浮窗面。 */
+  var followableFields = { style: 1, bg: 1, image: 1, text: 1, clarity: 1, tone: 1, shape: 1 };
   if ((surface === 'expanded' || surface === 'desktop' || surface === 'dock') &&
-      followableFields[field] && c.follow === 'calendar') {
+      followableFields[field] && c.follow === 'calendar' &&
+      (field !== 'shape' || surface === 'dock')) {
     materializeFromCalendar();
   }
 
   if (field === 'style') {
     // v3.0.0：风格材质（6 选一）。与 bg/tone 正交，不改背景来源与明暗轴。
     c.style = normStyle(value);
+  } else if (field === 'shape') {
+    /* v3.3.0 C2：造型写入（六款浮窗样式）。只有 dock 面可持非 rect —— 其余三面一律忽略（保持 'rect'），
+     * 与 normalizeSurfaceV3 的护栏构成双保险，也避免「日历被写入造型」这种无意义脏数据。
+     * 【测试同步】本分支引用了跨函数的 normShape：tests/qa-v244.js / qa-v310.js 用 extractFn 孤立 eval
+     * applySkinSet 源码，其 FN_NAMES / SET_FNS 名单需补上 normShape（归 W-E 维护），否则调用本分支会 ReferenceError。 */
+    if (surface === 'dock') c.shape = normShape(value);
   } else if (field === 'bg') {
     // v3.0.0：背景来源（native | image）。切回 native 时丢弃图片引用（不删盘上文件）。
     c.bg = normBg(value);
@@ -921,9 +990,16 @@ function applySkinSet(payload) {
   } else if (field === 'image') {
     // value = ImageSpec（皮肤窗取景/导入后回写 file/crop/zoom/opacity）。渲染层回写的字段覆盖，
     // 缺失的 w/h/dark/snapshot 保留既有值（导入时主进程已算好），避免取景回写丢失亮度/冻结帧。
+    /* v3.3.0 X3 守卫：**以 normalizeImageSpec 的返回值为准**再决定写入。
+     * 为什么：`value.file` 为真值 ≠「真的得到了一张图」—— normalizeImageSpec 内部走 sanitizeBasename，
+     * 数字或含路径分隔的脏串（如 {file:123} / {file:'/'}）会被清洗成空串 → 函数返回 null。
+     * 若只看 value.file 就往下写，就会出现「c.image=null 但 c.bg='image'、c.shape='rect'」的矛盾态：
+     * 这是全仓唯一能打破 `bg==='image' ⟺ image!==null` 这个不变量的入口，渲染层会拿到
+     * 「image 模式但没有图」→ 只能靠 solidFallbackFor 兜成一块灰板。脏输入只可能来自手改
+     * settings.json 或异常 IPC 载荷，但既然这里能廉价拦住，就不该放它进配置。 */
     if (value && typeof value === 'object' && value.file) {
       var prev = c.image || {};
-      c.image = normalizeImageSpec({
+      var nimg = normalizeImageSpec({
         file: value.file || prev.file,
         snapshot: (value.snapshot !== undefined) ? value.snapshot : prev.snapshot,
         w: (value.w !== undefined) ? value.w : prev.w,
@@ -934,12 +1010,39 @@ function applySkinSet(payload) {
         dark: (value.dark !== undefined) ? value.dark : prev.dark,
         complexity: (value.complexity !== undefined) ? value.complexity : prev.complexity
       });
-      c.bg = 'image';   // 有了图片 → 背景来源切到 image（与 style 叠加）
+      /* nimg 为 null（脏 file 被清洗成空）→ 整条分支零副作用：image / bg / shape 三者全保持原值。 */
+      if (nimg) {
+        c.image = nimg;
+        c.bg = 'image';   // 有了图片 → 背景来源切到 image（与 style 叠加）
+        /* v3.3.0 X3（导入图片即回圆角卡片）：浮窗导入图片 → **同一次写入里**把该面造型收回 'rect'。
+         *   为什么：v3.3.0 契约规定非 rect 造型自带材质、不吃 style/skin/#skinImg（C7.1 非 rect 时跳过皮肤层），
+         *   于是「在绘本台钟/极简圆环下拖了一张图却什么都不变」会被用户读成「图片失灵、这软件坏了」，
+         *   而不是「该造型不支持图片」。导入图片是用户的明确意图 → 让造型让步：图片优先，回到圆角卡片。
+         *   为什么必须写在这同一次写入里：若另起一次 shape 写入，会多推一轮 saveSettings/pushSkinToAll，
+         *   浮窗先按旧造型画一帧再跳成 rect，用户能看到闪跳。
+         * 反向不成立（刻意）：field==='shape' 不动图片 —— 图片留在配置里，日后切回圆角卡片即恢复显示；
+         *   field==='bg'（清空按钮）也不动 shape —— 「清空」的语义是不要图片了，与用哪款造型无关。
+         * 盘上 userData/skins/* 一律不删，仅解除/重建配置引用。 */
+        if (surface === 'dock') c.shape = 'rect';
+      }
     }
+  } else if (field === 'dockScale') {
+    /* v3.3.0 X4：浮窗等比缩放（比例值，60%~160%）。
+     * 刻意**不进 followableFields**（:935 的名单一个字都不改）—— 缩放是几何不是身份，
+     *   改缩放不得把浮窗从「跟随主界面」踢成独立。故直接写顶层 skin.dockScale，不经 surfaces。
+     * 末尾既有的 syncDockGeometry() 会立刻把 zoom + 窗口尺寸应用下去，无需新增调用点。
+     * 【测试同步】本分支引用跨函数的 normDockScale：qa-v244 / qa-v310 / qa-v300 的隔离执行台
+     *   FN_NAMES 需补 normDockScale（归 W-E 维护），否则走本分支会 ReferenceError。 */
+    skin.dockScale = normDockScale(value);
   }
   recomputeTheme();
   saveSettings();
   pushThemeToAll();     // baseTheme 可能变化：托盘反色 + 关注列表 + 设置窗主题跟随
+  /* v3.3.0 C5：造型可能刚刚变化（如 dock 写了新 shape）→ 先同步窗口几何再下发皮肤，
+   * 保证 dock.html 收到 dock-size 与 skin-state 时用的是同一套几何（顺序不能颠倒）。
+   * 【测试同步】本句是 applySkinSet 新增的跨函数引用，qa-v244 / qa-v310 的隔离执行台需为其提供
+   * syncDockGeometry（stub 即可，归 W-E 维护），否则每次调用 applySkinSet 都会 ReferenceError。 */
+  syncDockGeometry();
   pushSkinToAll();
   refreshTrayMenu();
 }
@@ -982,6 +1085,11 @@ function applyNativeStyleAll(style) {
   recomputeTheme();
   saveSettings();
   pushThemeToAll();
+  /* v3.3.0 C5：本函数把四界面 follow 写回 'calendar'（含 dock）→ 浮窗生效造型必为 'rect'，
+   * 先 syncDockGeometry() 把窗口从特殊造型的尺寸收回 116×任务栏高，再下发皮肤。
+   * 【测试同步】qa-v320 的 NATIVE_FNS 隔离执行台需补 syncDockGeometry（stub 即可，归 W-E 维护）。
+   * 注意：本函数其余语义（不写 shape、image=null 仅解引用、follow 写回）一字未改。 */
+  syncDockGeometry();
   pushSkinToAll();
   pushSkinConfigState();
   refreshTrayMenu();
@@ -1068,7 +1176,12 @@ let skin = {
     desktop:  { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' },
     dock:     { follow: 'calendar', style: 'default', bg: 'native', image: null, text: 'auto', clarity: 'auto', tone: 'auto' }
   },
-  opacity: { calendar: 1, desktop: 1, dock: 1 }
+  opacity: { calendar: 1, desktop: 1, dock: 1 },
+  /* v3.3.0 X4：浮窗等比缩放系数（比例值，1 = 原尺寸）。
+   * 为什么与 opacity 并列放顶层、而非塞进 surfaces.dock：跟随态 resolveSurfaceConfig('dock') 返回
+   *   surfaces.calendar，塞进 dock 的字段会被静默吞掉（见 §1.3）—— 默认态的缩放就永远读不到。
+   * 为什么不放进 followableFields：缩放是**几何**不是**身份**，改缩放不得把浮窗从「跟随主界面」踢成独立。 */
+  dockScale: 1
 };
 
 /* ===== v3.0.0：透明窗口公共参数收敛（§6 I1「四角黑角」集成点） =====
@@ -1128,6 +1241,151 @@ const DOCK_W = 116, DOCK_H = 50;
  *     且窗口本身是 click-through 的，不会挡住任何东西。 */
 let dockW = DOCK_W;
 let dockH = DOCK_H;
+
+/* ===== v3.3.0 浮窗造型注册表（六套造型，主进程唯一真源）=====
+ * 尺寸一律以「窗口尺寸 + 四边内边距」表达，卡片尺寸由两侧各自用同一条减法算出（win - pad），
+ * 杜绝主进程与 dock.html 各写一套尺寸而漂移（v1.7.22.x 就出现过窗口 116 / 卡片 114 两处口径）。
+ *   hMode:'taskbar' → 高度跟随任务栏（clamp 40~56，沿用 createDock 既有算法，让 rect 看着像任务栏的一部分）；
+ *   hMode:'fixed'   → 高度即注册值。
+ * 内边距**按造型真实口径填写，不再「一律 12px」**（v3.3.0 Y1 起）：
+ *   - 需要给自己留投影空间的自由挂件（pixel/ring/flip/toon）取 12px 四周对称；
+ *   - rainbow 的 `--dock-shadow` 两档**全是 inset、零外投影**（dock.html:752-753），窗口矩形上没有任何
+ *     东西需要被裁 ⇒ 右下 pad 归零不引发 X2 那种直角裁切；左上各留 24 仅为保住卡片 116×44
+ *     （cardW = 140−24−0、cardH = 68−24−0），多出的左上 24px 是纯透明区；
+ *   - rect 贴任务栏（hMode:'taskbar'），右下内边距必须 0（见 dock.html 文件头硬约束），
+ *     否则卡片贴不到屏幕右沿/任务栏上沿。 */
+var DOCK_SHAPES = {
+  rect:    { name: '圆角卡片', winW: 116, winH: 0,   hMode: 'taskbar', padL: 2,  padT: 2,  padR: 0,  padB: 0  },
+  pixel:   { name: '像素方屏', winW: 180, winH: 88,  hMode: 'fixed',   padL: 12, padT: 12, padR: 12, padB: 12 },
+  rainbow: { name: '虹彩流光', winW: 140, winH: 68,  hMode: 'fixed',   padL: 24, padT: 24, padR: 0,  padB: 0  },
+  ring:    { name: '极简圆环', winW: 174, winH: 174, hMode: 'fixed',   padL: 12, padT: 12, padR: 12, padB: 12 },
+  flip:    { name: '翻页时牌', winW: 220, winH: 128, hMode: 'fixed',   padL: 12, padT: 12, padR: 12, padB: 12 },
+  toon:    { name: '绘本台钟', winW: 182, winH: 198, hMode: 'fixed',   padL: 12, padT: 12, padR: 12, padB: 12 }
+};
+var DOCK_SHAPE_KEYS = ['rect', 'pixel', 'rainbow', 'ring', 'flip', 'toon'];
+/* v3.3.0 C2：造型白名单。任何非本表值（undefined/null/''/'RECT'/数字/对象）一律回落 'rect'，绝不抛错 ——
+ * 造型是持久化字段，历史数据可能整段缺字段或含脏值，回落即「默认圆角卡片」。
+ * 刻意写成内联字符串比较（与 normStyle/normBg/normTone 同款），不依赖 DOCK_SHAPE_KEYS ——
+ * 这样 tests/*.js 用 extractFn 孤立抽取本函数时自洽可跑（抽取只带走函数体，不会带走顶层变量）。 */
+function normShape(v) {
+  return (v === 'pixel' || v === 'rainbow' || v === 'ring' || v === 'flip' || v === 'toon' || v === 'rect') ? v : 'rect';
+}
+/* v3.3.0 X4：浮窗等比缩放系数归一化 —— 白名单 + 5% 吸附 + 夹取 [0.6, 1.6]。
+ * 与 normShape 同款口径：只依赖 Math/Number，不引用任何顶层变量 —— 满足 §1.4 式孤立 eval 约束
+ * （tests 用 extractFn 抽函数体单独 new Function 执行，引用顶层变量会直接 ReferenceError）。
+ * 判据（交 QA §A）：undefined/null/{}/true/''/'abc' → 1；0/0.5 → 0.6；2/99 → 1.6；
+ *   1.234 → 1.25；'1.5' → 1.5；0.975 → 1。
+ * 为什么非法输入回落 1 而不是 0.6：缩放是「可选增强」，历史数据没有该字段时必须保持原尺寸（1），
+ *   绝不能因为一次迁移把老用户的浮窗悄悄缩小。 */
+function normDockScale(v) {
+  if (typeof v !== 'number' && typeof v !== 'string') return 1;   // null/undefined/对象/布尔 → 默认
+  if (v === '') return 1;
+  var n = Number(v);
+  if (!isFinite(n)) return 1;                                     // 'abc' / NaN → 默认
+  n = Math.round(n * 20) / 20;                                    // 吸附到 5% 档
+  if (n < 0.6) n = 0.6;
+  if (n > 1.6) n = 1.6;
+  return n;
+}
+/* v3.3.0 C1：把注册表的「窗口尺寸 + 四边内边距」换算成 { key,name,winW,winH,pad*,cardW,cardH }。
+ * rect 的 winH 不是注册值 0，而是「当前任务栏高度 clamp 40~56」—— 与 createDock 既有算法同源，
+ * 从而保证主进程夹取用的窗口高、下发给 dock.html 的卡片高、以及 loadSettings 的 dockBounds 校验三者一致。 */
+function dockGeometry(shapeKey) {
+  var key = normShape(shapeKey);
+  var t = DOCK_SHAPES[key];
+  var winH = (t.hMode === 'taskbar') ? Math.max(40, Math.min(taskbarHeight(), 56)) : t.winH;
+  return {
+    key: key, name: t.name,
+    winW: t.winW, winH: winH,
+    padL: t.padL, padT: t.padT, padR: t.padR, padB: t.padB,
+    cardW: t.winW - t.padL - t.padR,
+    cardH: winH - t.padT - t.padB
+  };
+}
+/* v3.3.0 C5：让 dockWin 的窗口尺寸随「当前生效造型」同步。
+ * 取的是 resolve 之后的 shape —— 浮窗在跟随态时解析到日历配置（其 shape 恒为 'rect'），
+ * 正好落实契约 C3「跟随态渲染的一定是 rect」，无需在别处再判一次 follow。
+ * 只有 dockWin 已存在且宽高与目标不符时才 setBounds + 下发，避免每次写皮肤都触发窗口重排/动画。
+ * 调用点三处（缺一不可）：createDock（建窗前定尺寸）、applySkinSet / applyNativeStyleAll 末尾
+ * —— 且都排在 pushSkinToAll() **之前**，保证尺寸先于皮肤样式到达渲染层，dock.html 才能用对几何摆卡片。
+ *
+ * ===== v3.3.0 X4：等比缩放（S1 路线）=====
+ * 缩放 = 「窗口物理尺寸 × s」+「webContents zoom = s」两步合成：
+ *   窗口 DIP = 基础 × s、zoom = s ⇒ CSS 视口 = DIP / s = **基础尺寸** ⇒ dock.html 零改动
+ *   （applyDockSize/isInCard/dockLayoutSkin 拿到的仍是基础值，卡片按基础几何摆，视觉上被整体放大）。
+ * 关键：缩放系数只在**调用方**施加（这里），dockGeometry 保持单参纯函数、签名与函数体一字不动
+ *   —— 这是 qa-v330 §B 两条守卫的硬约束（见 §1.4 / §X5），dockScale 绝不能穿进 dockGeometry。
+ *   ⇒ 故 dockW/dockH 语义升级为「屏幕上的真实 DIP 尺寸」= round(base × s)。
+ *     全仓 15 处消费点里只有 pushDockSize 的载荷要基础值（读 geo.winW），其余 14 处都要 DIP（含
+ *     dockClamped/positionDock/setBounds/new BrowserWindow/dockBounds 落盘），改 1 处比改 14 处安全。
+ * 顺序刻意是「先 setBounds / pushDockSize，最后 setZoomFactor」：放大时若先设 zoom，视口会先收缩到
+ *   DIP/s ⇒ 卡片被裁一帧；先放大窗口则全程无裁切（卡片短暂偏小，无撕裂）。 */
+function syncDockGeometry() {
+  try {
+    var geo = dockGeometry(resolveSurfaceConfig('dock').shape);
+    var s = normDockScale(skin && skin.dockScale);
+    dockW = Math.round(geo.winW * s);
+    dockH = Math.round(geo.winH * s);
+    /* moved：本轮是否真的重排过窗口。重排过 → 落点以新窗口位置为准（下面落点刷新用）。 */
+    var moved = null;
+    if (dockWin && !dockWin.isDestroyed()) {
+      var cur = dockWin.getBounds();
+      if (cur.width !== dockW || cur.height !== dockH) {
+        moved = dockClamped(cur.x, cur.y);
+        dockWin.setBounds(moved);
+        pushDockSize();
+      }
+      /* zoom 落在 profile、按 URL 记账、跨进程存活（§1.9 T4/T6）⇒ 必须每次显式写目标值，
+       * 不能依赖默认 1，否则删掉 settings.json 也会残留旧 zoom。放在 setBounds 之后（见上）。 */
+      try { dockWin.webContents.setZoomFactor(s); } catch (e) {}
+    }
+    /* v3.3.0 X4【R3 缺陷修复 · 落点记录的尺寸必须随当前 s 刷新（与 dockWin 生死解耦）】
+     * 症状（w-g-scale / w-f-frame 真机复现）：定位好浮窗后改「浮窗大小」，盘上 dockBounds 仍是旧 s 的 DIP；
+     *   重启时 loadSettings 按新 s 算期望尺寸（如 278），看到旧值（174）→ |174-278| > 8 → 判为脏数据
+     *   丢弃 → positionDock() 回默认位；且紧随的 saveSettings 会把 dockBounds:null 写回，
+     *   **落点记忆就此永久丢失**（把缩放调回去也找不回）。触发条件 = 改缩放 + 之后没再拖过 + 重启。
+     * 为什么放在 `if (dockWin…)` **之外（与窗口生死解耦）**：运行期 `dockWin == null` 有三条真实可达路径 ——
+     *   ① 开机建窗之前那一次调用：createDock() 是**先** syncDockGeometry()(:2877)、**后**才 new BrowserWindow(:2878)
+     *      ⇒ 这一次必然撞上 dockWin==null，旧代码整段跳过；解耦后能在建窗**之前**就把陈旧尺寸归位；
+     *   ② 非崩溃关闭 / 重建次数用尽：closed 里置 null(:2976) 且不满足重建条件(:2980)；
+     *   ③ createDock() 抛异常时置 null(:3000)。
+     *   安全性：被尺寸门判脏的记录此时本就为 null，会被下面的 `if (dockBounds)` 挡住 ⇒ 不会凭空重建脏数据。
+     * ⚠️ 不要写成「挂件条关闭时 dockWin 恒为 null」—— 实测不成立：启动**无条件** createDock()(:4081)，
+     *   且 createDock() 只有 `if (dockWin) return;`(:2871)、**没有 dockOn 判断**；dockOn=false 只 hide() 不销毁
+     *   （settings IPC :3314-3320）。'icon' 形态同理「窗口照样建好、只是不 show」(:4078 原有注释)。
+     *   这条错理由曾进设计文档并误导过一次，故在此显式留下反例警告。
+     * 位置 x/y：本轮重排过就用重排后的落点（moved）；没重排就沿用记录里已有的 x/y —— **只修尺寸，不动位置**。
+     * 为什么只在「原本已有记录」时刷新：从未定位过的用户本就该走 positionDock 默认落点，不能凭空造记录。
+     * 为什么顺带立即 saveSettings：applySkinSet/applyNativeStyleAll 的 saveSettings 都排在本函数**之前**，
+     *   不补这一写，盘上仍是旧尺寸 —— 非正常退出（强杀）就会丢落点。仅在值真变了时才写，避免无谓刷盘。 */
+    var dirty = false;
+    if (dockBounds) {
+      var rx = moved ? moved.x : dockBounds.x;
+      var ry = moved ? moved.y : dockBounds.y;
+      if (dockBounds.x !== rx || dockBounds.y !== ry ||
+          dockBounds.width !== dockW || dockBounds.height !== dockH) {
+        dockBounds = { x: rx, y: ry, width: dockW, height: dockH };
+        dirty = true;
+      }
+    }
+    /* 按显示器记忆表：所有条目描述的是**同一个**浮窗 ⇒ 尺寸应当一致，全部同步为当前 DIP（只改尺寸、
+     * 保留各自 x/y）。只更新**原有键**，绝不新增 —— 不能替用户凭空记下一个显示器。
+     * 注：pickDockRestore 只取条目 x/y，所以这里本质是「把不变量修齐」，不改变任何恢复行为。 */
+    if (dockBoundsByDisplay) {
+      for (var dk in dockBoundsByDisplay) {
+        if (Object.prototype.hasOwnProperty.call(dockBoundsByDisplay, dk)) {
+          var old = dockBoundsByDisplay[dk];
+          if (old && (old.width !== dockW || old.height !== dockH)) {
+            dockBoundsByDisplay[dk] = { x: old.x, y: old.y, width: dockW, height: dockH };
+            dirty = true;
+          }
+        }
+      }
+    }
+    if (dirty) { try { saveSettings(); } catch (e) {} }
+  } catch (e) { log('syncDockGeometry failed: ' + (e && e.message || e)); }
+}
+
 /* v1.7.21 需求2：两种显示形态，二选一
  *   'dock' 桌面插件 —— 可拖动的浮动小方框（默认）
  *   'icon' 桌面图标 —— 隐藏插件，只在系统托盘保留一个静态图标；左键单击图标切回插件 */
@@ -2547,7 +2805,12 @@ function taskbarHeight() {
   } catch (e) { return 48; }
 }
 
-/* 插件的**默认位置**：工作区右下角、紧贴任务栏上沿（v1.7.11 浮动方案的核心落点）。
+/* 插件的**默认位置**（v3.3.0 C6 起按造型分支，Y1 扩为 rect/rainbow 同支）：
+ *   - rect / rainbow（贴任务栏）：工作区右下角、紧贴任务栏上沿（v1.7.11 浮动方案的核心落点）。
+ *     rainbow 在 Y1 起与 rect 共用同一落点公式（需求：虹彩流光要和默认皮肤一样落到任务栏、贴着屏幕边）。
+ *     它右边距/底边距为 0 是安全的 —— 彩虹阴影全是 inset、零外投影（见 DOCK_SHAPES 上方注释）。
+ *   - pixel / ring / flip / toon（自由挂件）：工作区右下角**内缩 24px** —— 桌面挂件而非任务栏附属，
+ *     不压任务栏，把四周投影空间留给自己。
  * 注意这是"默认/复位"，不是"吸附" —— v1.7.21 需求6 已删除松手自动吸附，
  * 用户拖到哪就停在哪（只受需求3 的工作区边界约束）。 */
 function positionDock() {
@@ -2556,15 +2819,27 @@ function positionDock() {
     const d = screen.getPrimaryDisplay();
     const wa = d.workArea;
     // v1.7.21 需求3：算完再夹一次工作区，多显示器/任务栏在侧边时也不会跑出屏幕
-    /* v1.7.22.4 修复：右边距 8 → 0（完全贴屏幕右边，与拖动边界 clamp 的 maxX 一致，
+    /* v1.7.22.4 修复：rect 右边距 8 → 0（完全贴屏幕右边，与拖动边界 clamp 的 maxX 一致，
      * 消除"没吸附"感）。卡片阴影向右被屏幕边缘裁掉即可接受；底部 y 仍 = workArea 底 -
      * 插件高 = 正好压任务栏上沿。
      * v1.7.22.7：宽高改用 dockW/dockH（意图尺寸）。若用 getBounds()，物理窗口被 OS 撑大后
-     * 算出的落点会让卡片离右沿/任务栏差一大截。 */
-    const next = dockClamped(
-      Math.round(wa.x + wa.width - dockW),                                // 完全贴工作区右沿
-      Math.round(wa.y + wa.height - dockH)                                // 正好压在任务栏上沿
-    );
+     * 算出的落点会让卡片离右沿/任务栏差一大截。
+     * v3.3.0 C6：按「生效造型」分支 —— rect 保持上述现状逐字不变，非 rect 内缩 24px。
+     * v3.3.0 Y1：rainbow 并入贴边支（需求），其余非 rect 四款仍内缩 24px。 */
+    var sh = normShape(resolveSurfaceConfig('dock').shape);
+    var next;
+    if (sh === 'rect' || sh === 'rainbow') {
+      next = dockClamped(
+        Math.round(wa.x + wa.width - dockW),                                // 完全贴工作区右沿
+        Math.round(wa.y + wa.height - dockH)                                // 正好压在任务栏上沿
+      );
+    } else {
+      var inset = 24;
+      next = dockClamped(
+        Math.round(wa.x + wa.width - dockW - inset),                        // 右下内缩，不压任务栏
+        Math.round(wa.y + wa.height - dockH - inset)
+      );
+    }
     dockWin.setBounds(next);
   } catch (e) { log('positionDock failed: ' + (e && e.message || e)); }
 }
@@ -2590,18 +2865,31 @@ function pushDockSize() {
     /* v1.7.22.7【关键修复】：下发 dockW/dockH（意图尺寸），不再用 dockWin.getBounds()。
      * 物理窗口若被 OS 撑大（实测 232×164），旧写法会把这个错误尺寸发给页面，
      * 卡片本身也被渲染成大方块 —— 这是"插件看着不对"的直接原因。
-     * 卡片始终按 116×dockH 渲染，多出来的物理窗口部分只是透明区。 */
-    dockWin.webContents.send('dock-size', { w: dockW, h: dockH });
+     * 多出来的物理窗口部分只是透明区。
+     * v3.3.0 C5：载荷扩展 padL/padT/padR/padB —— 卡片尺寸改由「窗口尺寸 - 四边内边距」算出，
+     * 内边距随造型变（rect 2/2/0/0，其余 12 四周），dock.html 用同一套减法才不会与主进程漂移。
+     * 保留 w/h 两个键名：dock.html 与既有断言（verify_v1721 等）都读它，不能改名。
+     * v3.3.0 X4【唯一要改成基础值的一处】：w/h 改发 geo.winW/geo.winH（基础尺寸，**不乘 s**）。
+     *   为什么：S1 下 CSS 视口 = 窗口 DIP / zoom = 基础尺寸 ⇒ 渲染层本就该看到基础几何；若下发
+     *   DIP 值，dock.html 会用「已放大后的尺寸」摆卡片，而视口只有基础大小 ⇒ 卡片溢出被裁。
+     *   padL/T/R/B 本来就是注册表基础值（geo.pad*），与 s 无关，原样保留。
+     *   ⇒ 本载荷与缩放系数 s 完全解耦，故它对「setBounds 与 setZoomFactor 谁先谁后」不敏感（§K 不变量）。 */
+    var geo = dockGeometry(resolveSurfaceConfig('dock').shape);
+    dockWin.webContents.send('dock-size', {
+      w: geo.winW, h: geo.winH,
+      padL: geo.padL, padT: geo.padT, padR: geo.padR, padB: geo.padB
+    });
   } catch (e) { log('pushDockSize failed: ' + (e && e.message || e)); }
 }
 
 function createDock() {
   if (dockWin) return;
   try {
-    // 高度对齐任务栏（夹在 40~56 之间），让它看起来像任务栏的一部分而不是悬浮块
-    const tb = taskbarHeight();
-    dockH = Math.max(40, Math.min(tb, 56));
-    dockW = DOCK_W;
+    /* v3.3.0 C5：尺寸不再写死 —— 交给 syncDockGeometry() 按「当前生效造型」算：
+     *   rect → 116×任务栏高（clamp 40~56，沿用原算法，让它看着像任务栏的一部分而非悬浮块）；
+     *   特殊造型 → 注册表的 winW×winH。
+     * 必须在 new BrowserWindow **之前**调用：建窗即用正确尺寸，避免建完再改造成首帧跳变。 */
+    syncDockGeometry();
     dockWin = new BrowserWindow(winBase({
       width: dockW, height: dockH,
       resizable: false,
@@ -2630,6 +2918,11 @@ function createDock() {
       } catch (e) {}
     });
     dockWin.loadFile(path.join(__dirname, 'dock.html'));
+    /* v3.3.0 X4：建窗后立即显式写一遍 zoom（§1.9 T4/T6：zoom 落在 profile、按 URL 记账、跨进程存活）。
+     * 为什么不能省略：新 webContents 可能继承 profile 里同 URL 的旧 zoom（T4 实测新窗读到 1.5），
+     *   若依赖默认值 1，用户删掉 settings.json 后会出现「设置里 scale=1、实际渲染 1.5」的长期不一致。
+     * 这里只是「首帧前」的先手；did-finish-load 还会再重放一次（见下），两处都写死目标值。 */
+    try { dockWin.webContents.setZoomFactor(normDockScale(skin && skin.dockScale)); } catch (e) {}
     try { dockWin.setOpacity(skin.opacity.dock); } catch (e) {}   // v2.4.0 第二轮：浮动透明度读 skin.opacity
     /* v1.7.21：置顶等级用 'floating'，不再用 'screen-saver'。
      * 'screen-saver' 是 Electron 的最高置顶层，会盖在全屏视频 / 游戏 / 投屏之上很碍事；
@@ -2647,6 +2940,10 @@ function createDock() {
      * 于是不管窗口多留了多少透明边，真正能点的永远只有那张可见的小卡片。 */
     try { dockWin.setIgnoreMouseEvents(true, { forward: true }); } catch (e) {}
     dockWin.webContents.on('did-finish-load', function () {
+      /* v3.3.0 X4：did-finish-load 再重放一次 zoom —— 覆盖 reload / 首帧前未及时设定的情形。
+       * ⚠️ 同处的 pushDockSize() 不得删除：§1.9 T3 实测 reload 后 #card 宽会掉回 dock.html 内置默认 114，
+       *   重推 dock-size 是**负荷性的**，不是装饰。 */
+      try { dockWin.webContents.setZoomFactor(normDockScale(skin && skin.dockScale)); } catch (e) {}
       pushSkinToDock();   // v2.4.0 第二轮：浮动插件皮肤（skin-state 含 theme + 背景层）
       pushDockSize();
     });
@@ -3096,11 +3393,25 @@ ipcMain.on('skin-action', function (evt, action, payload) {
       openSkinCustomWindow(payload && payload.surface);
     } else if (action === 'choose-file') {
       var surface = (payload && payload.surface) || 'calendar';
-      dialog.showOpenDialog({
+      /* Y2（H4 缺陷修复）：必须把**发起方窗口**作为父窗口传入。
+       * 为什么：皮肤设置窗 / 自选图片窗都是 setAlwaysOnTop(true,'screen-saver') 置顶窗，而
+       *   showOpenDialog 不传父窗口时得到的是一个**无主**顶级窗口（真机实测：WS_EX_TOPMOST=false、
+       *   几何 (0,0)-(720,480)、与置顶窗重叠约 25%）⇒ 不是「看起来小问题」，而是被压在置顶窗之下、
+       *   不居中、不随发起方联动。传入父窗口后成为 owned window ⇒ Windows 语义下恒在 owner 之上
+       *   （这正是置顶场景需要的行为），且几何上贴齐发起方窗口左上角（实测：与发起方左上角逐位一致；并非居中，相对发起方中心仍有偏移），并转为模态。
+       * 为什么用 evt.sender 反查而不是猜 skinWin/skinCustomWin：发起方可能是任一窗口（皮肤设置窗里的
+       *   自选图片入口，或独立的自选图片窗），按事实反查可避免多出「谁在发起」的第二处推断口径。 */
+      var chooseOpts = {
         title: '选择皮肤图片',
         properties: ['openFile'],
         filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }]
-      }).then(function (r) {
+      };
+      var chooseParent = null;
+      try { chooseParent = BrowserWindow.fromWebContents(evt.sender); } catch (e) {}
+      var chooseDlg = (chooseParent && !chooseParent.isDestroyed())
+        ? dialog.showOpenDialog(chooseParent, chooseOpts)
+        : dialog.showOpenDialog(chooseOpts);
+      chooseDlg.then(function (r) {
         if (r && !r.canceled && r.filePaths && r.filePaths[0]) {
           var res = importSkinImage(surface, r.filePaths[0]);
           if (res && res.ok) {

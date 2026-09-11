@@ -638,6 +638,19 @@
    * 深色主题 + 皮肤时圆角外露主题深底 → 四角黑边。
    * 故皮肤层 body 规则加 html 前缀把特异性提到 (0,1,2)，恒压过主题层 body 底色 */
   html[data-skin="color"] body, html[data-skin="image"] body { background: transparent; }
+
+  /* ========== X1：原生皮肤下 Electron 的 body 透明 ==========
+   * 根因：皮肤层只补了 [data-skin] 两态（上一条），**原生皮肤一直没补**。
+   * 未选皮肤时 body 取基础渐变底（见下方 body 规则）或 [data-theme="dark"] body 深底，
+   * 而窗口本身是「透明 + 圆角」的 —— 圆角之外就会露出这块底色（四角漏底 / 深色主题发黑）。
+   * 为什么加 html 前缀：html body.electron 特异性 (0,1,2)，恒压过
+   *   [data-theme="dark"] body 的 (0,1,1)，与上一条同为皮肤层恒压主题层的同一手法；
+   *   源序放在本条之后，即使与 (0,1,2) 的同权规则（[data-skin] 两态）相遇也只是都写 transparent。
+   * 为什么用 .electron 而不是裸 body：该 class 只在 Electron 下由 app.js 打在 body 上，
+   *   浏览器预览（无 window.api）不命中 → 预览页仍保留那层渐变底做衬底。
+   * 注意：#widget 自己照样铺主题/皮肤底色，所以「窗口透明」不等于「日历变透明」，
+   *   这里只去掉圆角外那圈底色。 */
+  html body.electron { background: transparent; }
   [data-skin="color"] #widget { background: var(--skin-bg-solid); }
   [data-skin="image"] #widget { background: transparent; }
 

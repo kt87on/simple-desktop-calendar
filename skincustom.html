@@ -6,8 +6,10 @@
 <title>自选图片</title>
 <style>
   /* ==========================================================================
-   * 自选图片窗口 · v3.2.0（由 skin.html 的窗内浮层迁出的独立 BrowserWindow）
+   * 自选图片窗口 · v3.3.0（由 skin.html 的窗内浮层迁出的独立 BrowserWindow）
    * --------------------------------------------------------------------------
+   * v3.3.0 增量（契约 C9）：标题行新增「清空」按钮（清图片 → 回到原生皮肤，
+   *   复用 skin-set 的 bg 分支，不新增 IPC）；空态文案按「跟随中 / 独立且无图」分两态。
    * 语义定位：本窗口专做「per-surface 的图片细调」——界面选择器 / 跟随开关 /
    * 图片取景 / 文字明暗 / UI 清晰度 / 透明度。窗口尺寸 500×660（由主进程 C4 设定），
    * #body 可纵向滚动以容纳全部区块。
@@ -149,6 +151,32 @@
     letter-spacing: 1.4px;
   }
 
+  /* v3.3.0：「图片取景」标题 + 右侧「清空」按钮同一行（契约 C9）。
+   * 为什么另起 .group-head 而不是给 .group-title 加 flex：.group-title 是全局小标题样式，
+   * 「文字明暗 / UI 清晰度 / 透明度」等分区也在用，就地改造会连带改变它们。 */
+  .group-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--s-3) var(--s-4) var(--s-1);
+  }
+  .group-head .group-title { padding: 0; }
+
+  /* 「清空」按钮：清掉本面自选图片、回到原生皮肤（不改造型、不删盘上文件）。 */
+  .btn-clear {
+    font-family: inherit; font-size: var(--fs-xs); font-weight: var(--fw-semibold);
+    color: var(--accent-ink); background: var(--ctl-bg);
+    border: 1px solid var(--ctl-edge); border-radius: var(--r-sm);
+    padding: 3px 10px; cursor: pointer; white-space: nowrap;
+    transition: background-color var(--dur-fast) var(--ease-out),
+                color var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out);
+  }
+  .btn-clear:hover { background: var(--accent-soft); border-color: var(--accent); }
+  /* 禁用 = 本面自己没有图片（判据见 JS renderCrop，与「是否跟随」无关，别再加第二套判据） */
+  .btn-clear:disabled {
+    opacity: 0.4; cursor: default;
+    background: var(--ctl-bg); border-color: var(--ctl-edge); color: var(--ink-faint);
+  }
+
   /* 4 界面分段（surface） */
   .surface-tabs {
     display: flex; gap: var(--s-1); padding: var(--s-1) var(--s-4) var(--s-2);
@@ -220,7 +248,10 @@
   .drop-zone:hover, .drop-zone.dragover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
   .crop-wrap {
     margin: var(--s-2) var(--s-4) 0;
-    display: flex; justify-content: center; align-items: center;
+    /* v3.3.0 Y2：改为纵向排列 —— 上方 #cropBox（取景框），其下可挂 #cropShapeWarn（造型不显示图片的说明）。
+     * 只有单个子元素时，column 与 row 的居中表现等价（都水平居中），故对既有渲染零影响。 */
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    gap: 8px;
     background: var(--ctl-bg); border: 1px solid var(--ctl-edge); border-radius: var(--r-md);
     overflow: hidden; min-height: 80px;
   }
@@ -239,6 +270,28 @@
   }
   .crop-tip { padding: 6px var(--s-4) 0; text-align: center; font-size: var(--fs-2xs); color: var(--ink-faint); }
   .crop-empty { padding: 20px 0; text-align: center; font-size: var(--fs-sm); color: var(--ink-faint); }
+  /* v3.3.0 Y2（H2）：取景区内的「当前造型不显示图片」说明。
+   * 视觉沿用既有 .warn-tip 的克制琥珀色（不引入新色板），只去掉它的容器外边距以适配取景框内部。 */
+  #cropShapeWarn {
+    align-self: stretch;
+    margin: 0 8px 10px; padding: 7px 9px;
+    border-radius: var(--r-sm);
+    background: rgba(245, 158, 11, 0.10);
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    color: #b45309; font-size: var(--fs-2xs); line-height: 1.5;
+  }
+  html[data-theme="dark"] #cropShapeWarn {
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.34);
+    color: #fbbf24;
+  }
+
+  /* 浮窗大小（X4）：说明行无控件，故不复用 .row（那是「左文右开关」的两栏布局），
+   * 只借它的字号与弱色，单独给左右内边距对齐其它分区。 */
+  #dockScaleSection .hint {
+    padding: 0 var(--s-4) 2px;
+    font-size: var(--fs-2xs); color: var(--ink-faint);
+  }
 
   /* 透明度 / 清晰度 */
   .slider { padding: 9px var(--s-4) 11px; }
@@ -323,24 +376,46 @@
       </div>
       <div class="cur-surface" id="curSurface">当前界面：日历界面</div>
 
-      <!-- 跟随主界面开关：仅 桌面 / 放大 / 浮窗 三个界面显示 -->
+      <!-- 跟随主界面开关：仅 桌面 / 放大 / 浮窗 三个界面显示。
+           hint 文案由 JS 写：浮窗面要多一句「导入图片会切回圆角卡片造型」（见 FOLLOW_HINT_BASE / DOCK_SHAPE_NOTE） -->
       <div class="row" id="followRow" style="display:none">
-        <div class="txt"><div class="label">跟随主界面</div><div class="hint">开启时与日历一致；改取景 / 文字 / 清晰度会自动独立</div></div>
+        <div class="txt"><div class="label">跟随主界面</div><div class="hint" id="followHint">开启时与主界面完全一致；单独调整任一项即自动独立，并回到原生皮肤</div></div>
         <div class="switch" id="followSwitch" role="switch" tabindex="0"><span class="knob"></span></div>
       </div>
 
       <!-- 图片取景（本窗的核心能力；恒显示——因为本窗语义即自选图片，导入即自动置 bg=image） -->
       <div id="imageSection">
-        <div class="group-title">图片取景</div>
+        <!-- 标题行：「清空」按钮（v3.3.0 C9）——清掉本面自选图片、回到原生皮肤 -->
+        <div class="group-head">
+          <div class="group-title">图片取景</div>
+          <button id="btnClearImage" class="btn-clear" type="button" disabled>清空</button>
+        </div>
         <div class="drop-zone" id="dropZone">拖拽图片到此处，或点击选择文件</div>
         <div class="crop-wrap" id="cropWrap" style="display:none">
           <div id="cropBox"><div id="cropImg"></div></div>
+          <!-- v3.3.0 Y2（H2）：仅当「本面有图、但当前生效造型不是圆角卡片（浮窗看不见图）」时显示。
+               置于 #cropWrap 内部 → 自动随其 display 显隐（只有有图时该区才可见），无需再判一次 hasImg。 -->
+          <div id="cropShapeWarn" style="display:none">当前造型不显示图片。要让这张图生效：在「浮窗样式」里把造型改回「圆角卡片」，或在这里重新导入图片（导入会自动切回圆角卡片）。</div>
         </div>
-        <div class="crop-empty" id="cropEmpty" style="display:none">尚无图片，请先拖入或点选导入</div>
+        <!-- 空态文案由 JS 按 isFollowing 分两态写 textContent（跟随中 / 独立且无图） -->
+        <div class="crop-empty" id="cropEmpty" style="display:none">尚未选择图片，请拖入或点选导入</div>
         <div class="crop-tip" id="cropTip" style="display:none">拖动平移 · 滚轮缩放（1×~5×）</div>
         <div class="slider">
           <div class="slider-head"><span class="label">图片不透明度</span><span class="val" id="imageOpacityVal">100%</span></div>
           <input type="range" id="imageOpacityRange" min="0.2" max="1" step="0.05" value="1">
+        </div>
+      </div>
+
+      <!-- 浮窗大小（X4，仅浮窗界面显示）：等比缩放整个浮窗。
+           为什么只给浮窗：造型/尺寸是浮窗独有的概念，另外三个界面没有。
+           为什么与「跟随主界面」无关：跟随管的是外观来源（风格/背景/图片），
+           缩放管的是几何尺寸，两个维度正交 —— 故拖这个拉杆不会让浮窗脱离跟随。 -->
+      <div id="dockScaleSection" style="display:none">
+        <div class="group-title">浮窗大小</div>
+        <div class="hint" id="dockScaleHint">等比放大 / 缩小浮窗（60%~160%）；与「跟随主界面」开关相互独立</div>
+        <div class="slider">
+          <div class="slider-head"><span class="label">缩放比例</span><span class="val" id="dockScaleVal">100%</span></div>
+          <input type="range" id="dockScaleRange" min="60" max="160" step="5" value="100">
         </div>
       </div>
 
@@ -404,6 +479,18 @@
       };
       /* 可跟随「主界面（calendar）」的表面集合。契约 C1：dock 一并纳入跟随名单。 */
       var FOLLOWABLE = { expanded: 1, desktop: 1, dock: 1 };
+
+      /* X3：浮窗专属的造型说明。
+       * 为什么只说给浮窗听：六个造型是浮窗独有的概念，另外三个界面（日历/桌面/放大）
+       * 没有造型，提了反而制造困惑。
+       * 为什么要说：用户导入图片前无从知道「造型会被切回圆角卡片」——图片背景层只有
+       * 圆角卡片造型才会渲染（其余造型自管自材质），故主进程在浮窗导入图片时会把
+       * shape 归位为 rect。这是一条静态规则，必须在动手之前讲清楚，而不是事后弹 toast。 */
+      var FOLLOW_HINT_BASE = '开启时与主界面完全一致；单独调整任一项即自动独立，并回到原生皮肤';
+      var DOCK_SHAPE_NOTE = '导入图片会自动切回「圆角卡片」造型（图片只在该造型下可见）';
+      /* 「跟随 hint」与「空态文案」两处共用同一条追加规则：非浮窗面一律返回空串
+       *（它们没有造型这个概念），避免同一句话在两处各写一遍而漂移。 */
+      function dockNote(surface) { return (surface === 'dock') ? ('；' + DOCK_SHAPE_NOTE) : ''; }
 
       /* 初始编辑的界面：由主进程 open-custom 时的 ?surface= 指定，缺省 calendar。
        * 非法值一律回落 calendar，避免 S.surface 落到未知 key 导致回显空白。 */
@@ -486,6 +573,15 @@
       function setClarity(val) {
         setField(S.surface, 'clarity', val);
       }
+      /* v3.3.0（契约 C9）：清空本面自选图片 → 回到原生皮肤。
+       * 复用既有 skin-set 通道的 bg 分支（主进程会置 bg='native' + image=null），
+       * 不新增 IPC、不新增主进程分支。
+       * bg 属「手调即豁免跟随」字段：若本面正在跟随，主进程会先物化日历快照再置 follow=null ——
+       * 这正是「清空」应有的语义（一次手动调整）。造型（shape）不受影响。
+       * 注意：只清配置里的引用，盘上 userData/skins/* 文件不删，用户随时能重新选回。 */
+      function setClearImage() {
+        setField(S.surface, 'bg', 'native');
+      }
 
       /* ---- 取景数学（正向：crop+zoom → CSS background；反向：拖/缩 → crop+zoom） ---- */
       function currentImage() {
@@ -506,6 +602,11 @@
         var vp = viewportFor(S.surface);
         var box = $('cropBox');
         crop.vw = 240;
+        /* 取景框只按卡片的**纵横比**定高（宽恒 240），刻意**不乘** dockScale（X4 的缩放系数）：
+         * 浮窗缩放是**等比**放大、不改变纵横比 ⇒ 取景框本就不该动；若跟着缩放跳，
+         * 用户每调一次缩放、取景区域就变一次，属明显错误。
+         * 与主进程那条「viewport.dock 报基础卡片尺寸、不乘缩放」是同一条口径，
+         * 故拖动浮窗缩放大小时这里应当**保持不变** —— 不是漏消费，别当 bug 修。 */
         crop.vh = Math.max(40, Math.round(240 * vp.h / vp.w));
         if (box) box.style.height = crop.vh + 'px';
         var img = currentImage();
@@ -570,6 +671,9 @@
         var showFollow = !!FOLLOWABLE[surface];
         followRow.style.display = showFollow ? 'flex' : 'none';
         $('followSwitch').classList.toggle('on', !!following);
+        /* X3：跟随说明按面写 —— 只有浮窗面补造型提示，其余面恒为基准文案
+         *（这行同时承担「静态 HTML 文案」与「JS 回显」的一致性，避免两处各写一份而漂移）。 */
+        $('followHint').textContent = FOLLOW_HINT_BASE + dockNote(surface);
 
         // 生效配置：follow 时显示日历的实际值（但控件置灰）
         var effCfg = following ? getConfig('calendar') : cfg;
@@ -586,6 +690,15 @@
         // 透明度（follow 不影响透明度）
         $('opacityRange').value = opacityFor(surface);
         $('opacityVal').textContent = pct(opacityFor(surface));
+
+        /* 浮窗大小（X4）：仅浮窗面显示该分区；数值取 S.skin.dockScale（比例值，缺省 1）。
+         * 回显口径是百分比整数，与拉杆的 min/max（60~160）同量纲。
+         * 注意读的是 skin.dockScale 而非 resolved —— 缩放是「本面自己的几何设置」，
+         * 不是主进程按跟随推导出的外观值，故与 follow 状态无关。 */
+        var sc = (S.skin && typeof S.skin.dockScale === 'number') ? S.skin.dockScale : 1;
+        $('dockScaleSection').style.display = (surface === 'dock') ? 'block' : 'none';
+        $('dockScaleRange').value = Math.round(sc * 100);
+        $('dockScaleVal').textContent = Math.round(sc * 100) + '%';
 
         // UI 清晰度回显：auto → 滑杆置灰 + 显示生效值；手动 → 显示生效值
         var rawClarity = clarityRaw(effCfg);
@@ -624,10 +737,42 @@
         var cfg = getConfig(S.surface);
         var img = (cfg.bg === 'image' && cfg.image) ? cfg.image : null;
         var hasImg = !!img;
+        /* v3.3.0 Y2（H2）：取景区必须与「浮窗上到底能不能看见」对齐。
+         * hasImg 只回答「本面配置里有没有图」；而浮窗的图片层只在造型为 'rect' 时才渲染
+         * （dock.html:543 的 html:not([data-shape="rect"]) #skinImg{display:none}，且 :1273-1282 会清背景）。
+         * 「有图 + 造型非 rect」是可达态：导入图片时主进程会把造型归位 'rect'（electron-main.js:1026），
+         * 但用户随后在「浮窗样式」里再选非 rect 造型时只写 shape、刻意不清 image（electron-main.js:960）
+         * ⇒ 配置里有图、浮窗一片空白。本窗若不解释，用户只会看到「显示已设置，浮窗却没反应」。
+         * 造型必须读 **resolved** 而非 skin.surfaces.dock.shape：跟随时 resolved 解析到日历面（恒 'rect'），
+         * 读后者会在「跟随中」误报。S.resolved 首次下发前可能为 null，故就地兜底 'rect'。 */
+        var effShape = (S.resolved && S.resolved[S.surface] && typeof S.resolved[S.surface].shape === 'string')
+          ? S.resolved[S.surface].shape : 'rect';
+        var shapeHidesImg = (S.surface === 'dock') && hasImg && effShape !== 'rect';
+        $('cropShapeWarn').style.display = shapeHidesImg ? 'block' : 'none';
         $('dropZone').style.display = 'block';
         $('cropWrap').style.display = hasImg ? 'flex' : 'none';
         $('cropEmpty').style.display = hasImg ? 'none' : 'block';
         $('cropTip').style.display = hasImg ? 'block' : 'none';
+
+        /* v3.3.0（契约 C9）空态分两态写文案；X3 再加浮窗专属的造型提示。
+         * 判据用 isFollowing(surface)，而「是否有图」仍读本面自己的配置（getConfig(surface)）。
+         * 注意 hasImg 与 follow 是两条独立语义：
+         *   - 跟随中：本面自己没有图（主进程 C4 起不再继承日历图片），但生效的是主界面的图，
+         *     所以文案要说清「正在用主界面的图」，避免用户误以为设置丢了；
+         *   - 独立且无图：才是真正的「还没选过图」。
+         * 界面上确实没有可编辑的图（跟随时用的是日历的图，本窗不提供其取景），
+         * 因此两种情况都落到空态区，只换文案。
+         * 为什么追加句直接拼在这里、不另开一句：追加句依赖的 dockNote 只认 surface，
+         * 与 following 正交，拼在一起读起来就是「这一句话」的完整版本。 */
+        $('cropEmpty').textContent = (isFollowing(S.surface)
+          ? ('跟随主界面中，' + SURFACE_LABEL[S.surface] + '使用主界面的图片；拖入图片即自动独立')
+          : '尚未选择图片，请拖入或点选导入') + dockNote(S.surface);
+
+        /* 「清空」可用性（契约 C9）：仅当**本面自己有图片**时可用。
+         * 刻意不用「正在跟随所以禁用」这第二套判据 —— 跟不跟随与「本面有没有图」无关：
+         * 跟随中的面本面无图（C4），按钮自然禁用；一旦用户拖入图片即自动独立，按钮随即可用。 */
+        $('btnClearImage').disabled = !hasImg;
+
         // 图片不透明度回显（仅自选图片分支显示该滑块）
         var op = (img && typeof img.opacity === 'number' && isFinite(img.opacity)) ? img.opacity : 1;
         $('imageOpacityRange').value = op;
@@ -674,6 +819,20 @@
         setOpacity(v);
       });
 
+      /* 浮窗大小（X4）：拖动 → 立刻回显百分比 + 写回皮肤配置。
+       * 只写 dockScale 一个字段、复用既有 skin-set 通道（不新增 IPC）。
+       * dockScale 不属「手调即豁免跟随」名单，所以拖动不会把浮窗踢出跟随。
+       *
+       * 归因 (a)：本行只执行一次 —— 它不在 render()（:627-743）里，也不在 surface 切换路径上
+       * （:750 的 tab 点击只调 render()），而是位于文件底部 IIFE（:445 起）的「事件绑定」段，
+       * 该 IIFE 随脚本求值一次即结束，故不存在重绑。
+       * 为什么用赋值而不是 addEventListener（本窗其它滑块都是后者）：单次绑定下两者等价；
+       * 赋值还自带幂等——将来若被搬到会重入的路径，也只是覆盖旧 handler，不会叠加。 */
+      $('dockScaleRange').oninput = function () {
+        $('dockScaleVal').textContent = Math.round(this.value) + '%';
+        setField('dock', 'dockScale', this.value / 100);
+      };
+
       // 图片不透明度（仅自选图片；回写 file+opacity，主进程 merge 保留 crop/zoom/w/h/dark）
       $('imageOpacityRange').addEventListener('input', function () {
         var v = parseFloat($('imageOpacityRange').value);
@@ -681,6 +840,14 @@
         var img = currentImage();
         if (!img || !img.file) return;
         setField(S.surface, 'image', { file: img.file, opacity: v });
+      });
+
+      /* v3.3.0（C9）「清空」：清掉本面自选图片，回到原生皮肤。
+       * 主进程回推 skin-config-state 后 renderCrop() 会把按钮重新置灰、空态文案回到「尚未选择图片」。 */
+      $('btnClearImage').addEventListener('click', function () {
+        if ($('btnClearImage').disabled) return;
+        setClearImage();
+        toast('已清空，回到原生皮肤');
       });
 
       // UI 清晰度：拖动滑杆 = 关掉「自动」并发送数字

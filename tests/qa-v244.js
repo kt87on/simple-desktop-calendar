@@ -78,6 +78,12 @@ const FN_NAMES = [
   'parseTiffOrientation', 'readJpegOrientation', 'importSkinImage',
   // 中枢解析（v3.0.0：surfaceTheme 依赖 styleNativeTheme，须一并抽取）
   'styleNativeTheme', 'resolveSurfaceConfig', 'surfaceTheme', 'solidFallbackFor', 'surfaceBg', 'resolvedSurfaceState',
+  // v3.3.0 C2：applySkinSet 的 shape 分支调用 normShape —— 不抽取会在隔离作用域 ReferenceError
+  //（normShape 刻意内联白名单、不依赖 DOCK_SHAPE_KEYS，故单独抽取即可自洽）。
+  'normShape',
+  // v3.3.0 X4：normalizeSkinV3 / migrateSkinV2toV3 新增 normDockScale 调用
+  //（同款内联白名单，只依赖 Math/Number，单独抽取即可自洽）。
+  'normDockScale',
   // 写入口
   'applySkinSet'
 ];
@@ -103,6 +109,9 @@ const makeApi = new Function(
     '  var pushSkinToAll = hooks.pushSkinToAll || function () {};',
     '  var refreshTrayMenu = hooks.refreshTrayMenu || function () {};',
     '  var applyOpacity = hooks.applyOpacity || function () {};',
+    /* v3.3.0 C5：applySkinSet 末尾调用顶层 syncDockGeometry()（依赖 dockWin/dockW/dockH，
+     * 不是本测试的被测对象）→ 注入空桩，避免隔离作用域 ReferenceError。 */
+    '  var syncDockGeometry = hooks.syncDockGeometry || function () {};',
     '  var clampOpacity = hooks.clampOpacity || function (v, d) {',
     '    var n = Number(v); if (!isFinite(n)) return d; return Math.max(0.3, Math.min(1, n));',
     '  };',
@@ -571,6 +580,32 @@ function skinFixture() {
   eq(sk2.surfaces.desktop.clarity, 40, '取消跟随 → desktop 物化日历 clarity=40');
   eq(sk2.surfaces.desktop.tone, 'dark', 'v3.0.0 取消跟随 → desktop 物化日历 tone=dark');
   eq(sk2.surfaces.desktop.style, 'glass', '取消跟随 → desktop 物化日历 style=glass');
+
+  /* --- 5.6 v3.3.0 C2：applySkinSet 的 shape 分支走 normShape 白名单（隔离 eval 护栏） --- */
+  const skShape = skinFixture();
+  const A6 = apiWith({ skin: skShape }).api;
+  A6.applySkinSet({ surface: 'dock', field: 'shape', value: 'toon' });
+  eq(skShape.surfaces.dock.shape, 'toon', "applySkinSet dock shape='toon' → toon（合法值原样）");
+  A6.applySkinSet({ surface: 'dock', field: 'shape', value: 'bogus' });
+  eq(skShape.surfaces.dock.shape, 'rect', "applySkinSet dock shape='bogus' → rect（normShape 白名单生效）");
+  A6.applySkinSet({ surface: 'dock', field: 'shape', value: null });
+  eq(skShape.surfaces.dock.shape, 'rect', 'applySkinSet dock shape=null → rect');
+  // shape 纳入 followableFields：对跟随中的面写 shape 先物化再写
+  const skShape2 = skinFixture();
+  skShape2.surfaces.dock.follow = 'calendar';
+  const A7 = apiWith({ skin: skShape2 }).api;
+  A7.applySkinSet({ surface: 'dock', field: 'shape', value: 'ring' });
+  eq(skShape2.surfaces.dock.follow, null, 'v3.3.0 对跟随中的 dock 写 shape → 先豁免跟随');
+  eq(skShape2.surfaces.dock.shape, 'ring', 'v3.3.0 写 shape=ring 生效');
+
+  /* --- 5.7 v3.3.0 C4：取消跟随不再继承日历的图片/背景来源（R3 缺陷回归护栏） --- */
+  const sk3b = skinFixture();          // calendar: bg='image' + image a.jpg
+  const A8 = apiWith({ skin: sk3b }).api;
+  eq(sk3b.surfaces.calendar.bg, 'image', '前置：日历 bg=image');
+  A8.applySkinSet({ surface: 'desktop', field: 'follow', value: null });
+  eq(sk3b.surfaces.desktop.bg, 'native', 'v3.3.0 取消跟随 → desktop.bg=native（不继承图片背景）');
+  eq(sk3b.surfaces.desktop.image, null, 'v3.3.0 取消跟随 → desktop.image=null（图片框回空态）');
+  eq(sk3b.surfaces.desktop.style, 'default', 'v3.3.0 取消跟随 → 仍继承日历 style');
 })();
 
 /* ============================================================

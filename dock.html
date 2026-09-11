@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-page-node-id="ZgXTocwvWEiiSbPacGWlTD">
+<html lang="zh-CN" data-shape="rect" data-page-node-id="ZgXTocwvWEiiSbPacGWlTD">
 <head data-page-node-id="JoNs6U2QB8t4CBJvLGvh9t">
 <meta charset="UTF-8" data-page-node-id="SXmDWoJSpPvVCKLn7YOuI9">
 <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="89PI7Y4TeU0GE8KUHgzBZN">
@@ -17,6 +17,38 @@
    *      右下归零是 v1.7.22.4 修复「插件和任务栏之间有空白」的关键。
    *   2) 卡片阴影必须 y 偏移为 0（对称），否则底部投影会在插件与任务栏之间
    *      造出一条视觉缝隙，用户会反馈「没贴住」。
+   *
+   * ============================ v3.3.0 · 六套浮窗造型 ============================
+   * 新增 <html data-shape="…">，六值（中文名同时冻结给皮肤窗与文档引用）：
+   *   rect「圆角卡片」(默认) / pixel「像素方屏」/ rainbow「虹彩流光」
+   *   ring「极简圆环」/ flip「翻页时牌」/ toon「绘本台钟」
+   *
+   * 为什么走「变量下沉 + 子元素装饰」两段式（而不是给 #card 写造型规则）：
+   *   基础规则 body.hit #card:hover 特异性 (1,1,1)、tech/glass 装饰 (1,2,1)，若造型规则也
+   *   写成 (1,1,1) 就会被同权反压、被 (1,2,1) 压过（见设计文档 §1.3）。对策：
+   *   ① 把 #card 的底色/描边/阴影/圆角/裁剪/磨砂改成消费 --dock-*（缺省值逐字等于原值，
+   *      rect 行为零变化）；非 rect 时由 JS 在 documentElement 上 inline setProperty ——
+   *      inline 优先级高于任何样式表规则，彻底不参与特异性军备竞赛。
+   *   ② 造型可见物（机身/黑屏/圆盘/翻牌/表身）一律画在 #shapeLayer 的子元素上，用
+   *      html[data-shape="X"] 作用域限定；子元素选择器与既有 token 零交集，绝不误伤 #card。
+   *   ③ 造型权威来源是 skin-state 的 resolved dock 状态里的 shape，渲染层不自行判断 follow。
+   *
+   * ⚠️ 三条不可回退（两条既有修复 + 一条硬约束）：
+   *   - #skinImg { border-radius: inherit } 与 --dock-overflow 缺省 hidden（v3.2.1 四角修复）；
+   *     flip/toon 必须显式把 --dock-overflow 放开为 visible，否则内层翻牌投影/落地影被切。
+   *   - dockLayoutSkin 的视口改成「当前卡片尺寸」，不再写死 116×50（造型窗口尺寸随造型变）。
+   *   - 非 rect 造型在**某条边**上的外投影 offset + blur 不得越出该造型在**该边**上的 pad。
+   *     窗口比卡片盒大一圈（pad），这一圈是该边外投影唯一的可见空间；一旦越界就会被窗口矩形
+   *     硬裁一刀，残留成直角边 —— 这正是 v3.3.0 X2「极简圆环外围方形黑框」的成因。
+   *     判据是「逐边比」而非「统一值」：外投影只需 ≤ **同侧** pad。各造型 pad（权威源 =
+   *     electron-main.js 的 DOCK_SHAPES 注册表）：
+   *       · rect                        ：2 / 2 / 0 / 0（左上留 2，右下贴死窗口边，压任务栏）
+   *       · pixel / ring / flip / toon  ：四边 12（会离开任务栏变桌面挂件，留出投影空间）
+   *       · rainbow（v3.3.0 Y1 / §7.1）：padL=padT=24、padR=padB=0，卡片仍 116×44；
+   *         左上 24 是纯透明区，卡片右/下沿贴死窗口，用于「贴任务栏上沿 + 贴屏幕右沿」。
+   *         右下归零不复发 X2：其 --dock-shadow 两档**全是 inset**（见 `DOCK_SHAPE_VARS.rainbow`），
+   *         窗口矩形上没有任何外投影可裁 ⇒ X2 的成因对它不成立。
+   *     （已知取舍：圆环靠 20% 白描边定界，浅色壁纸上对比偏弱，属设计固有属性，非缺陷。）
    * ========================================================================== */
 
   /* ============================ L1 基础层 ============================ */
@@ -421,13 +453,24 @@
     position: absolute; z-index: 0;
     /* 初始占位，与 applyDockSize() 的 padL/T/R/B 保持一致（右下 0 让卡片贴死窗口边） */
     left: 2px; top: 2px; right: auto; bottom: auto;
-    border-radius: var(--r-md);
-    background: var(--card);
+    /* v3.3.0 C7.2：圆角/裁剪/底色/描边/阴影/磨砂统一消费 --dock-*（缺省值逐字等于原值，
+     * rect 行为零变化；非 rect 由 JS 在 documentElement 上 inline 覆盖，见文件头说明）。 */
+    border-radius: var(--dock-radius, var(--r-md));
+    /* v3.2.1 形状修复（用户报告「圆边和方形并存」）：
+     * 卡片自己画了圆角，但子层 #skinImg 是直角矩形且 inset:0 铺满整个卡片，而卡片
+     * 没有裁剪 —— 图片把圆角和 1px 描边整块盖住，四个角全被"削方"。此前看到的圆角
+     * 其实只是 box-shadow 跟随圆角的残影；而卡片右边/下边贴死窗口（padR=padB=0）又把
+     * 阴影裁掉，于是只剩左上看得见弧线 → 「左边圆、右边方」。加裁剪即修好。
+     * 注：box-shadow 画在元素盒外，不受自身 overflow 影响，阴影行为不变。
+     * v3.3.0：hidden 仍是缺省值（它同时承担「图片层不溢出圆角」的职责）；flip / toon 的
+     * 可见物在卡片外（翻牌投影 / 表身落地影），由造型显式覆盖 --dock-overflow:visible。 */
+    overflow: var(--dock-overflow, hidden);
+    background: var(--dock-bg, var(--card));
     /* v3.0.0 §7：模糊/饱和随风格档（--dock-blur/--dock-sat），缺省沿用原 10px/1.3 */
     -webkit-backdrop-filter: blur(var(--dock-blur, 10px)) saturate(var(--dock-sat, 1.3));
     backdrop-filter: blur(var(--dock-blur, 10px)) saturate(var(--dock-sat, 1.3));
-    border: 1px solid var(--edge);
-    box-shadow: var(--shadow);
+    border: 1px solid var(--dock-edge, var(--edge));
+    box-shadow: var(--dock-shadow, var(--shadow));
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     gap: 2px;
@@ -440,6 +483,9 @@
    * background-image/size/position 由 applySkinImage 按 crop+zoom 换算写入。 */
   #skinImg {
     position: absolute; inset: 0; z-index: -1;
+    /* v3.2.1：双保险 —— 图片层显式跟随卡片轮廓。父级 #card 的 overflow:hidden 已能兜住
+     * 圆角形状；这一条额外保证「轮廓样式」为 clip-path（斜切/徽章）等新形状时同样贴合。 */
+    border-radius: inherit;
     background-repeat: no-repeat;
     background-color: transparent;
     pointer-events: none;
@@ -447,9 +493,9 @@
   /* hover 高亮只在「实际可点」（body.hit）时出现，与点击热区保持一致 ——
      鼠标停在方框外的透明区域时不给"这里能点"的错误暗示（此时点击穿透给下面窗口）。 */
   body.hit #card:hover {
-    background: var(--card-hover);
-    box-shadow: var(--shadow-hover);
-    border-color: var(--accent-soft);
+    background: var(--dock-bg-hover, var(--card-hover));
+    box-shadow: var(--dock-shadow-hover, var(--shadow-hover));
+    border-color: var(--dock-edge-hover, var(--accent-soft));
   }
   #card:active { transform: scale(0.965); }
 
@@ -471,6 +517,168 @@
   }
   #dockDate span { display: inline-block; }
 
+  /* ==========================================================================
+   * v3.3.0 C7.3 造型专属装饰层（视觉真源 = deliverables/design/v3.3.0-shape-spec/
+   *   shape-preview-workbench.js 第四版 CSS 数组；此处按其数值改写，class 名映射到 dock.html）
+   * --------------------------------------------------------------------------
+   * 结构：#card 内的 #shapeLayer 承载全部造型可见物；六套造型各自一个 .shape-<key> 包裹。
+   * 显隐：默认 .shape{display:none}，只有 html[data-shape="X"] .shape-X 显示 ——
+   *   一次建好六套 DOM，切换只改根属性，避免「切一次建一次」的状态残留。
+   * 坐标：#shapeLayer 用 inset:-1px 精确覆盖 #card 的 border-box（抵消 1px 透明描边），
+   *   使造型内部 px 坐标与预览工装的 158×174 / 156×64 / 150×150 等设计尺寸 1:1 对应。
+   * pointer-events:none：#shapeLayer 不接收鼠标，让 mousedown/click 全部落在 #card 本体，
+   *   #card:active 缩放与「几何判定热区」的既有链路一字未动。
+   * ========================================================================== */
+  #shapeLayer { position: absolute; inset: -1px; pointer-events: none; }
+  .shape { display: none; }
+  /* 字底晕圈（预览工装 .halo）：四向 1px 暗描边 + 柔和投影，浅色壁纸上也能读 */
+  .halo {
+    filter: drop-shadow(1px 0 0 rgba(0,0,0,.5)) drop-shadow(-1px 0 0 rgba(0,0,0,.5))
+            drop-shadow(0 1px 0 rgba(0,0,0,.5)) drop-shadow(0 -1px 0 rgba(0,0,0,.5))
+            drop-shadow(0 2px 5px rgba(0,0,0,.45));
+  }
+  /* 非 rect：rect 的文本层 / 图片皮肤层一律让位（内容改由造型层承担） */
+  html:not([data-shape="rect"]) #dockTime,
+  html:not([data-shape="rect"]) #dockDate,
+  html:not([data-shape="rect"]) #skinImg { display: none; }
+
+  /* ---------- ① 像素方屏 pixel（机身由 --dock-* 承载，黑屏是内层） ---------- */
+  html[data-shape="pixel"] .shape-pixel { display: block; }
+  html[data-shape="pixel"] .px-scr {
+    position: absolute; inset: 5px; border-radius: 10px; overflow: hidden;
+    background: radial-gradient(120% 130% at 50% 0%, #0a121b, #04070b 72%);
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,.9), inset 0 0 15px rgba(0,150,255,.14);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  }
+  html[data-shape="pixel"] .px-tm { display: flex; gap: 4.5px; align-items: center; }
+  html[data-shape="pixel"] .px-scr .g { display: grid; grid-auto-rows: 3.2px; gap: 1.3px; }
+  html[data-shape="pixel"] .px-scr .g i { display: block; border-radius: 1px; }
+  html[data-shape="pixel"] .px-scr .g i.on { background: #b3ecff; box-shadow: 0 0 2px rgba(120,215,255,.85); }
+  html[data-shape="pixel"] .px-scr .g i.off { background: rgba(120,190,255,.045); }
+  html[data-shape="pixel"] .px-dt {
+    font-family: Consolas, monospace; font-size: 8.5px; font-weight: 700; letter-spacing: 1.6px;
+    color: #4fb6e6; text-shadow: 0 0 5px rgba(90,200,255,.65);
+  }
+
+  /* ---------- ② 虹彩流光 rainbow（一层近乎透明的玻璃薄片，只留彩虹渐变内容） ---------- */
+  html[data-shape="rainbow"] .shape-rainbow {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 5px; height: 100%;
+  }
+  html[data-shape="rainbow"] .rb-t {
+    font-size: 21px; font-weight: 800; line-height: 1; letter-spacing: .4px;
+    background-image: linear-gradient(100deg, #ff4f7d, #ffa63d 22%, #4fe08f 44%, #38bdf8 64%, #a855f7 84%, #ff4f7d);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  html[data-shape="rainbow"] .rb-d {
+    font-size: 9.5px; font-weight: 700; line-height: 1; letter-spacing: .9px;
+    background-image: linear-gradient(100deg, #ff9db8, #ffd79a 30%, #a9f0c6 55%, #a5dcf9 75%, #d3a8e0);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+
+  /* ---------- ③ 极简圆环 ring（磨砂圆盘 + 圆环进度，环随秒走满一圈） ---------- */
+  html[data-shape="ring"] .shape-ring { display: flex; align-items: center; justify-content: center; height: 100%; }
+  html[data-shape="ring"] .cr-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  html[data-shape="ring"] .cr-in {
+    position: relative; z-index: 2; text-align: center;
+    text-shadow: 0 1px 4px rgba(0,0,0,.55), 0 0 14px rgba(0,0,0,.3);
+  }
+  html[data-shape="ring"] .cr-date { font-size: 11px; font-weight: 600; color: rgba(255,255,255,.94); letter-spacing: .6px; }
+  html[data-shape="ring"] .cr-time {
+    font-size: 34px; font-weight: 700; color: #fff; line-height: 1; margin: 7px 0 6px;
+    letter-spacing: .5px; font-variant-numeric: tabular-nums;
+  }
+  html[data-shape="ring"] .cr-week { font-size: 11.5px; font-weight: 600; color: rgba(255,255,255,.9); letter-spacing: 1.6px; }
+
+  /* ---------- ④ 翻页时牌 flip（三块深色翻牌 时/分/秒，24 小时制无午别） ---------- */
+  html[data-shape="flip"] .shape-flip {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 9px; height: 100%;
+  }
+  html[data-shape="flip"] .fl-hdr { font-size: 10.5px; font-weight: 700; color: rgba(255,255,255,.96); letter-spacing: 1.1px; white-space: nowrap; }
+  html[data-shape="flip"] .fl-hdr i { font-style: normal; opacity: .66; margin-left: 6px; letter-spacing: .6px; }
+  html[data-shape="flip"] .fl-tiles { display: flex; gap: 9px; }
+  html[data-shape="flip"] .fl-tile {
+    position: relative; width: 58px; height: 72px; border-radius: 10px; overflow: hidden;
+    background: linear-gradient(180deg, #3b4046, #2c3035 49.6%, #24282c 50.4%, #1d2124);
+    box-shadow: 0 3px 10px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.18);
+    display: flex; align-items: center; justify-content: center;
+  }
+  html[data-shape="flip"] .fl-tile::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px;
+    background: rgba(255,255,255,.16); z-index: 1;
+  }
+  html[data-shape="flip"] .fl-dg {
+    position: relative; z-index: 2; font-size: 33px; font-weight: 700; color: #fff; line-height: 1;
+    letter-spacing: -.5px; font-variant-numeric: tabular-nums; text-shadow: 0 1px 2px rgba(0,0,0,.5);
+  }
+
+  /* ---------- ⑤ 绘本台钟 toon（简笔画 / 儿童绘本：粗暖墨线 + 蜡笔平涂 + 有意涂出界的色块） ---------- */
+  html[data-shape="toon"] .shape-toon {
+    display: block; height: 100%;
+    font-family: "Segoe Print", "Comic Sans MS", "Microsoft YaHei", sans-serif;
+  }
+  /* 落地影：软椭圆，给「摆件」一点重量，不然像浮在壁纸上 */
+  html[data-shape="toon"] .pb-gnd {
+    position: absolute; left: 50%; bottom: -2px; margin-left: -42px; width: 84px; height: 13px;
+    border-radius: 50%; background: radial-gradient(closest-side, rgba(62,50,41,.26), rgba(62,50,41,0));
+  }
+  /* 机壳：墨线用不规整圆角 → 手绘的「线不直」 */
+  html[data-shape="toon"] .pb-body {
+    position: absolute; left: 6px; top: 5px; width: 146px; height: 146px;
+    border: 5px solid #3E3229; background: #FFF6E2; border-radius: 50% 49% 51% 50% / 49% 52% 48% 51%;
+  }
+  /* 色块比墨线偏 2px：只在表圈露出一圈忽宽忽窄的暖黄，像小朋友涂色涂出界 */
+  html[data-shape="toon"] .pb-body::before {
+    content: ""; position: absolute; inset: 1px; border-radius: inherit;
+    background: #FFD07A; transform: translate(2px, 2px);
+  }
+  /* 表盘：墨线同样略歪，与机壳同心（12px 环宽） */
+  html[data-shape="toon"] .pb-face {
+    position: absolute; left: 17px; top: 16px; width: 112px; height: 112px;
+    border: 4px solid #3E3229; background: #FFFDF4; border-radius: 50% 51% 49% 50% / 51% 49% 51% 49%;
+  }
+  html[data-shape="toon"] .pb-face::before {
+    content: ""; position: absolute; inset: 2px; border-radius: inherit;
+    background: #FFEFD0; transform: translate(2px, 2px);
+  }
+  html[data-shape="toon"] .pb-num {
+    position: absolute; z-index: 3; transform: translate(-50%, -50%);
+    font-family: inherit; font-size: 17px; font-weight: 700; color: #3E3229; line-height: 1;
+  }
+  html[data-shape="toon"] .pb-dot {
+    position: absolute; z-index: 3; width: 4px; height: 4px; border-radius: 50%;
+    background: #3E3229; transform: translate(-50%, -50%);
+  }
+  html[data-shape="toon"] .pb-hand {
+    position: absolute; z-index: 4; left: 50%; bottom: 50%; transform-origin: 50% 100%;
+    border-radius: 99px; background: #3E3229;
+  }
+  html[data-shape="toon"] .pb-h-hour { width: 7px; height: 20px; margin-left: -3.5px; }
+  html[data-shape="toon"] .pb-h-min { width: 5.5px; height: 27px; margin-left: -2.75px; }
+  html[data-shape="toon"] .pb-h-sec { width: 2.5px; height: 30px; margin-left: -1.25px; background: #FF7A6B; }
+  html[data-shape="toon"] .pb-cap {
+    position: absolute; z-index: 5; left: 50%; top: 50%; width: 11px; height: 11px;
+    margin: -5.5px 0 0 -5.5px; border-radius: 50%; background: #3E3229;
+  }
+  /* 小短脚：同色系蜡笔绿，墨线描边 */
+  html[data-shape="toon"] .pb-feet { position: absolute; left: 50%; bottom: 0; margin-left: -31px; width: 62px; height: 19px; }
+  html[data-shape="toon"] .pb-feet i {
+    position: absolute; bottom: 0; width: 18px; height: 19px; border: 4px solid #3E3229; border-top: none;
+    border-radius: 0 0 9px 9px; background: #9FDCC3;
+  }
+  html[data-shape="toon"] .pb-feet i:first-child { left: 0; }
+  html[data-shape="toon"] .pb-feet i:last-child { right: 0; }
+  /* 左上角三道小短线 —— 简笔画里表示「亮晶晶」的惯用记号；加 1px 浅色描边，
+     浅色壁纸上隐形、深色壁纸上把墨线托出来（剪纸贴画感） */
+  html[data-shape="toon"] .pb-shine i {
+    position: absolute; display: block; height: 4px; border-radius: 2px;
+    background: #3E3229; box-shadow: 0 0 0 1px rgba(255,255,255,.85);
+  }
+  html[data-shape="toon"] .pb-shine i:nth-child(1) { left: 5px; top: 22px; width: 15px; transform: rotate(-8deg); }
+  html[data-shape="toon"] .pb-shine i:nth-child(2) { left: 16px; top: 8px; width: 14px; transform: rotate(-46deg); }
+  html[data-shape="toon"] .pb-shine i:nth-child(3) { left: 34px; top: 2px; width: 12px; transform: rotate(-78deg); }
+
   @media (prefers-reduced-motion: reduce) {
     * { transition-duration: 0.01ms !important; }
   }
@@ -480,6 +688,8 @@
 <body data-page-node-id="IppGOXXE1GZRBnFK9ZZBEd">
   <div id="card" data-page-node-id="4R1nm1s3QOxU7AyZct3c3P">
     <div id="skinImg" aria-hidden="true"></div>
+    <!-- v3.3.0：六套造型的可见物统一挂载点；rect 时整体不显示（无 .shape-rect 子节点） -->
+    <div id="shapeLayer" aria-hidden="true"></div>
     <div id="dockTime" data-page-node-id="biML9qHPDIPoYeS24xkdXn">--:--:--</div>
     <div id="dockDate" data-page-node-id="vSIUXgsAB0RQf0l5ETxEOG">
       <span id="dockWeek">周-</span><span id="dockDateNum">--/--</span>
@@ -493,8 +703,273 @@
       var weekEl = document.getElementById('dockWeek');
       var dateNumEl = document.getElementById('dockDateNum');
       var cardEl = document.getElementById('card');
+      var rootEl = document.documentElement;
+      var shapeLayerEl = document.getElementById('shapeLayer');
 
       function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+      /* ==========================================================================
+       * v3.3.0 C7：六套浮窗造型（渲染侧）
+       * --------------------------------------------------------------------------
+       * 权威来源 = skin-state 的 resolved dock 状态里的 shape（C7.7）；渲染层不自行判断 follow。
+       * 造型 key ⇄ 中文名（与 skin.html、electron-main.js 的注册表同一批字符串，勿各写一套）：
+       *   rect「圆角卡片」/ pixel「像素方屏」/ rainbow「虹彩流光」
+       *   ring「极简圆环」/ flip「翻页时牌」/ toon「绘本台钟」
+       * ========================================================================== */
+      var SHAPE_KEYS = ['rect', 'pixel', 'rainbow', 'ring', 'flip', 'toon'];
+      var SHAPE_NAME = {
+        rect: '圆角卡片', pixel: '像素方屏', rainbow: '虹彩流光',
+        ring: '极简圆环', flip: '翻页时牌', toon: '绘本台钟'
+      };
+      var dockShape = 'rect';
+      /* 当前卡片盒尺寸（= 窗口尺寸 - 四边内边距），ring/toon 的圆形热区半径要用它 */
+      var cardW = 114, cardH = 48;
+
+      /* flip / toon 的卡片盒完全不可见（视觉全由内层承担），变量取值相同，用工厂避免重复字面量 */
+      function invisibleCardVars() {
+        return {
+          '--dock-bg': 'transparent', '--dock-bg-hover': 'transparent',
+          '--dock-edge': 'transparent', '--dock-edge-hover': 'transparent',
+          '--dock-shadow': 'none', '--dock-shadow-hover': 'none',
+          '--dock-radius': '0', '--dock-overflow': 'visible',
+          '--dock-blur': '0px', '--dock-sat': '1'
+        };
+      }
+      /* C7.2 冻结取值：非 rect 时 inline 写到 documentElement（inline 优先级压过一切样式表规则，
+       * 从而绕开 §1.3 的特异性之争）；rect 时 removeProperty 全部回落。
+       * 三个 hover 变量也显式给值：若缺省，会回落到 --card-hover/--shadow-hover/--accent-soft
+       * （主题色），hover 瞬间把「造型自带材质」替换成主题卡面 —— 明显的观感 bug。
+       * 这里让 hover 与常态同值，只保留 #card:active 的缩放反馈，观感稳定、零风险。 */
+      var DOCK_SHAPE_VARS = {
+        pixel: {
+          '--dock-bg': 'linear-gradient(158deg,#f7f8fb,#c9d1de 55%,#eaedf4)',
+          '--dock-bg-hover': 'linear-gradient(158deg,#f7f8fb,#c9d1de 55%,#eaedf4)',
+          '--dock-edge': 'transparent', '--dock-edge-hover': 'transparent',
+          /* X2 修复：外投影收进 pad 之内 —— offset 3 + blur 8 = 11 ≤ pad(12px)。原 0 6px 16px
+           * (6+16 = 22) 越界 10px，被窗口矩形硬裁后四角留下直角残影。pixel 是「机身」造型，
+           * 删光外投影会显得贴在桌面上，收到 11px 既消除硬裁、又保住一点立体感。 */
+          '--dock-shadow': '0 3px 8px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.85)',
+          '--dock-shadow-hover': '0 3px 8px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.85)',
+          '--dock-radius': '14px', '--dock-overflow': 'hidden',
+          '--dock-blur': '0px', '--dock-sat': '1'
+        },
+        rainbow: {
+          '--dock-bg': 'linear-gradient(150deg,rgba(255,255,255,.10),rgba(255,255,255,.03))',
+          '--dock-bg-hover': 'linear-gradient(150deg,rgba(255,255,255,.10),rgba(255,255,255,.03))',
+          '--dock-edge': 'transparent', '--dock-edge-hover': 'transparent',
+          '--dock-shadow': 'inset 0 0 0 1px rgba(255,255,255,.16),inset 0 1px 0 rgba(255,255,255,.26)',
+          '--dock-shadow-hover': 'inset 0 0 0 1px rgba(255,255,255,.16),inset 0 1px 0 rgba(255,255,255,.26)',
+          '--dock-radius': '13px', '--dock-overflow': 'hidden',
+          '--dock-blur': '9px', '--dock-sat': '1.3'
+        },
+        ring: {
+          '--dock-bg': 'radial-gradient(circle at 36% 26%,rgba(255,255,255,.30),rgba(255,255,255,.07) 58%,rgba(255,255,255,.03))',
+          '--dock-bg-hover': 'radial-gradient(circle at 36% 26%,rgba(255,255,255,.30),rgba(255,255,255,.07) 58%,rgba(255,255,255,.03))',
+          '--dock-edge': 'transparent', '--dock-edge-hover': 'transparent',
+          /* X2 修复：删掉 `0 10px 30px rgba(0,0,0,.42)` 这层外投影 —— offset+blur = 10+30 = 40px，
+           * 远超本造型的 pad(12px) 可见空间，越界部分被窗口矩形硬裁一刀，在四角残留成「方形黑框」。
+           * 只保留两道 inset 高光：用户要求「要么透明、要么渐变消散」，删净外投影最贴近「透明」；
+           * 圆盘轮廓仍由 inset 1px 高光勾出，深色壁纸上不会糊掉（这两道高光是白 42%/20%）。 */
+          '--dock-shadow': 'inset 0 1px 0 rgba(255,255,255,.42),inset 0 0 0 1px rgba(255,255,255,.20)',
+          '--dock-shadow-hover': 'inset 0 1px 0 rgba(255,255,255,.42),inset 0 0 0 1px rgba(255,255,255,.20)',
+          '--dock-radius': '50%', '--dock-overflow': 'hidden',
+          '--dock-blur': '15px', '--dock-sat': '1.5'
+        },
+        flip: invisibleCardVars(),
+        toon: invisibleCardVars()
+      };
+      var DOCK_VAR_KEYS = ['--dock-bg', '--dock-bg-hover', '--dock-edge', '--dock-edge-hover',
+                           '--dock-shadow', '--dock-shadow-hover', '--dock-radius', '--dock-overflow',
+                           '--dock-blur', '--dock-sat'];
+
+      /* ---------- 3×5 点阵字模（与预览工装 PF 逐字一致；PX_CELL/PX_GAP 必须与 CSS 同值） ---------- */
+      var PF = {
+        '0': ['111', '101', '101', '101', '111'],
+        '1': ['010', '110', '010', '010', '111'],
+        '2': ['111', '001', '111', '100', '111'],
+        '3': ['111', '001', '111', '001', '111'],
+        '4': ['101', '101', '111', '001', '001'],
+        '5': ['111', '100', '111', '001', '111'],
+        '6': ['111', '100', '111', '101', '111'],
+        '7': ['111', '001', '001', '001', '001'],
+        '8': ['111', '101', '111', '101', '111'],
+        '9': ['111', '101', '111', '001', '111'],
+        ':': ['0', '1', '0', '1', '0']
+      };
+      var PX_CELL = 3.2, PX_GAP = 1.3;
+      function pixGlyph(ch) {
+        var rows = PF[ch] || PF['0'];
+        var cols = rows[0].length;
+        var cells = '';
+        for (var r = 0; r < rows.length; r++) {
+          for (var c = 0; c < cols; c++) {
+            cells += '<i class="' + (rows[r].charAt(c) === '1' ? 'on' : 'off') + '"></i>';
+          }
+        }
+        /* 列宽 inline 写死：格子尺寸与 CSS 的 grid-auto-rows/gap 必须同值，否则字形被拉变形 */
+        return '<span class="g" style="grid-template-columns:repeat(' + cols + ',' + PX_CELL + 'px)">' + cells + '</span>';
+      }
+      function pixText(str) {
+        var out = '';
+        for (var i = 0; i < str.length; i++) out += pixGlyph(str.charAt(i));
+        return out;
+      }
+
+      /* 绘本台钟盘面：数字只留 12/3/6/9，其余整点画小圆点（极坐标，半径 = 盘面 36%） */
+      function toonMarkup() {
+        var nums = [[50, 7, '12'], [88, 50, '3'], [50, 88, '6'], [12, 50, '9']];
+        var NUMR = 36;
+        var s = '<div class="pb-gnd"></div><div class="pb-shine"><i></i><i></i><i></i></div>' +
+                '<div class="pb-body"><div class="pb-face">';
+        for (var i = 0; i < nums.length; i++) {
+          s += '<span class="pb-num" style="left:' + nums[i][0] + '%;top:' + nums[i][1] + '%">' + nums[i][2] + '</span>';
+        }
+        for (var k = 0; k < 12; k++) {
+          if (k % 3 === 0) continue;                       /* 3/6/9/12 已是大数字 */
+          var a = k * 30 * Math.PI / 180;
+          var x = 50 + NUMR * Math.sin(a);
+          var y = 50 - NUMR * Math.cos(a);
+          s += '<i class="pb-dot" style="left:' + x.toFixed(2) + '%;top:' + y.toFixed(2) + '%"></i>';
+        }
+        s += '<div class="pb-hand pb-h-hour"></div><div class="pb-hand pb-h-min"></div>' +
+             '<div class="pb-hand pb-h-sec"></div><div class="pb-cap"></div></div></div>' +
+             '<div class="pb-feet"><i></i><i></i></div>';
+        return s;
+      }
+
+      /* 六套造型 DOM 一次建好：切造型只改根属性 data-shape，避免「切一次建一次」的状态残留。
+       * 之所以全部内建（而非 lazy）：CSS 用 html[data-shape="X"] 作用域选择子元素，
+       * 元素必须始终存在，样式才落得下去；同时省掉切换时的重建抖动。 */
+      function buildAllShapes() {
+        if (!shapeLayerEl) return;
+        var html = '';
+        html += '<div class="shape shape-pixel"><div class="px-scr">' +
+                  '<div class="px-tm"></div><div class="px-dt"></div></div></div>';
+        html += '<div class="shape shape-rainbow"><div class="rb-t halo"></div><div class="rb-d halo"></div></div>';
+        html += '<div class="shape shape-ring">' +
+                  '<svg class="cr-svg" viewBox="0 0 150 150" preserveAspectRatio="xMidYMid meet">' +
+                    '<circle cx="75" cy="75" r="69" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="3"/>' +
+                    '<circle class="cr-prog" cx="75" cy="75" r="69" fill="none" stroke="rgba(255,255,255,.92)"' +
+                    ' stroke-width="5" stroke-linecap="round" transform="rotate(-90 75 75)"/>' +
+                  '</svg>' +
+                  '<div class="cr-in"><div class="cr-date"></div><div class="cr-time"></div><div class="cr-week"></div></div>' +
+                '</div>';
+        html += '<div class="shape shape-flip">' +
+                  '<div class="fl-hdr halo"><span class="fl-date"></span><i class="fl-week"></i></div>' +
+                  '<div class="fl-tiles">' +
+                    '<div class="fl-tile"><span class="fl-dg fl-dg0"></span></div>' +
+                    '<div class="fl-tile"><span class="fl-dg fl-dg1"></span></div>' +
+                    '<div class="fl-tile"><span class="fl-dg fl-dg2"></span></div>' +
+                  '</div>' +
+                '</div>';
+        html += '<div class="shape shape-toon">' + toonMarkup() + '</div>';
+        shapeLayerEl.innerHTML = html;
+      }
+
+      /* 造型子节点缓存：首次渲染时查询一次，之后每帧直接取，避免每秒 querySelector */
+      var shapeNodes = {};
+      function scGet(cls) {
+        if (!(cls in shapeNodes)) shapeNodes[cls] = shapeLayerEl ? shapeLayerEl.querySelector('.' + cls) : null;
+        return shapeNodes[cls];
+      }
+
+      function dockNormShape(v) {
+        for (var i = 0; i < SHAPE_KEYS.length; i++) { if (SHAPE_KEYS[i] === v) return v; }
+        return 'rect';                                     /* 白名单外（含 undefined/null）→ rect */
+      }
+
+      /* 应用造型：写 data-shape + inline --dock-*，并重排尺寸（C7.5 幂等：dock-size / skin-state
+       * 到达顺序任意，这里再调一次 applyDockSize 并用当前时间渲染一帧）。 */
+      function applyShape(key) {
+        var k = dockNormShape(key);
+        if (k === dockShape && rootEl.getAttribute('data-shape') === k) {
+          applyDockSize();
+          return;
+        }
+        dockShape = k;
+        rootEl.setAttribute('data-shape', k);
+        if (k === 'rect') {
+          /* rect：清掉全部 --dock-*，让 #card 逐字回落原值（--card/--edge/--shadow/--r-md/hidden） */
+          for (var i = 0; i < DOCK_VAR_KEYS.length; i++) rootEl.style.removeProperty(DOCK_VAR_KEYS[i]);
+        } else {
+          var vars = DOCK_SHAPE_VARS[k];
+          for (var n in vars) { if (vars.hasOwnProperty(n)) rootEl.style.setProperty(n, vars[n]); }
+        }
+        applyDockSize();
+        tick();
+      }
+
+      /* ---------- 每秒按造型重绘（C7.4）；沿用「内容没变就不写 DOM」的节流 ---------- */
+      var lastPxTime = '', lastPxDate = '';
+      function renderPixel(t) {
+        var tm = scGet('px-tm'); if (!tm) return;
+        var txt = pad2(t.getHours()) + ':' + pad2(t.getMinutes()) + ':' + pad2(t.getSeconds());
+        if (txt !== lastPxTime) { lastPxTime = txt; tm.innerHTML = pixText(txt); }
+        var d = '周' + WEEK_CN[t.getDay()] + ' ' + pad2(t.getMonth() + 1) + '/' + pad2(t.getDate());
+        if (d !== lastPxDate) { lastPxDate = d; var ed = scGet('px-dt'); if (ed) ed.textContent = d; }
+      }
+      var lastRbTime = '', lastRbDate = '';
+      function renderRainbow(t) {
+        var txt = pad2(t.getHours()) + ':' + pad2(t.getMinutes()) + ':' + pad2(t.getSeconds());
+        if (txt !== lastRbTime) { lastRbTime = txt; var e1 = scGet('rb-t'); if (e1) e1.textContent = txt; }
+        var d = '周' + WEEK_CN[t.getDay()] + ' ' + pad2(t.getMonth() + 1) + '/' + pad2(t.getDate());
+        if (d !== lastRbDate) { lastRbDate = d; var e2 = scGet('rb-d'); if (e2) e2.textContent = d; }
+      }
+      var lastRingProg = -1, lastRingDate = '', lastRingTime = '', lastRingWeek = '';
+      function renderRing(t) {
+        var s = t.getSeconds();
+        if (s !== lastRingProg) {
+          lastRingProg = s;
+          var prog = scGet('cr-prog');
+          if (prog) {
+            var C = 2 * Math.PI * 69;                      /* r=69 的周长，环随秒走满一圈 */
+            prog.setAttribute('stroke-dasharray', (C * s / 60).toFixed(1) + ' ' + C.toFixed(1));
+          }
+        }
+        var dateTxt = t.getFullYear() + '/' + pad2(t.getMonth() + 1) + '/' + pad2(t.getDate());
+        if (dateTxt !== lastRingDate) { lastRingDate = dateTxt; var e1 = scGet('cr-date'); if (e1) e1.textContent = dateTxt; }
+        var timeTxt = pad2(t.getHours()) + ':' + pad2(t.getMinutes());
+        if (timeTxt !== lastRingTime) { lastRingTime = timeTxt; var e2 = scGet('cr-time'); if (e2) e2.textContent = timeTxt; }
+        var weekTxt = '周' + WEEK_CN[t.getDay()];
+        if (weekTxt !== lastRingWeek) { lastRingWeek = weekTxt; var e3 = scGet('cr-week'); if (e3) e3.textContent = weekTxt; }
+      }
+      var lastFlip = ['', '', ''], lastFlipDate = '', lastFlipWeek = '';
+      function renderFlip(t) {
+        /* 24 小时制：第一块牌只放小时数，不挂「上午/下午」小标签 */
+        var vals = [pad2(t.getHours()), pad2(t.getMinutes()), pad2(t.getSeconds())];
+        for (var i = 0; i < 3; i++) {
+          if (vals[i] !== lastFlip[i]) {
+            lastFlip[i] = vals[i];
+            var el = scGet('fl-dg' + i);
+            if (el) el.textContent = vals[i];
+          }
+        }
+        var dateTxt = t.getFullYear() + '.' + pad2(t.getMonth() + 1) + '.' + pad2(t.getDate());
+        if (dateTxt !== lastFlipDate) { lastFlipDate = dateTxt; var ed = scGet('fl-date'); if (ed) ed.textContent = dateTxt; }
+        var weekTxt = '周' + WEEK_CN[t.getDay()];
+        if (weekTxt !== lastFlipWeek) { lastFlipWeek = weekTxt; var ew = scGet('fl-week'); if (ew) ew.textContent = weekTxt; }
+      }
+      var lastToon = ['', '', ''];
+      function renderToon(t) {
+        var h = t.getHours(), m = t.getMinutes(), s = t.getSeconds();
+        var ang = [(h % 12) * 30 + m * 0.5, m * 6 + s * 0.1, s * 6];   /* 时 / 分 / 秒 */
+        var cls = ['pb-h-hour', 'pb-h-min', 'pb-h-sec'];
+        for (var i = 0; i < 3; i++) {
+          var v = ang[i].toFixed(2);
+          if (v !== lastToon[i]) {
+            lastToon[i] = v;
+            var el = scGet(cls[i]);
+            if (el) el.style.transform = 'rotate(' + v + 'deg)';
+          }
+        }
+      }
+      function renderShape(t) {
+        if (dockShape === 'pixel') renderPixel(t);
+        else if (dockShape === 'rainbow') renderRainbow(t);
+        else if (dockShape === 'ring') renderRing(t);
+        else if (dockShape === 'flip') renderFlip(t);
+        else if (dockShape === 'toon') renderToon(t);
+      }
 
       // v2.2.0 需求3：新增秒与星期几。宽度 116px 下"周X MM/DD"去掉年份更紧凑，
       // 风格（字号/颜色/字重/tabular-nums）沿用原 token 不变。
@@ -506,6 +981,9 @@
       var lastDateText = '';
       function tick() {
         var t = new Date();
+        /* v3.3.0：非 rect 时 #dockTime/#dockDate 已被 CSS 隐藏，改由造型层按 C7.4 自绘；
+         * rect 走原路径，逐字保持现状。 */
+        if (dockShape !== 'rect') { renderShape(t); return; }
         // 仅在内容变化时写 DOM（省 CPU 重绘）；时间含秒后每秒变化
         if (timeEl) {
           var txt = pad2(t.getHours()) + ':' + pad2(t.getMinutes()) + ':' + pad2(t.getSeconds());
@@ -533,29 +1011,39 @@
        *       html / body / #card，不再依赖任何百分比高度。viewport 算错也照样按真实
        *       尺寸排布，内容完整显示，且不触碰窗口尺寸，不会引发崩溃。 */
       var sizeW = 116, sizeH = 50;        // 兜底默认值，IPC 到达后立即被真实值覆盖
+      /* v3.3.0 C5：dock-size 新载荷 { w, h, padL, padT, padR, padB }；卡片尺寸 = 窗口尺寸 - 四边内边距
+       * （两侧用同一条减法算出，杜绝两处各写一套尺寸而漂移）。缺省仍是 rect 的 2/2/0/0。 */
+      var padL = 2, padT = 2, padR = 0, padB = 0;
       function applyDockSize() {
         if (!sizeW || !sizeH) return;
-        var de = document.documentElement;
-        de.style.width = sizeW + 'px';
-        de.style.height = sizeH + 'px';
+        rootEl.style.width = sizeW + 'px';
+        rootEl.style.height = sizeH + 'px';
         document.body.style.width = sizeW + 'px';
         document.body.style.height = sizeH + 'px';
         /* v1.7.22.4 修复（"插件和任务栏中间有空白"）：右下两边的 inset 改为 0，
          * 让卡片底边/右边**贴死窗口边缘**。窗口贴任务栏时，卡片底边即任务栏顶，消除
          * 原 inset:2px 造成的 2px 缝隙（scale 1.5 下 ≈ 3 物理像素的"没吸附"感）。
-         * 左上仍留 2px 给边框/阴影，右下不留 —— 阴影向右/向下被窗口边界裁掉即可接受。 */
-        var padL = 2, padT = 2, padR = 0, padB = 0;
+         * 左上仍留 2px 给边框/阴影，右下不留 —— 阴影向右/向下被窗口边界裁掉即可接受。
+         * v3.3.0：padL/T/R/B 完全由 dock-size 载荷 s.padL/T/R/B 驱动（逐边取值以 electron-main.js 的 DOCK_SHAPES 注册表为权威）：rect = 2/2/0/0；pixel / ring / flip / toon = 四边 12；
+         * rainbow = 24/24/0/0（左/上 24 是给 inset 光晕留的纯透明区，右/下 0 ⇒ 卡片右/下边缘贴死窗口边缘，故能压任务栏上沿 + 贴工作区右沿），卡片仍 116×44。 */
         cardEl.style.left = padL + 'px';
         cardEl.style.top = padT + 'px';
         cardEl.style.right = 'auto';
         cardEl.style.bottom = 'auto';
-        cardEl.style.width = (sizeW - padL - padR) + 'px';
-        cardEl.style.height = (sizeH - padT - padB) + 'px';
+        cardW = sizeW - padL - padR;
+        cardH = sizeH - padT - padB;
+        cardEl.style.width = cardW + 'px';
+        cardEl.style.height = cardH + 'px';
       }
       if (window.api && window.api.onDockSize) {
         window.api.onDockSize(function (s) {
           if (!s || !s.w || !s.h) return;
           sizeW = s.w; sizeH = s.h;
+          /* 载荷缺 pad 键（旧格式）→ 回落 rect 内边距，避免残留上一造型的 12px */
+          padL = (typeof s.padL === 'number') ? s.padL : 2;
+          padT = (typeof s.padT === 'number') ? s.padT : 2;
+          padR = (typeof s.padR === 'number') ? s.padR : 0;
+          padB = (typeof s.padB === 'number') ? s.padB : 0;
           applyDockSize();
         });
       }
@@ -575,6 +1063,17 @@
       function isInCard(x, y) {
         if (!cardEl) return false;
         var r = cardEl.getBoundingClientRect();
+        /* v3.3.0 C7.6：圆形造型（ring / toon）的四个角是透明区，若仍按矩形判定会出现
+         * 「点圆外面的角也弹日历」（v1.7.21 同类问题）。改用圆形判定：
+         * 圆心 = 卡片盒中心，半径 = min(cardW, cardH)/2 - 2。
+         * 只替换几何部分，updateHit / setPointerCapture / 拖动那套逻辑一律不动。 */
+        if (dockShape === 'ring' || dockShape === 'toon') {
+          var rad = Math.min(cardW, cardH) / 2 - 2;
+          if (rad < 1) rad = 1;
+          var dx = x - (r.left + r.width / 2);
+          var dy = y - (r.top + r.height / 2);
+          return (dx * dx + dy * dy) <= rad * rad;
+        }
         return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
       }
       // force=true 时不走"状态没变就跳过"的短路（松手后必须强制复判一次）
@@ -688,10 +1187,12 @@
        * 主题由 skin-state.theme 驱动；背景层 color/image；GIF 隐藏时冻结切首帧快照。 */
       var dockSkin = null;
       var dockHidden = false;
-      /* v2.4.4：取景布局纯函数（插件视口固定 116×50）。 */
+      /* v2.4.4：取景布局纯函数。
+       * v3.3.0：视口改为**当前卡片尺寸**（cardW/cardH），不再写死 116×50 —— 造型换尺寸后
+       * 图片取景必须按新卡片盒铺，否则非 rect 造型下图片会被按旧视口错裁。 */
       function dockLayoutSkin(el, IW, IH, crop, zoom) {
         if (!el) return;
-        var vp = { w: 116, h: 50 };
+        var vp = { w: cardW || sizeW, h: cardH || sizeH };
         var c = crop || { x: 0, y: 0, w: 1, h: 1 };
         var z = (typeof zoom === 'number' && isFinite(zoom) && zoom > 0) ? zoom : 1;
         var iw = (typeof IW === 'number' && IW > 0) ? IW : vp.w;
@@ -765,6 +1266,20 @@
         var root = document.documentElement;
         var theme = (state.theme === 'dark') ? 'dark' : 'light';
         root.dataset.theme = theme;
+        /* v3.3.0 C7.1：非 rect 造型自带材质 —— 皮肤与风格的 token 一律让位：
+         * 不写 data-style / data-text / data-skin，清可读性层，清 #skinImg 背景。
+         * 这样 tech 的 clip-path（要求 [data-style="tech"]）与 data-skin 那批规则自然不命中，
+         * 不必去改它们的特异性。data-theme 保留无害（造型内容用固定色，不消费 --ink）。 */
+        if (dockShape !== 'rect') {
+          delete root.dataset.style;
+          delete root.dataset.text;
+          delete root.dataset.skin;
+          root.style.removeProperty('--skin-bg-solid');
+          dockClearReadability(root);
+          var iN = document.getElementById('skinImg');
+          if (iN) { iN.style.backgroundImage = ''; iN.style.opacity = ''; }
+          return;
+        }
         dockApplyTone(root, state);                       // v3.0.0：data-style / data-text
         var clarity = dockEffectiveClarity(state);        // v3.0.0：warn → 下限 35
         if (state.bg === 'color') {
@@ -824,6 +1339,13 @@
         window.api.onSkinState(function (state) {
           if (!state) return;
           dockSkin = state.dock || null;
+          /* v3.3.0 C7.7：造型权威来源 = skin-state 里 resolved 的 dock 状态（state.dock 即主进程
+           * resolvedSurfaceState('dock') 的结果；兼容取 state.resolved.dock）。顺序必须是先定造型
+           * （写 data-shape + --dock-*）再上皮肤 —— 否则 dockApplySkin 会拿旧的 dockShape 判断，
+           * 切到非 rect 的那一帧仍会写 data-style/data-skin。 */
+          var sh = dockSkin && dockSkin.shape;
+          if (!sh && state.resolved && state.resolved.dock) sh = state.resolved.dock.shape;
+          applyShape(sh);
           dockApplySkin(dockSkin);
         });
       }
@@ -831,6 +1353,7 @@
         dockSetFrozen(document.hidden);
       });
 
+      buildAllShapes();     // v3.3.0：六套造型 DOM 一次建好（data-shape 初始为 rect，均不显示）
       applyDockSize();      // v1.7.19：先用默认尺寸占位，IPC 到达后再校准为真实值
       tick();
       setInterval(tick, 1000);

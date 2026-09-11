@@ -94,6 +94,9 @@ const makeNative = new Function('skinObj', 'hooks', [
   'var pushSkinToAll = hooks.pushSkinToAll || function () {};',
   'var pushSkinConfigState = hooks.pushSkinConfigState || function () {};',
   'var refreshTrayMenu = hooks.refreshTrayMenu || function () {};',
+  /* v3.3.0 C5：applyNativeStyleAll 末尾调用顶层 syncDockGeometry()（依赖 dockWin/dockW/dockH，
+   * 非本测试被测对象）→ 注入空桩，避免隔离作用域 ReferenceError。 */
+  'var syncDockGeometry = hooks.syncDockGeometry || function () {};',
   NATIVE_SRC,
   'return { applyNativeStyleAll: applyNativeStyleAll, resolveSurfaceConfig: resolveSurfaceConfig, normStyle: normStyle };'
 ].join('\n'));
@@ -363,7 +366,10 @@ function userShape() {
   ['skincustom.html', 'settings.html', '使用说明.md', '使用说明.html', 'README.md'].forEach(function (f) {
     ok(countOcc(readRoot(f), '浮窗') >= 1, '§F ' + f + ' 含「浮窗」（统一命名生效）');
   });
-  ok(countOcc(SKIN, '浮窗') === 0, '§F skin.html 本身无「浮窗」文案（dock 文案已随细调迁至 skincustom.html）');
+  /* v3.3.0 C8 有意变更：skin.html 新增第三个入口「浮窗样式」（其 per-surface 细调文案仍在
+   * skincustom.html）。故此处由「skin.html 无浮窗文案」改为断言该入口存在，而非放宽命名统一。 */
+  ok(countOcc(SKIN, '浮窗样式') >= 1,
+    '§F v3.3.0 skin.html 含第三入口「浮窗样式」（C8；细调文案仍在 skincustom.html）');
 })();
 
 /* ============================================================

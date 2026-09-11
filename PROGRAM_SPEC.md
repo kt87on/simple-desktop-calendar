@@ -1,7 +1,7 @@
 # 简洁桌面日历 · 程序规格书（可复制级 / AI 可直接复刻）
 
 > **用途**：本文件是为「让 AI 在零上下文情况下重建该程序」而写。任何 AI 拿到本文件，都能完整还原软件的功能、视觉、行为与打包方式。修改或升级时，直接把本文件 + 源码目录交给 AI 即可。
-> **版本**：3.2.0 　**作者**：YG　**协议**：MIT　**平台**：Windows
+> **版本**：3.3.0 　**作者**：YG　**协议**：MIT　**平台**：Windows
 
 ---
 
@@ -133,9 +133,11 @@ node make-icon.js    # 生成 icon.ico（多尺寸）
 - 周起始开关：真 toggle（轨道+滑块+一/日标签，平滑过渡 cubic-bezier）
 - 月份切换：仅网格淡入，无缩放抖动
 
-### 4.6 皮肤系统（v3.0.0：style × bg 双维度 + 明暗轴）
+### 4.6 皮肤系统（v3.0.0：style × bg 双维度 + 明暗轴；v3.3.0：+ shape 浮窗造型）
 
 v2.4.0 把「主题 + 皮肤」重构为 **per-surface 皮肤配置树**，并落地**图片皮肤**；**v3.0.0 把旧 `type` 单维度拆成 `style`（风格材质）× `bg`（背景来源）两个正交维度，并新增独立的明暗轴 `tone`，把文字轴 `text` 与整窗明暗彻底解耦**（修复 v2 时代「一调深浅字整窗变黑/白」的根因）。主进程仍是皮肤状态的唯一真相，渲染层只被动消费下发的解析结果。
+
+**v3.3.0 增量**：① 浮窗（dock）新增造型轴 `shape`（6 款，见下）与随之变化的窗口几何；② **修复缺陷**——`materializeFromCalendar`（取消跟随时物化日历快照）**不再继承 `bg`/`image`**，本面回落到原生皮肤（`bg='native'`、`image=null`），杜绝「不跟主界面时图片框仍显示主界面图片」；③ 「自选图片」窗口（`skincustom.html`）标题行新增「**清空**」按钮：`setField(surface,'bg','native')`（复用既有 `skin-set` 通道，不新增 IPC），`bg` 属 `followableFields` → 跟随中的面先物化再 `follow=null`；按钮 `disabled` 判据仅取「本面自己有图片」（`getConfig(surface).bg==='image' && .image`），与是否跟随无关；盘上 `userData/skins/*` 文件不删。
 
 **数据模型（`electron-main.js`，持久化到 `settings.json` 的 `skin` 字段）**
 
@@ -143,10 +145,10 @@ v2.4.0 把「主题 + 皮肤」重构为 **per-surface 皮肤配置树**，并�
 skin = {
   __v: 3,                                    // 迁移版本门（v2→v3 一次性迁移后只写本结构）
   surfaces: {
-    calendar: { style, bg, image, text, clarity, tone },  // style ∈ default|minimal|glass|neu|tech|warm；bg ∈ native|image
-    expanded: { follow, style, bg, image, text, clarity, tone },  // follow='calendar'|null
-    desktop:  { follow, style, bg, image, text, clarity, tone },
-    dock:     { style, bg, image, text, clarity, tone }   // dock 独立，不跟随
+    calendar: { style, bg, image, text, clarity, tone, shape },  // style ∈ default|minimal|glass|neu|tech|warm；bg ∈ native|image；shape 恒为 'rect'
+    expanded: { follow, style, bg, image, text, clarity, tone, shape },  // follow='calendar'|null；shape 恒为 'rect'
+    desktop:  { follow, style, bg, image, text, clarity, tone, shape },  // shape 恒为 'rect'
+    dock:     { follow, style, bg, image, text, clarity, tone, shape }   // v3.2.0 起 dock 亦纳入跟随；shape ∈ DOCK_SHAPE_KEYS
   },
   opacity: { calendar: 1, desktop: 1, dock: 1 }  // 窗口级透明度；calendar 同时作用于 mini/max
 }
@@ -158,7 +160,8 @@ skin = {
 - `text` ∈ `auto|light|dark`：**仅文字轴**（决定文字深浅），与整窗明暗**完全解耦**（v3.0.0 修复 v2 把 text 误当整窗明暗的根因）。
 - `clarity` ∈ `'auto'|0~100`：UI 清晰度，联动三层可读性（见下「可读性三层结构」）。`auto` 时由 `clarityForConfig` 按图片复杂度推导 `clamp(round(complexity*100),20,85)`，原生/无图 → 0。
 - `image.complexity` 0~1：缩略图逐像素相对亮度标准差 / 0.30；导入时主进程计算并缓存（`normalizeImageSpec` 输出，`clamp01`）。
-- `follow='calendar'`（仅 expanded/desktop）：跟随日历表面；取消跟随 = **copy-on-write** 快照（深拷贝日历当前配置，之后独立编辑）。
+- `follow='calendar'`（expanded/desktop/dock）：跟随日历表面；取消跟随 = **copy-on-write** 快照（深拷贝日历当前配置，之后独立编辑）。
+- `shape`（**v3.3.0 新增**）∈ `DOCK_SHAPE_KEYS = ['rect','pixel','rainbow','ring','flip','toon']`（名称：圆角卡片 / 像素方屏 / 虹彩流光 / 极简圆环 / 翻页时牌 / 绘本台钟；`rect` 为默认）：浮窗造型。**只有 `dock` 面可持有非 `rect` 的 shape**——`normalizeSurfaceV3` / `migrateSkinV2toV3` / `normalizeSkinV3` 对 `calendar`/`expanded`/`desktop` 一律写 `'rect'`（脏数据护栏），旧数据无该字段补 `'rect'`；`shape` 纳入 `followableFields`（手调即豁免跟随），★但 `materializeFromCalendar` **不复制 shape**（造型是浮窗自己的身份，不是日历的派生属性）。跟随态下 `resolveSurfaceConfig('dock')` 返回日历配置，其 shape 恒为 `'rect'` → **浮窗跟随时渲染的一定是圆角卡片**，选任一其他造型必然伴随 `follow` 被置 `null`。窗口几何（w/h/内边距）由主进程 `dockGeometry(shapeKey)` 依注册表 `DOCK_SHAPES` 用同一条减法 `win - pad` 算出，`syncDockGeometry()` 同步到 `dockW/dockH` 并 `pushDockSize()`；`dock.html` 的造型权威来源是 `skin-state` 里的 `resolved.dock.shape`（渲染层不自行判断 follow）。
 - **v2→v3 一次性迁移（`migrateSkinV2toV3`）**：`light`→`minimal`/tone:light、`dark`→`minimal`/tone:dark、`system`→`minimal`/tone:system、`color`→`default`/tone:auto（丢自定义色值）、`image`→`default`/tone:auto+bg:image（图片原样保留），写 `__v=3`。已是 v3 的数据走 `normalizeSkinV3` 补齐/兜底。迁移后 `saveSettings` **只写 `skin`**，停写旧键。
 
 **解析链路（主进程唯一入口）**
@@ -168,7 +171,7 @@ skin = {
 3. `surfaceTheme(surface)`：整窗明暗按**固定优先级**推导——① `bg=image` 且有图 → 按照片亮暗（`image.dark`，tone 被忽略但保留设置值）② `tone='light'` ③ `tone='dark'` ④ `tone='system'` 读 `nativeTheme.shouldUseDarkColors` ⑤ `tone='auto'` → `styleNativeTheme(style)`。**与 `text` 完全解耦**。
 4. `surfaceBg(surface)`：背景层类型 `native | color | image`（`color` 仅 `bg=image` 无图兜底时出现，按生效明暗取 `#FCFBF9`/`#1C202C`，**绝不白屏**）。
 5. `baseTheme()` = `surfaceTheme('calendar')`：托盘、关注列表、提醒、设置等非表面窗口跟随日历表面明暗。
-6. `resolvedSurfaceState(surface)`：下发 `{style,tone,theme,text,warn,bg,color,image,clarity}`。其中 `warn = (theme==='light'&&text==='dark')||(theme==='dark'&&text==='light')`（低对比组合标记 → 皮肤窗提示 + 渲染层 `clarity` 下限 35）。主窗发 `{calendar,expanded}`、桌面发 `{desktop}`、浮动发 `{dock}`；非表面窗口仍走 `theme-changed(baseTheme)`。
+6. `resolvedSurfaceState(surface)`：下发 `{style,tone,theme,text,warn,bg,color,image,clarity,shape}`（`shape` 为 v3.3.0 新增）。其中 `warn = (theme==='light'&&text==='dark')||(theme==='dark'&&text==='light')`（低对比组合标记 → 皮肤窗提示 + 渲染层 `clarity` 下限 35）。主窗发 `{calendar,expanded}`、桌面发 `{desktop}`、浮动发 `{dock}`；非表面窗口仍走 `theme-changed(baseTheme)`。
 
 **图片皮肤（完整实现）**
 
