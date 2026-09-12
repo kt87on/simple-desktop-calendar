@@ -268,6 +268,9 @@
     background-color: transparent;
     pointer-events: none;
   }
+  /* v3.4.0：MP4 取景预览用 <video>（背景图装不下视频）；#cropBox 已有 position:relative +
+   * overflow:hidden，天然裁剪超出的视频盒，故这里只需绝对定位 + cover。 */
+  #cropVid { position: absolute; object-fit: cover; display: none; }
   .crop-tip { padding: 6px var(--s-4) 0; text-align: center; font-size: var(--fs-2xs); color: var(--ink-faint); }
   .crop-empty { padding: 20px 0; text-align: center; font-size: var(--fs-sm); color: var(--ink-faint); }
   /* v3.3.0 Y2（H2）：取景区内的「当前造型不显示图片」说明。
@@ -392,7 +395,7 @@
         </div>
         <div class="drop-zone" id="dropZone">拖拽图片到此处，或点击选择文件</div>
         <div class="crop-wrap" id="cropWrap" style="display:none">
-          <div id="cropBox"><div id="cropImg"></div></div>
+          <div id="cropBox"><div id="cropImg"></div><video id="cropVid" muted loop playsinline></video></div>
           <!-- v3.3.0 Y2（H2）：仅当「本面有图、但当前生效造型不是圆角卡片（浮窗看不见图）」时显示。
                置于 #cropWrap 内部 → 自动随其 display 显隐（只有有图时该区才可见），无需再判一次 hasImg。 -->
           <div id="cropShapeWarn" style="display:none">当前造型不显示图片。要让这张图生效：在「浮窗样式」里把造型改回「圆角卡片」，或在这里重新导入图片（导入会自动切回圆角卡片）。</div>
@@ -560,6 +563,15 @@
 
       /* ---- 皮肤写操作（唯一真相回写） ---- */
       function setField(surface, field, value) {
+        /* v3.4.0 第二轮：图片写入的「身份」（kind）在这个**唯一收口点**补齐 ——
+         * 为什么放这儿而不是每个调用点各带一次：图片回写有 3 个以上调用点（取景 / 缩放 / 透明度 / 整包回写），
+         *   逐个补必然漏一个；收口在这里等价于「凡 image 写入都自带 kind」。
+         * 为什么只在 undefined 时补：整包回写（res.image）可能已带正确 kind，不能覆盖它。
+         * 为什么 currentImage() 返回 null 就不注入：主进程 normalizeImageSpec 的 prev.kind 兜底仍在。 */
+        if (field === 'image' && value && typeof value === 'object' && value.kind === undefined) {
+          var cur = currentImage();
+          if (cur && cur.kind !== undefined) value.kind = cur.kind;
+        }
         if (api && api.skinSet) api.skinSet(surface, field, value);
       }
       // 文字轴：auto | light(深字) | dark(浅字)
@@ -591,9 +603,29 @@
       function applyCropPreview() {
         var img = currentImage();
         var el = $('cropImg');
-        if (!img || !img.file || !el) return;
+        var vid = $('cropVid');
+        if (!img || !img.file || !el) { if (vid) vid.style.display = 'none'; return; }
         var IW = (img.w && img.w > 0) ? img.w : crop.vw;
         var IH = (img.h && img.h > 0) ? img.h : crop.vh;
+        if (img.kind === 'video') {
+          /* v3.4.0：MP4 取景预览走 <video> 盒几何 —— 视频无法用 background-size/position。
+           * #cropBox 的 overflow:hidden 负责裁剪，于是盒比视口大、多出的被裁，与背景图口径等价。 */
+          el.style.backgroundImage = '';
+          if (vid) {
+            /* src 同样「变了才设」：renderCrop() 会被反复调用，无条件重设会让预览每次从头重播、还闪。 */
+            var want = 'skin://' + encodeURIComponent(img.file);
+            if (vid.getAttribute('src') !== want) { vid.setAttribute('src', want); vid.load(); }
+            vid.style.display = 'block';
+            vid.style.width = (IW * crop.s) + 'px';
+            vid.style.height = (IH * crop.s) + 'px';
+            vid.style.left = (crop.vw / 2 - crop.center.x * crop.s) + 'px';
+            vid.style.top = (crop.vh / 2 - crop.center.y * crop.s) + 'px';
+            var pr = vid.play();
+            if (pr && pr.catch) pr.catch(function () {});
+          }
+          return;
+        }
+        if (vid) vid.style.display = 'none';
         el.style.backgroundImage = 'url("skin://' + encodeURIComponent(img.file) + '")';
         el.style.backgroundSize = (IW * crop.s) + 'px ' + (IH * crop.s) + 'px';
         el.style.backgroundPosition = (crop.vw / 2 - crop.center.x * crop.s) + 'px ' + (crop.vh / 2 - crop.center.y * crop.s) + 'px';
@@ -634,6 +666,7 @@
         };
         var zoom = clamp(crop.s / crop.s0, 1, 5);
         // 回写 file/crop/zoom；主进程 merge 保留 w/h/dark/snapshot
+        // v3.4.0 第二轮：kind 由 setField() 统一补齐（见该函数），此处不再由调用点显式携带。
         setField(S.surface, 'image', { file: img.file, crop: cropRect, zoom: zoom });
       }
       function scheduleSaveCrop() {
@@ -839,6 +872,7 @@
         $('imageOpacityVal').textContent = pct(v);
         var img = currentImage();
         if (!img || !img.file) return;
+        // v3.4.0 第二轮：kind 由 setField() 统一补齐（见该函数），此处不再由调用点显式携带。
         setField(S.surface, 'image', { file: img.file, opacity: v });
       });
 

@@ -683,6 +683,17 @@ function confirmRemindInput() {
   var skinExpanded = null;   // 主窗 max 态 resolved 状态
   var skinDesktop = null;    // 桌面插件 resolved 状态（IS_DESKTOP 专用）
   var skinHidden = false;    // 窗口隐藏/失焦 → 冻结 GIF（切首帧快照）
+  /* v3.4.0 第三轮：媒体层是否「当前空白」（无图 / 视频未就绪 / 出错 / 自动播放被拒 / 图片探针失败）。
+   * 用途：template.html 的 html[data-skin="image"][data-media-blank="1"] #widget 据此垫中性纸面底衬 ——
+   *   媒体正常时置 '0'（该规则不生效 ⇒ 观感零变化），空白时置 '1'（不再整窗透明）。 */
+  function setMediaBlank(blank) {
+    try { document.documentElement.dataset.mediaBlank = blank ? '1' : '0'; } catch (e) {}
+  }
+  /* v3.4.0 第三轮：媒体诊断留痕 —— 经 preload 的 mediaDiag 通道送回主进程写进 calendar.log。
+   * 为什么必须做：用户那个 MP4 我无法在本机复现其操作序列，日志是唯一能收敛「MP4 为什么不动」的手段。 */
+  function mediaDiag(msg) {
+    try { if (window.api && window.api.mediaDiag) window.api.mediaDiag(String(msg)); } catch (e) {}
+  }
 
   function activeSkinState() {
     if (IS_DESKTOP) return skinDesktop;
@@ -714,8 +725,18 @@ function confirmRemindInput() {
     var s0 = Math.max(vp.w / iw, vp.h / ih);
     var s = s0 * z;
     var centerX = cx + cw / 2, centerY = cy + ch / 2;
-    el.style.backgroundSize = (iw * s) + 'px ' + (ih * s) + 'px';
-    el.style.backgroundPosition = (vp.w / 2 - centerX * s) + 'px ' + (vp.h / 2 - centerY * s) + 'px';
+    var w = iw * s, h = ih * s;
+    var x = vp.w / 2 - centerX * s, y = vp.h / 2 - centerY * s;
+    if (el.tagName === 'VIDEO') {
+      /* v3.4.0：视频无法用 background-size/position（那是 div 背景图的能力），改用盒几何摆位。
+       * 外层 #skinVidWrap 负责裁剪，于是「视频盒比视口大、多出的部分被裁掉」与「背景图放大后被
+       * background-size 裁切」在数学上等价 —— 同一套 crop+zoom 公式对两种层给出同一取景结果。 */
+      el.style.width = w + 'px'; el.style.height = h + 'px';
+      el.style.left = x + 'px'; el.style.top = y + 'px';
+    } else {
+      el.style.backgroundSize = w + 'px ' + h + 'px';
+      el.style.backgroundPosition = x + 'px ' + y + 'px';
+    }
   }
   /* v2.4.4：图片真实显示尺寸缓存/探测（Chromium 的 <img> 已应用 EXIF 旋转）。
    * 只作为「主进程记录尺寸」的兜底：WebP/老数据/EXIF 解析失败时纠正取景比例。 */
@@ -740,8 +761,71 @@ function confirmRemindInput() {
   }
   function applySkinImage(image) {
     var el = document.getElementById('skinImg');
+    var vidWrap = document.getElementById('skinVidWrap');
+    var vid = document.getElementById('skinVid');
     if (!el) return;
-    if (!image || !image.file) { el.style.backgroundImage = ''; el.style.opacity = ''; return; }
+    /* v3.4.0：视频层收尾工具 —— 停播 + 断源 + 隐藏。无图 / 切回图片 / 切原生时统一走它，
+     * 否则「皮肤切走了但 MP4 还在后台播」会一直占着解码器（用户看不见却仍在耗电）。
+     * removeAttribute('src') 后再 load() 才能让 Chromium 真正释放该文件的解码器。 */
+    function stopVid() {
+      if (!vid) return;
+      vid.pause();
+      vid.removeAttribute('src');
+      vid.load();
+      if (vidWrap) vidWrap.style.display = 'none';
+    }
+    if (!image || !image.file) { el.style.backgroundImage = ''; el.style.opacity = ''; stopVid(); setMediaBlank(true); return; }
+    if (image.kind === 'video') {
+      /* MP4 走独立 <video> 层：<div> 装不下视频，背景 div 这时只让位（清背景）。
+       * 用主进程算好的 image.kind 分派，而不是在渲染层按扩展名猜 —— 单一真相在主进程。 */
+      el.style.backgroundImage = '';
+      el.style.opacity = '';
+      if (!vid) { setMediaBlank(true); return; }
+      if (vidWrap) vidWrap.style.display = 'block';
+      vid.style.opacity = (typeof image.opacity === 'number' && isFinite(image.opacity)) ? String(image.opacity) : '1';
+      var want = 'skin://' + encodeURIComponent(image.file);
+      // 只在 src 真的变化时才重设：否则每次 pushSkinToAll 都重新载入 —— 动图会从头重播、还会闪一下。
+      if (vid.getAttribute('src') !== want) { vid.setAttribute('src', want); vid.load(); setMediaBlank(true); }
+      else if (vid.readyState < 2) setMediaBlank(true);   // 尚未 loadeddata（HAVE_CURRENT_DATA=2）⇒ 媒体层仍空白
+      /* v3.4.0 第三轮：媒体 就绪/失败/停滞/播完 的观测点 —— 就绪置底衬关（'0'），失败置底衬开（'1'），
+       * 并全部经 mediaDiag 留痕（缺陷三：此前这些事件被完全静默吞掉，导致「MP4 不动」零证据）。 */
+      vid.onloadeddata = function () { setMediaBlank(false); };
+      vid.onerror = function () {
+        setMediaBlank(true);
+        mediaDiag('video error code=' + (vid.error && vid.error.code) + ' msg=' + (vid.error && vid.error.message) + ' file=' + image.file);
+      };
+      vid.onstalled = function () { mediaDiag('video stalled file=' + image.file); };
+      vid.onended = function () { mediaDiag('video ended file=' + image.file); };
+      // 冻结帧：窗口隐藏时不播（视频不做静态快照，暂停即等于冻结），显示时再恢复。
+      if (skinHidden) { vid.pause(); } else {
+        var pr = vid.play();
+        if (pr && pr.catch) pr.catch(function (err) {
+          setMediaBlank(true);   // 自动播放被拦 ⇒ 媒体层空白，垫底衬
+          mediaDiag('play rejected name=' + (err && err.name) + ' msg=' + (err && err.message) + ' file=' + image.file);
+        });   // 不抛未处理拒绝，但留痕（缺陷三）
+      }
+      layoutSkin(vid, image.w, image.h, image.crop, image.zoom);
+      /* 主进程没读到 tkhd（老/异常封装 → w/h=0）时，用 <video> 自带的显示尺寸重排一次，
+       * 并把真实尺寸回写一次让下次启动直接正确。注意「先判当前记录尺寸与探测值不同」——
+       * 否则会形成「回写 → 主进程重下发 → 这里再回写」的死循环。 */
+      vid.onloadedmetadata = function () {
+        if (!vid.videoWidth || !vid.videoHeight) return;
+        var IW = (typeof image.w === 'number' && image.w > 0) ? image.w : vid.videoWidth;
+        var IH = (typeof image.h === 'number' && image.h > 0) ? image.h : vid.videoHeight;
+        if (vid.videoWidth !== IW || vid.videoHeight !== IH) {
+          layoutSkin(vid, vid.videoWidth, vid.videoHeight, image.crop, image.zoom);
+        }
+        if (image.w !== vid.videoWidth || image.h !== vid.videoHeight) {
+          if (window.api && window.api.skinSet) {
+          var sName = IS_DESKTOP ? 'desktop' : ((widgetEl && widgetEl.classList.contains('max')) ? 'expanded' : 'calendar');
+          window.api.skinSet(sName, 'image', { file: image.file, w: vid.videoWidth, h: vid.videoHeight, kind: 'video' });
+          }
+        }
+      };
+      return;
+    }
+    // 图片 / GIF：原有全套逻辑逐字保持，只多一句「确保视频层已关闭」。
+    stopVid();
     var file = (skinHidden && image.snapshot) ? image.snapshot : image.file;
     el.style.backgroundImage = 'url("skin://' + encodeURIComponent(file) + '")';
     // v2.4.3 图片不透明度：直接写元素 style.opacity（走 CSS 变量继承在 Electron 下可能不生效）。
@@ -751,8 +835,9 @@ function confirmRemindInput() {
     var probeFile = file;
     var enc = encodeURIComponent(file);
     realImageSize(file, function (sz) {
-      if (!sz || !sz.w || !sz.h) return;
-      if (String(el.style.backgroundImage).indexOf(enc) < 0) return;   // 背景已被替换 → 跳过
+      if (String(el.style.backgroundImage).indexOf(enc) < 0) return;   // 背景已被替换 → 与本次无关，跳过
+      if (!sz || !sz.w || !sz.h) { setMediaBlank(true); return; }      // 探针失败（文件缺失/损坏）⇒ 媒体层空白
+      setMediaBlank(false);                                            // 探针成功 ⇒ 媒体就绪（底衬关）
       var IW = (typeof image.w === 'number' && image.w > 0) ? image.w : sz.w;
       var IH = (typeof image.h === 'number' && image.h > 0) ? image.h : sz.h;
       if (sz.w !== IW || sz.h !== IH) layoutSkin(el, sz.w, sz.h, image.crop, image.zoom);
@@ -835,8 +920,9 @@ function confirmRemindInput() {
       root.dataset.skin = 'color';
       root.style.setProperty('--skin-bg-solid', state.color || '#fcfbf9');
       applyClarity(root, S.theme, clarity);
-      var c0 = document.getElementById('skinImg');
-      if (c0) { c0.style.backgroundImage = ''; c0.style.opacity = ''; }
+      /* v3.4.0：切纯色也要收走视频层 —— applySkinImage(null) 清 #skinImg 背景（原逻辑）
+       * 并停播/断源/隐藏 #skinVidWrap；否则切到纯色后 MP4 仍在后台继续播。 */
+      applySkinImage(null);
     } else if (state.bg === 'image') {
       root.dataset.skin = 'image';
       root.style.removeProperty('--skin-bg-solid');
@@ -846,8 +932,7 @@ function confirmRemindInput() {
       delete root.dataset.skin;
       root.style.removeProperty('--skin-bg-solid');
       clearReadability(root);
-      var i1 = document.getElementById('skinImg');
-      if (i1) { i1.style.backgroundImage = ''; i1.style.opacity = ''; }
+      applySkinImage(null);   // v3.4.0：同上，切原生皮肤时一并停掉视频层
     }
   }
 

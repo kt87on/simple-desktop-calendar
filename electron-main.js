@@ -376,7 +376,19 @@ function normalizeImageSpec(img) {
     zoom: clampZoom(img.zoom),
     opacity: clampImageOpacity(img.opacity),
     dark: !!img.dark,
-    complexity: (typeof img.complexity === 'number' && isFinite(img.complexity)) ? clamp01(img.complexity) : 0
+    complexity: (typeof img.complexity === 'number' && isFinite(img.complexity)) ? clamp01(img.complexity) : 0,
+    /* v3.4.0：动图支持 MP4 后，光有「文件名」不足以让渲染层知道该铺背景 div 还是起 <video> 层。
+     * 只在这里加一处归一：normalizeSkin / normalizeSurfaceV3 / migrateSkinV2toV3 都经本函数产出
+     * image，字段自动流通，不必逐处补。
+     * v3.4.0 第二轮：显式 kind 优先；**缺失** kind 的存量配置按已清洗文件名的扩展名自证 ——
+     * .mp4 → 'video'，其余 → 'image'。为什么必须自证：用户盘上 3 个 calendar_*.mp4 是早期构建设进去的，
+     * 其配置里没有 kind 字段；若一律回落 'image'，渲染层会拿 <img> 去加载 .mp4 → 背景空白
+     * （用户「明明设过动图却看不到」的确定性来源）。显式非法值（如 'VIDEO'/'bogus'）仍按旧口径回落
+     * 'image'（大小写敏感、脏值不猜），故只对**缺失** kind 做扩展名推断，兼容既有 §2 断言。 */
+    kind: (img.kind === 'video') ? 'video'
+      : (img.kind === 'image') ? 'image'
+      : ((img.kind === undefined || img.kind === null) && /\.mp4$/i.test(file)) ? 'video'
+      : 'image'
   };
 }
 function normalizeSkin(raw) {
@@ -693,6 +705,122 @@ function readGifSize(filePath) {
   } catch (e) { return null; }
 }
 
+/* v3.4.0：从 MP4（ISO-BMFF）文件头读取**显示尺寸**（tkhd 的 16.16 定点宽高）。
+ * 为什么不引第三方解码器/ffprobe：本项目零外部运行时依赖，且导入时只需读一次头；
+ * 几十行 box 遍历即可覆盖相机 / 手机 / 主流剪辑软件导出的常规 MP4。
+ * 🚨 内存口径（本函数唯一的性能命门）：mdat（媒体数据）动辄几百 MB，**必须按 box size 直接跳过、
+ * 绝不读进内存**，否则一次导入大视频就能把主进程内存打爆；本函数只把 moov（元数据，通常几十 KB）读入内存。
+ * 与 readGifSize 同款「只读文件头、任何异常/不识别一律返回 null」口径：读不到就让渲染层用 videoWidth 兜底。 */
+function readMp4Size(filePath) {
+  /* 在「父 box 的内容区」里顺序找第一个指定 type 的子 box。
+   * 返回 { boxStart, boxEnd, contentStart, contentEnd }（均相对入参 buffer），找不到 → null。
+   * 注意：入参必须是**父 box 的内容**（不含父 box 自己的 8 字节头），否则第一个 box 会被误当自身。 */
+  function findBoxRange(buf, wantType) {
+    var off = 0;
+    while (off + 8 <= buf.length) {
+      var size = buf.readUInt32BE(off);
+      var type = buf.toString('ascii', off + 4, off + 8);
+      var contentStart = off + 8;
+      var end;
+      if (size === 1) {
+        /* 64 位 extended size：真实长度在紧随 8 字节头的 uint64BE 里。本任务只需支持 ≤ 4GB，
+         * 高 32 位非 0 直接放弃 —— 否则精度丢失后按错误偏移往下读，只会得到垃圾数据。 */
+        if (off + 16 > buf.length) return null;
+        if (buf.readUInt32BE(off + 8) !== 0) return null;
+        size = buf.readUInt32BE(off + 12);
+        contentStart = off + 16;
+        end = off + size;
+      } else if (size === 0) {
+        /* size=0 是「该 box 延续到缓冲区末尾」的合法写法（末位 box）。 */
+        end = buf.length;
+      } else {
+        end = off + size;
+      }
+      if (type === wantType) {
+        if (end <= contentStart || end > buf.length) return null;   // 长度非法 / 被截断
+        return { boxStart: off, boxEnd: end, contentStart: contentStart, contentEnd: end };
+      }
+      if (size === 0) return null;   // 末位 box 不是目标 → 后面没有 box 了
+      if (end <= off) return null;   // 防御：非法 size 会让循环原地打转
+      off = end;
+    }
+    return null;
+  }
+  try {
+    var fd = fs.openSync(filePath, 'r');
+    try {
+      var fileSize = fs.fstatSync(fd).size;
+      var moovBuf = null;
+      var offset = 0;
+      /* 顶层 box 遍历：只读 8 字节头据 size 前进，mdat 等大 box 一律跳过（不读内容）。 */
+      while (offset + 8 <= fileSize) {
+        var head = Buffer.alloc(8);
+        if (fs.readSync(fd, head, 0, 8, offset) < 8) break;
+        var boxSize = head.readUInt32BE(0);
+        var type = head.toString('ascii', 4, 8);
+        var contentStart = offset + 8;
+        var boxEnd;
+        if (boxSize === 1) {
+          var ext = Buffer.alloc(8);
+          if (fs.readSync(fd, ext, 0, 8, contentStart) < 8) return null;
+          if (ext.readUInt32BE(0) !== 0) return null;            // > 4GB 不支持
+          boxSize = ext.readUInt32BE(4);
+          contentStart = contentStart + 8;
+          boxEnd = offset + boxSize;
+        } else if (boxSize === 0) {
+          boxEnd = fileSize;                                     // 末位 box → 到文件末尾
+        } else {
+          boxEnd = offset + boxSize;
+        }
+        if (type === 'moov') {
+          var len = boxEnd - contentStart;
+          if (len <= 0) return null;
+          moovBuf = Buffer.alloc(len);
+          if (fs.readSync(fd, moovBuf, 0, len, contentStart) < len) return null;
+          break;
+        }
+        if (boxSize === 0) break;     // size=0 且非 moov → 无后续 box
+        if (boxEnd <= offset) return null;
+        offset = boxEnd;
+      }
+      if (!moovBuf) return null;
+
+      /* moov 通常含多个 trak（视频轨 + 音频轨），音频轨的 tkhd 宽高恒为 0；
+       * 故逐个 trak 取 tkhd，返回第一个宽高均 > 0 的 —— 这是**启发式**，不是权威判定：
+       *   ① 理论上首帧尺寸可来自别的 box（如 stsd/avcC），tkhd 只是最省事、覆盖最广的来源，
+       *      因此这里刻意只当「足够好的猜测」，不追求万无一失；
+       *   ② 未命中（本函数返回 null / {0,0}）时有**安全网**兜底：渲染层 <video> 的 loadedmetadata
+       *      会用 videoWidth/videoHeight 重新取景并回写真实尺寸 —— 漏判只影响首帧前的一瞬，
+       *      后继者不必以为这里「必须永远对」而把它复杂化。 */
+      var off2 = 0;
+      while (off2 + 8 <= moovBuf.length) {
+        var trak = findBoxRange(moovBuf.slice(off2), 'trak');
+        if (!trak) break;
+        var trakContent = moovBuf.slice(off2 + trak.contentStart, off2 + trak.contentEnd);
+        var tkhd = findBoxRange(trakContent, 'tkhd');
+        if (tkhd) {
+          var box = trakContent.slice(tkhd.boxStart, tkhd.boxEnd);   // 含 8 字节头
+          var version = (box.length >= 9) ? box[8] : -1;             // 头之后的第 1 字节即 version
+          var wOff = -1, hOff = -1;
+          if (version === 1) { wOff = 96; hOff = 100; }
+          else if (version === 0) { wOff = 84; hOff = 88; }
+          if (wOff > 0 && box.length >= hOff + 4) {
+            /* tkhd 的宽高是 16.16 定点（高 16 位整数、低 16 位小数）：本应用只需整数像素，
+             * 故除以 65536 并四舍五入。 */
+            var w = Math.round(box.readUInt32BE(wOff) / 65536);
+            var h = Math.round(box.readUInt32BE(hOff) / 65536);
+            if (w > 0 && h > 0) return { width: w, height: h };
+          }
+        }
+        off2 = off2 + trak.boxEnd;   // 不够格（音频轨/长度不足）→ 继续看下一个 trak
+      }
+      return null;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (e) { return null; }
+}
+
 /* ===== v2.4.4：JPEG EXIF Orientation 解析（纯本地、零依赖、只读前 64KB） =====
  * 手机竖拍 JPEG 常用 EXIF Orientation=6/8 表达"需旋转 90°/270° 观看"。nativeImage.getSize()
  * 读到的是未旋转的物理尺寸，而 Chromium 渲染 background-image 会自动应用 EXIF 旋转 →
@@ -808,24 +936,32 @@ function sampleImageStats(img) {
 }
 
 /* v2.4.0 第二轮：图片皮肤导入。
- * 校验（扩展名白名单：png/jpg/jpeg/gif/webp，不设大小/像素上限，交由用户自行取景裁剪）→
+ * 校验（扩展名白名单：png/jpg/jpeg/gif/webp/mp4，不设大小/像素上限，交由用户自行取景裁剪）→
  * 原子复制到 userData/skins/ → 采样亮度（跳过透明像素，采样失败兜底浅色）。
  * v2.4.2：GIF 跳过 nativeImage 解码/亮度采样/首帧快照（nativeImage 对 GIF 支持有限），
  *        尺寸从文件头 readGifSize 读取，dark 兜底 false，直接复制文件交给渲染层
- *        background-image:url(skin://...) 保持动画播放。返回 { ok, image, error }。 */
+ *        background-image:url(skin://...) 保持动画播放。返回 { ok, image, error }。
+ * v3.4.0：新增 MP4 动图。与 GIF 同口径跳过 nativeImage 与亮度采样，尺寸改从 readMp4Size 读 tkhd，
+ *        dark 兜底 false、complexity 0；文件原样复制，渲染层改用独立 <video> 层播放（静音循环）。 */
 function importSkinImage(surface, srcPath) {
   try {
     var validSurfaces = { calendar: 1, expanded: 1, desktop: 1, dock: 1 };
     if (!validSurfaces[surface]) return { ok: false, error: '无效的皮肤界面' };
     if (!srcPath || typeof srcPath !== 'string') return { ok: false, error: '未提供图片路径' };
     var ext = (path.extname(srcPath) || '').toLowerCase();
-    var okExts = { '.png': 1, '.jpg': 1, '.jpeg': 1, '.gif': 1, '.webp': 1 };
-    if (!okExts[ext]) return { ok: false, error: '仅支持 png/jpg/jpeg/gif/webp' };
+    var okExts = { '.png': 1, '.jpg': 1, '.jpeg': 1, '.gif': 1, '.webp': 1, '.mp4': 1 };
+    if (!okExts[ext]) return { ok: false, error: '仅支持 png/jpg/jpeg/gif/webp/mp4' };
 
     var isGif = (ext === '.gif');
+    // v3.4.0：MP4 动图走独立 <video> 层，尺寸从文件头 tkhd 读取；与 GIF 一样跳过 nativeImage 解码。
+    var isVideo = (ext === '.mp4');
     var img = null;
     var size = null;
-    if (isGif) {
+    if (isVideo) {
+      // MP4 不能交给 nativeImage（那是图片解码器，读视频会得到空图），改由 readMp4Size 读 tkhd；
+      // 读不到就落 {0,0}，渲染层用 <video>.videoWidth 兜底并把真实尺寸回写进来。
+      size = readMp4Size(srcPath) || { width: 0, height: 0 };
+    } else if (isGif) {
       // v2.4.2：GIF 跳过 nativeImage 解码（支持有限，可能解出空图/仅首帧），直接读文件头拿尺寸。
       size = readGifSize(srcPath) || { width: 0, height: 0 };
     } else {
@@ -885,7 +1021,9 @@ function importSkinImage(surface, srcPath) {
       zoom: 1,
       opacity: 1,
       dark: dark,
-      complexity: complexity
+      complexity: complexity,
+      // v3.4.0：把「这是图片还是视频」一并落进 image 规格，渲染层据 kind 分派到背景 div 或 <video> 层。
+      kind: isVideo ? 'video' : 'image'
     };
     return { ok: true, image: image, error: null };
   } catch (e) {
@@ -1008,7 +1146,13 @@ function applySkinSet(payload) {
         zoom: (value.zoom !== undefined) ? value.zoom : prev.zoom,
         opacity: (value.opacity !== undefined) ? value.opacity : prev.opacity,
         dark: (value.dark !== undefined) ? value.dark : prev.dark,
-        complexity: (value.complexity !== undefined) ? value.complexity : prev.complexity
+        complexity: (value.complexity !== undefined) ? value.complexity : prev.complexity,
+        /* v3.4.0：kind 必须一并搬运 —— 本分支是**显式字段列表**重建，漏字段即被 echo 覆盖。
+         * 漏了 kind 的后果：对话框选 MP4 时 importSkinImage 已正确返回 'video'，但经这里过一道
+         * normalizeImageSpec 就被抹回 'image' → 渲染层走图片分支把 .mp4 塞进 background-image →
+         * 背景空白且无动画（与渲染层回写 path 相同的降级）。prev 兜底让「只回写 {file,w,h} 的
+         * 渲染层尺寸纠偏」也能保住既有 'video'，不必依赖调用方每次把 kind 带上。 */
+        kind: (value.kind !== undefined) ? value.kind : prev.kind
       });
       /* nimg 为 null（脏 file 被清洗成空）→ 整条分支零副作用：image / bg / shape 三者全保持原值。 */
       if (nimg) {
@@ -1034,6 +1178,15 @@ function applySkinSet(payload) {
      * 【测试同步】本分支引用跨函数的 normDockScale：qa-v244 / qa-v310 / qa-v300 的隔离执行台
      *   FN_NAMES 需补 normDockScale（归 W-E 维护），否则走本分支会 ReferenceError。 */
     skin.dockScale = normDockScale(value);
+  }
+  /* v3.4.0 第二轮诊断留痕：皮肤写入此前在 calendar.log 里零记录 —— #2「设了 MP4 却回默认皮肤」
+   * 只能靠猜。这里只在会改「背景来源 / 图片身份」的三个字段（image/bg/style）上打一行，下一次复现
+   * 即可直接读出是谁把 bg 写回 native、图片 kind 是否被抹掉。
+   * typeof 守卫：applySkinSet 被 qa-v244/v300/v310/v340 孤立 eval，其作用域没有 log 桩，故必须先判
+   * typeof 再调（typeof 对未声明的 log 返回 'undefined'，不抛），避免隔离执行台 ReferenceError。
+   * 其余字段短路跳过，零副作用。 */
+  if ((field === 'image' || field === 'bg' || field === 'style') && typeof log === 'function') {
+    try { log('skin: surface=' + surface + ' field=' + field + ' bg=' + (c && c.bg) + ' kind=' + (c && c.image && c.image.kind) + ' file=' + (c && c.image && c.image.file)); } catch (e) {}
   }
   recomputeTheme();
   saveSettings();
@@ -2020,9 +2173,23 @@ function showExpanded() {
   pushWinSize();             // v2.2.0：下发当前窗口宽，驱动等比缩放
 }
 
+/* v3.4.0【缺陷修复】连点合并：toggleFromTray 原本是「裸可见性取反」——
+ *   用户点一下浮窗、日历正在弹出（透明窗 show + 首次合成有可感延迟）时，误以为没反应又点一下，
+ *   这一下立刻把刚弹出的日历 hide 掉，表现为「快速连点第二次弹不出来」。
+ * 修法：加一个 350ms 的重入窗口，窗口期内的重复唤起/隐藏请求一律忽略，把连点归并成一次意图。
+ *   （350ms 刻意与上方 guardBlur(350) 同值 —— 全仓既有「一次交互后 350ms 保护窗」的约定，不另立新常数。）
+ * 为什么用时间戳而非布尔标志：与上方 guardBlur 同款 —— 本项目 v2.4.0 的 A1 缺陷正是
+ *   「裸布尔 + 多处 setTimeout 复位」在多路径下漏复位导致的竞态，时间戳无复位遗漏问题。
+ * 为什么不是改 showMini 本身：showMini 的主要开销是「透明窗 show + 首次合成」，与皮肤无关；
+ *   病根在「第二下把第一下的结果又关掉」，故在入口合并意图、改动面最小、副作用可控。 */
+let lastToggleAt = 0;
+const TOGGLE_DEBOUNCE_MS = 350;
 // 托盘左键 / IPC 切换：已显示就隐藏，未显示就 mini 唤起
 function toggleFromTray() {
   if (!win) return;
+  var now = Date.now();
+  if (now - lastToggleAt < TOGGLE_DEBOUNCE_MS) return;   // v3.4.0：连点归并（见上）
+  lastToggleAt = now;
   guardBlur(350);
   if (win.isVisible()) {
     win.hide();
@@ -2468,6 +2635,14 @@ function openSkinWindow() {
  * 单例复用（已存在则 focus + 回推状态）、winBase + 置顶 screen-saver、ready-to-show 才 show、closed 置 null；
  * 尺寸 500×660（C4），与 skinWin 相互独立、互不影响。初始界面从 query.surface 传入，缺省 calendar。 */
 function openSkinCustomWindow(initialSurface) {
+  /* v3.4.0 竞态加固：show()/focus() 都是异步的，新窗真正拿到焦点之前，主窗的 blur 可能先到，
+   * 单靠 blur 守卫里的 isFocused() 仍会漏一帧 → 日历被 hideMain 收走。这里沿用全仓既有
+   * 「一次交互后 350ms 保护窗」约定（与 toggleFromTray(:2176) / gotoYm(:2199) 同值）。
+   * 为什么放在函数体首行、两条分支都覆盖：单例复用分支走 focus()、新建分支走 ready-to-show→show()，
+   * 两条路径都会让主窗失焦，故都必须置保护窗。
+   * 为什么不会与 win.on('show') 的清零冲突：本函数从不 show 主窗，主窗不显示就不会触发它的
+   * show 事件，故这里置的保护窗不会被误清零。 */
+  guardBlur(350);
   if (skinCustomWin && !skinCustomWin.isDestroyed()) {
     try { skinCustomWin.focus(); } catch (e) {}
     pushSkinConfigState();
@@ -2650,6 +2825,11 @@ function createWindow() {
       if (desktopWin && !desktopWin.isDestroyed() && desktopWin.isFocused()) return;
       if (settingsWin && !settingsWin.isDestroyed() && settingsWin.isFocused()) return;
       if (skinWin && !skinWin.isDestroyed() && skinWin.isFocused()) return;
+      /* v3.4.0 修复：名单里必须补「自选图片」窗（skincustom.html）。它和 skinWin 一样，是「用户点它
+       * 就说明正在调皮肤」的兄弟窗 —— 用户在自选图片窗里调的正是 MP4 的取景/缩放/不透明度，日历必须
+       * 留着当实时预览。漏掉它 = 该窗一获得焦点就无人豁免 → 落到 hideMain() 把日历收走，用户看不到
+       * 调整效果（用户原话「调整皮肤参数的时候，导致日历窗口消失，无法实时看到调整效果」）。 */
+      if (skinCustomWin && !skinCustomWin.isDestroyed() && skinCustomWin.isFocused()) return;
       if (remindlistWin && !remindlistWin.isDestroyed() && remindlistWin.isFocused()) return;
       if (reminderWin && !reminderWin.isDestroyed() && reminderWin.isFocused()) return;
     } catch (e) {}
@@ -3196,6 +3376,12 @@ ipcMain.on('dock-drag-end', function () {
 /* 自检探针：页面在"鼠标穿透"状态下收到了 forward 过来的 mousemove 就上报一次。
  * 这条日志是需求1 的运行时证据 —— 没有它说明 forward 失效，插件会彻底点不动。 */
 ipcMain.on('dock-hit-ready', function () { log('dock hit-test link OK (forward mousemove received)'); });
+/* v3.4.0 第三轮：渲染层媒体诊断（video error/stalled/ended、play() 被拒）→ 写进 calendar.log。
+ * 渲染层经 preload 的 window.api.mediaDiag(msg) → ipcRenderer.send('media-diag', msg)。
+ * 只写日志、不返回任何东西。为什么需要它：「MP4 不动」此前在本机零证据，日志是唯一能收敛的手段。 */
+ipcMain.on('media-diag', function (evt, msg) {
+  try { log('media-diag: ' + (msg == null ? '' : String(msg))); } catch (e) {}
+});
 ipcMain.on('dock-set-mouse', function (evt, ignore) {
   if (!dockWin || dockWin.isDestroyed()) return;
   try {
@@ -3404,7 +3590,8 @@ ipcMain.on('skin-action', function (evt, action, payload) {
       var chooseOpts = {
         title: '选择皮肤图片',
         properties: ['openFile'],
-        filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }]
+        // v3.4.0：新增 mp4，与导入白名单（含 .mp4）保持一致，避免「选了却报不支持」。
+        filters: [{ name: '图片/动图', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4'] }]
       };
       var chooseParent = null;
       try { chooseParent = BrowserWindow.fromWebContents(evt.sender); } catch (e) {}
@@ -4069,6 +4256,86 @@ ipcMain.on('holiday-dialog-close', function () {
   closeHolidayDialog();
 });
 
+/* v3.4.0 第三轮：skin:// 的正确 Range 支持（修「MP4 播一下就停、再也不动」）。
+ * 为什么必须自己做 206 —— 实测三组对照（QA 独立最小实验，原始证据 .tmp-diag/qa-mp4/taskA-{A,B,C}.json）：
+ *   A) 裸 net.fetch(file://…)、不转发入站 Range：status=200、无 Content-Range / Accept-Ranges，
+ *      且响应体是**整文件**（29889877 字节）⇒ <video> seekable=[[0,0]]，seek 到 12s 失败（currentTime 停在 0）。
+ *   B) 把入站 Range 转发给 net.fetch(file://…)：**status 仍=200、仍无 Content-Range / Accept-Ranges**，
+ *      只是**响应体跟着请求切到了 1024 字节** —— 即「体切片了、头仍不合格」；<video> seekable 仍=[[0,0]]、seek 仍失败。
+ *      ⇒ 决定「能不能 seek」的是 **status / 响应头**，不是响应体是否被切；net.fetch 给不出合规的 206 头，
+ *        所以「转发 Range」这条路无效，必须自己造 206。（注意：正文只陈述「status / 响应头不合格」这一实测事实，不要写成与实测不符的说法。）
+ *   C) 自实现 206：status=206 + Content-Range: bytes 0-1023/29889877 + Accept-Ranges: bytes
+ *      ⇒ <video> seekable=[[0,24.45]]，seek 到 12s 成功（currentTime=12）。
+ * 最硬的因果链（这条修复存在的理由）：改前 <video> **只会发 `range: bytes=0-`、从不回尾部取 moov**；
+ *   自造 206 之后才出现 `bytes=29851648-` / `bytes=17498112-` / `bytes=11665408-` / `bytes=1048576-`
+ *   这类**回尾部取 moov** 的请求。用户那个 MP4 没做 faststart（moov 在 mdat 之后、文件末尾），Chromium 的
+ *   MP4 demuxer 必须读到 moov 才能起播 / loop 回跳 —— status/头不合格 ⇒ 不可 seek ⇒ moov 永远读不到
+ *   ⇒ 表现为「播一下就停、再也不动」。
+ * 真机因果（QA 秒级实测）：改前日历界面 MP4 seekable=[[0,0]]、currentTime 推进到 ct=21.082 冻结、paused=true、
+ *   error.code=3（PIPELINE_ERROR_DECODE）、buffered=[[0,23.367]]；改后 seekable=[[0,24.451]]、ct 正常回环
+ *   （23.152→24.165→0.646→…→15.876）、error=null。
+ * 做法：解析 bytes=s-e（含 s- / -n 两种省略），fs 同步读该切片，返回标准 206（Content-Range + Accept-Ranges）。
+ * 安全：文件名已由 skinUrlToName 清洗为安全 basename，file 恒落在 skinsDir 内 —— 路径穿越防护不放宽。 */
+function skinMimeType(file) {
+  var ext = (String(file).match(/\.([A-Za-z0-9]+)$/) || [])[1];
+  ext = (ext || '').toLowerCase();
+  if (ext === 'mp4' || ext === 'm4v') return 'video/mp4';
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'png') return 'image/png';
+  if (ext === 'gif') return 'image/gif';
+  if (ext === 'webp') return 'image/webp';
+  return 'application/octet-stream';
+}
+function skinFileResponse(file, request) {
+  var total = fs.statSync(file).size;
+  var mime = skinMimeType(file);
+  var range = '';
+  try { range = (request && request.headers && request.headers.get) ? String(request.headers.get('Range') || '') : ''; } catch (e) { range = ''; }
+  var m = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+  if (m && (m[1] || m[2])) {
+    var start, end;
+    if (m[1] === '') { var n = parseInt(m[2], 10); start = (isFinite(n) && n > 0) ? Math.max(0, total - n) : 0; end = total - 1; }
+    else { start = parseInt(m[1], 10); end = (m[2] === '') ? (total - 1) : parseInt(m[2], 10); }
+    if (!isFinite(start) || start < 0) start = 0;
+    if (!isFinite(end) || end > total - 1) end = total - 1;
+    if (total === 0 || start > end || start >= total) {
+      return new Response('', { status: 416, headers: { 'Content-Range': 'bytes */' + total, 'Accept-Ranges': 'bytes' } });
+    }
+    var len = end - start + 1;
+    var fd = fs.openSync(file, 'r');
+    var buf = Buffer.alloc(len);
+    var got = 0;
+    try { got = fs.readSync(fd, buf, 0, len, start); } finally { try { fs.closeSync(fd); } catch (e2) {} }
+    if (got < len) buf = buf.slice(0, Math.max(0, got));
+    return new Response(buf, { status: 206, headers: {
+      'Content-Type': mime,
+      'Accept-Ranges': 'bytes',
+      'Content-Range': 'bytes ' + start + '-' + (start + got - 1) + '/' + total,
+      'Content-Length': String(got)
+    } });
+  }
+  /* 无 Range 的整文件请求：走 v2.4.0 原路径 net.fetch(pathToFileURL(file).toString()) 流式取体
+   * （不整 readFileSync 进内存 —— 用户那个 MP4 体积大且没做 faststart，首帧整读会把整个文件塞进主进程）。
+   * 关键是在其上补一个 Accept-Ranges: bytes —— 实测：缺了它，即便 body 是全量，媒体仍判「不可 seek」，
+   * <video> 就只发 range: bytes=0-、不回尾部取 moov（见上方 A/B/C 对照）。
+   * ★响应头可写性已实测（Electron 31.7.7 / Chromium 126；证据 .tmp-diag/software-engineer/headers-writable.json）：
+   *   对 net.fetch(file://…) 的返回 resp 执行 resp.headers.set('Accept-Ranges','bytes') **不抛**（r1='ok'），
+   *   写后读回 r2='bytes' ⇒ **确实生效** —— 本机 Electron 的 net 响应头并非 immutable guard（与「规范上 fetch()
+   *   产出的 Response guard=immutable、set() 会抛 TypeError」的假设不符；此处以实测为准）。Content-Type 亦成功写为
+   *   video/mp4（实测 net.fetch 本就给 video/mp4，此处为幂等覆盖）。下方 catch 仍保留，纯防御非常规实现/未来变更，
+   *   并非靠它吞掉「写失败」。
+   * 取体失败退回 404，与既有 handler 语义一致，保证本函数返回的 Promise 永不 reject。 */
+  return net.fetch(pathToFileURL(file).toString()).then(function (resp) {
+    try {
+      resp.headers.set('Accept-Ranges', 'bytes');
+      resp.headers.set('Content-Type', mime);
+    } catch (e) { /* 实测不抛（见上方）；保留仅防御非常规返回 */ }
+    return resp;
+  }, function () {
+    return new Response('', { status: 404 });
+  });
+}
+
 app.whenReady().then(function () {
   log('=========== app start v' + app.getVersion() + ' ===========');
   // v2.4.0 第二轮：skin:// 特权协议 handler —— 把 skin://{basename} 映射到 userData/skins/{basename}。
@@ -4080,9 +4347,7 @@ app.whenReady().then(function () {
           var name = skinUrlToName(request && request.url);
           var file = name ? path.join(skinsDir(), name) : '';
           if (name && fs.existsSync(file)) {
-            net.fetch(pathToFileURL(file).toString()).then(resolve, function () {
-              resolve(new Response('', { status: 404 }));
-            });
+            resolve(skinFileResponse(file, request));
             return;
           }
         } catch (e) {}

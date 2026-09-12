@@ -77,6 +77,8 @@ contextBridge.exposeInMainWorld('api', {
   skinImport: function (surface, filePath) { return ipcRenderer.invoke('skin-import', surface, filePath); },
   onSkinConfigState: function (cb) { ipcRenderer.on('skin-config-state', function (e, s) { try { cb && cb(s); } catch (err) {} }); },
   onSkinImportResult: function (cb) { ipcRenderer.on('skin-import-result', function (e, r) { try { cb && cb(r); } catch (err) {} }); },
+  // v3.4.0 第三轮：媒体诊断留痕（视频 error/stalled/ended、play() 被拒）→ 经 'media-diag' 由主进程写进 calendar.log。
+  mediaDiag: function (msg) { ipcRenderer.send('media-diag', msg); },
 
   // ---- v1.6.2 关注 ----
   listReminders: function () { return ipcRenderer.invoke('list-reminders'); },

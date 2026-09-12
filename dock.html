@@ -490,6 +490,15 @@
     background-color: transparent;
     pointer-events: none;
   }
+  /* v3.4.0 MP4 动图层：#card 的 overflow:hidden 能兜住圆角，但视频要按取景摆成比卡片更大的盒子，
+   * 必须有一层显式裁剪；border-radius: inherit 让四角与卡片一致，否则露出视频直角。 */
+  #skinVidWrap {
+    position: absolute; inset: 0; z-index: -1;
+    overflow: hidden;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  #skinVid { position: absolute; object-fit: cover; }
   /* hover 高亮只在「实际可点」（body.hit）时出现，与点击热区保持一致 ——
      鼠标停在方框外的透明区域时不给"这里能点"的错误暗示（此时点击穿透给下面窗口）。 */
   body.hit #card:hover {
@@ -540,7 +549,7 @@
   /* 非 rect：rect 的文本层 / 图片皮肤层一律让位（内容改由造型层承担） */
   html:not([data-shape="rect"]) #dockTime,
   html:not([data-shape="rect"]) #dockDate,
-  html:not([data-shape="rect"]) #skinImg { display: none; }
+  html:not([data-shape="rect"]) #skinImg, html:not([data-shape="rect"]) #skinVidWrap { display: none; }
 
   /* ---------- ① 像素方屏 pixel（机身由 --dock-* 承载，黑屏是内层） ---------- */
   html[data-shape="pixel"] .shape-pixel { display: block; }
@@ -688,6 +697,8 @@
 <body data-page-node-id="IppGOXXE1GZRBnFK9ZZBEd">
   <div id="card" data-page-node-id="4R1nm1s3QOxU7AyZct3c3P">
     <div id="skinImg" aria-hidden="true"></div>
+    <!-- v3.4.0：MP4 动图层。muted 必须是标签属性：Chromium 自动播放策略要求 muted 才免交互播放。 -->
+    <div id="skinVidWrap" aria-hidden="true" style="display:none"><video id="skinVid" muted loop playsinline preload="auto"></video></div>
     <!-- v3.3.0：六套造型的可见物统一挂载点；rect 时整体不显示（无 .shape-rect 子节点） -->
     <div id="shapeLayer" aria-hidden="true"></div>
     <div id="dockTime" data-page-node-id="biML9qHPDIPoYeS24xkdXn">--:--:--</div>
@@ -1204,8 +1215,18 @@
         var s0 = Math.max(vp.w / iw, vp.h / ih);
         var s = s0 * z;
         var centerX = cx + cw / 2, centerY = cy + ch / 2;
-        el.style.backgroundSize = (iw * s) + 'px ' + (ih * s) + 'px';
-        el.style.backgroundPosition = (vp.w / 2 - centerX * s) + 'px ' + (vp.h / 2 - centerY * s) + 'px';
+        var w = iw * s, h = ih * s;
+        var x = vp.w / 2 - centerX * s, y = vp.h / 2 - centerY * s;
+        if (el.tagName === 'VIDEO') {
+          /* v3.4.0：视频无法用 background-size/position，改用盒几何摆位。
+           * 外层 #skinVidWrap 负责裁剪，于是「视频盒比视口大、多出的部分被裁掉」与
+           * 「背景图放大后被 background-size 裁切」数学上等价 —— 两种层共用同一取景公式。 */
+          el.style.width = w + 'px'; el.style.height = h + 'px';
+          el.style.left = x + 'px'; el.style.top = y + 'px';
+        } else {
+          el.style.backgroundSize = w + 'px ' + h + 'px';
+          el.style.backgroundPosition = x + 'px ' + y + 'px';
+        }
       }
       /* v2.4.4：图片真实显示尺寸缓存/探测（兜底 EXIF/WebP/老数据）；键即文件名。 */
       var dockImgRealSize = {};
@@ -1227,10 +1248,54 @@
         };
         probe.src = 'skin://' + encodeURIComponent(file);
       }
+      /* v3.4.0：视频层收尾工具 —— 停播 + 断源 + 隐藏。切原生 / 切色 / 非 rect 造型让位时统一走它，
+       * 否则皮肤切走了但 MP4 仍在后台播，会持续占用解码器。removeAttribute('src') 后再 load()
+       * 才真正让 Chromium 释放该文件的解码器。 */
+      function dockStopVid() {
+        var vw = document.getElementById('skinVidWrap');
+        var vd = document.getElementById('skinVid');
+        if (vd) { vd.pause(); vd.removeAttribute('src'); vd.load(); }
+        if (vw) vw.style.display = 'none';
+      }
       function dockApplyImage(image) {
         var el = document.getElementById('skinImg');
+        var vidWrap = document.getElementById('skinVidWrap');
+        var vid = document.getElementById('skinVid');
         if (!el) return;
-        if (!image || !image.file) { el.style.backgroundImage = ''; el.style.opacity = ''; return; }
+        if (!image || !image.file) { el.style.backgroundImage = ''; el.style.opacity = ''; dockStopVid(); return; }
+        if (image.kind === 'video') {
+          /* v3.4.0：MP4 走独立 <video> 层（<div> 装不下视频），背景 div 这时让位清空。
+           * 用主进程算好的 image.kind 分派，不在渲染层按扩展名猜。 */
+          el.style.backgroundImage = '';
+          el.style.opacity = '';
+          if (!vid) return;
+          if (vidWrap) vidWrap.style.display = 'block';
+          vid.style.opacity = (typeof image.opacity === 'number' && isFinite(image.opacity)) ? String(image.opacity) : '1';
+          var want = 'skin://' + encodeURIComponent(image.file);
+          // 只在 src 真变化时才重设：否则每次下发都重载 —— 动图从头重播、还会闪。
+          if (vid.getAttribute('src') !== want) { vid.setAttribute('src', want); vid.load(); }
+          if (dockHidden) { vid.pause(); } else {
+            var pr = vid.play();
+            if (pr && pr.catch) pr.catch(function () {});
+          }
+          dockLayoutSkin(vid, image.w, image.h, image.crop, image.zoom);
+          // 主进程没读到 tkhd（w/h=0）时用 <video> 自带尺寸重排，并回写一次真实尺寸（先判不同，免死循环）。
+          vid.onloadedmetadata = function () {
+            if (!vid.videoWidth || !vid.videoHeight) return;
+            var IW = (typeof image.w === 'number' && image.w > 0) ? image.w : vid.videoWidth;
+            var IH = (typeof image.h === 'number' && image.h > 0) ? image.h : vid.videoHeight;
+            if (vid.videoWidth !== IW || vid.videoHeight !== IH) {
+              dockLayoutSkin(vid, vid.videoWidth, vid.videoHeight, image.crop, image.zoom);
+            }
+            if ((image.w !== vid.videoWidth || image.h !== vid.videoHeight) &&
+                window.api && window.api.skinSet) {
+              window.api.skinSet('dock', 'image', { file: image.file, w: vid.videoWidth, h: vid.videoHeight, kind: 'video' });
+            }
+          };
+          return;
+        }
+        // 图片 / GIF：原有全套逻辑逐字保持，只多一句「确保视频层已关闭」。
+        dockStopVid();
         var file = (dockHidden && image.snapshot) ? image.snapshot : image.file;
         el.style.backgroundImage = 'url("skin://' + encodeURIComponent(file) + '")';
         // v2.4.3 图片不透明度：直接写元素 style.opacity（走 CSS 变量继承在 Electron 下可能不生效）。
@@ -1278,6 +1343,8 @@
           dockClearReadability(root);
           var iN = document.getElementById('skinImg');
           if (iN) { iN.style.backgroundImage = ''; iN.style.opacity = ''; }
+          // v3.4.0：非 rect 造型让位时也要收走视频层，否则切到造型后 MP4 仍在后台播。
+          dockStopVid();
           return;
         }
         dockApplyTone(root, state);                       // v3.0.0：data-style / data-text
@@ -1288,6 +1355,7 @@
           dockApplyClarity(root, theme, clarity);
           var c0 = document.getElementById('skinImg');
           if (c0) { c0.style.backgroundImage = ''; c0.style.opacity = ''; }
+          dockStopVid();   // v3.4.0：切纯色时一并停掉视频层
         } else if (state.bg === 'image') {
           root.dataset.skin = 'image';
           root.style.removeProperty('--skin-bg-solid');
@@ -1299,6 +1367,7 @@
           dockClearReadability(root);
           var i1 = document.getElementById('skinImg');
           if (i1) { i1.style.backgroundImage = ''; i1.style.opacity = ''; }
+          dockStopVid();   // v3.4.0：回落原生皮肤时一并停掉视频层
         }
       }
       /* v2.4.4 自选皮肤：三层可读性变量（#card 保护遮罩 + 文字光晕 + 兜底描边），由 clarity 联动。 */

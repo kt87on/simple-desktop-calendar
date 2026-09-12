@@ -128,7 +128,18 @@
     --blur-pop:  24px;
 
     /* ========== L2 语义层 · 白日（Warm Paper） ========== */
-    --paper: rgba(252, 251, 249, 0.84);
+    /* v3.4.0【用户选定：面板默认完全不透明】中性 --paper 四档 → rgb(…)（无 alpha 段）：
+     *   ① 为何完全不透明：这是**用户拍板的最终选择**（用户原话「確定 1.00 版本」，经 lead 转达）；
+     *      0.95 只是先前「对齐浮窗卡面」的中间档 —— 主窗比浮窗更实，是用户的取舍。
+     *      注意：浮窗卡面 dock.html 仍为 0.95，本次**只改主窗、不动浮窗**。
+     *   ② 为何安全：`--paper` 全仓唯一消费者是 `#widget { background: var(--paper) }`，
+     *      且只在 native 态生效（[data-skin="color"]/[data-skin="image"] 已分别改写 #widget 背景，
+     *      app.js 在 native 态 delete root.dataset.skin）⇒ 结构上不可能影响图片/动图/纯色皮肤。
+     *   ③ 附带事实：完全不透明后 `#widget` 的 `backdrop-filter`（:733-734）对 native 态观感贡献≈0，
+     *      但它同时决定圆角/描边观感，故**保留不动**（删它属越界）。
+     *   四处中性档同步改（:root 白/夜 + default 白/夜）；刻意材质档
+     *   （minimal/glass/neu/tech/warm）一律不动 —— 那些是设计材质，不是缺陷。 */
+    --paper: rgb(252, 251, 249);
     --paper-solid: #fcfbf9;
     --paper-edge: rgba(31, 35, 48, 0.14);   /* v2.3.2 由 9% 加深：修灰色工具栏左右两端被半透明描边衬成白边 */
     --paper-hi: rgba(255, 255, 255, 0.70);       /* 顶部高光 */
@@ -158,6 +169,11 @@
     --accent-line: rgba(59, 111, 212, 0.42);
     --accent-ink: var(--blue-700);
     --accent-glow: rgba(59, 111, 212, 0.26);
+    /* v3.4.0：今日格「半透明填充」的不透明度（原生档 html:not([data-skin]) + 自选图片/动图档
+     * html[data-skin="image"] 共用；均在 L3 组件层 .cell.today 消费）。
+     * 抽成变量而非把数值写死在规则里：便于统一切档验收，不必改规则本身。
+     * v3.4.0 第 2 轮：用户要求「今日的颜色再透明一点点」⇒ 80% → 68%。 */
+    --today-fill-alpha: 68%;
 
     --cinnabar: var(--red-500);
     --cinnabar-soft: rgba(214, 69, 63, 0.075);
@@ -203,7 +219,7 @@
    * 原则：不做纯反色。降低整体对比（纯白文字在深底上刺眼），
    *       阴影 alpha 提高约 2 倍改用纯黑，内高光保留但极弱。 */
   [data-theme="dark"] {
-    --paper: rgba(28, 32, 44, 0.88);
+    --paper: rgb(28, 32, 44);   /* v3.4.0 中性纸面改为完全不透明（理由见 :root 白日档注释） */
     --paper-solid: #1c202c;
     --paper-edge: rgba(255, 255, 255, 0.08);
     --paper-hi: rgba(255, 255, 255, 0.06);
@@ -273,7 +289,7 @@
 
   /* ---------- ① 默认（融合）：轻玻璃 18px + 中性双色强调 ---------- */
   [data-theme="light"][data-style="default"] {
-    --paper: rgba(252, 251, 249, 0.88);
+    --paper: rgb(252, 251, 249);   /* v3.4.0 中性纸面改为完全不透明（理由见 :root 白日档注释） */
     --paper-solid: #fcfbf9;
     --paper-edge: rgba(31, 35, 48, 0.12);
     --paper-hi: rgba(255, 255, 255, 0.74);
@@ -290,7 +306,7 @@
     --shadow-soft: var(--e-4);
   }
   [data-theme="dark"][data-style="default"] {
-    --paper: rgba(28, 32, 44, 0.90);
+    --paper: rgb(28, 32, 44);   /* v3.4.0 中性纸面改为完全不透明（理由见 :root 白日档注释） */
     --paper-solid: #1c202c;
     --paper-edge: rgba(255, 255, 255, 0.09);
     --paper-hi: rgba(255, 255, 255, 0.07);
@@ -654,6 +670,16 @@
   [data-skin="color"] #widget { background: var(--skin-bg-solid); }
   [data-skin="image"] #widget { background: transparent; }
 
+  /* ========== v3.4.0 第三轮：媒体层空白时给主窗垫底衬（修「日历界面 MP4 会变透明」）==========
+   * 缺陷：图片/动图模式下 #widget 背景是 transparent（上一条），而媒体层只有成功铺图 / 起播后才有内容 ——
+   *   媒体失败 / 未就绪时整窗「什么都看不到」= 透明。浮窗 / 桌面插件自带不透明卡面（dock.html 的 --card），
+   *   故只有主窗表现为透明。
+   * 修法：媒体层当前空白时（app.js 维护 data-media-blank='1'），把 #widget 垫成中性纸面 var(--paper)。
+   *   为什么用 --paper：它是全主题已定义的中性纸面 token（native 态 #widget 的同一来源）⇒ 不引入新颜色口径。
+   *   为什么用属性门而**不改**上一条：媒体正常时该属性为 '0'，上一条逐字生效 ⇒ 观感零变化、既有闸门不受影响。
+   * 特异度：html[data-skin="image"][data-media-blank="1"] #widget = (1,2,1) > (1,1,0)，恒压过上一条。 */
+  html[data-skin="image"][data-media-blank="1"] #widget { background: var(--paper); }
+
   /* ========== v2.4.4 自选纯色/图片皮肤：三层可读性（保护遮罩 + 文字光晕 + 兜底描边） ==========
    * 用户反馈：自选图片背景局部明暗不均，白字在亮部被冲掉、黑字在暗部看不清。
    * 第 1 层自动明暗在主进程（分区采样+迟滞）；这里落第 2/3 层，全部由 clarity(0~100) 联动，
@@ -749,6 +775,18 @@
     background-color: transparent;
     pointer-events: none;
   }
+  /* v3.4.0 MP4 动图层：<div> 装不下视频，MP4 改用一个独立的 <video> 元素承载。
+   * 为什么必须有一层 wrapper（#skinVidWrap）：视频要按取景结果被摆成**比卡片更大**的盒子
+   *（见 app.js layoutSkin 的 VIDEO 分支），必须有人在它外部裁剪；若让视频自己溢出，
+   * 本应用窗口是**透明**的，溢出的画面会直接画在用户桌面上。
+   * border-radius: inherit 跟随卡片圆角，否则四角会露出视频的直角。 */
+  #skinVidWrap {
+    position: absolute; inset: 0; z-index: -1;
+    overflow: hidden;              /* 裁剪必须在自己身上：#widget 并没有 overflow:hidden */
+    border-radius: inherit;        /* 跟随卡片圆角，否则四角露出视频直角 */
+    pointer-events: none;
+  }
+  #skinVid { position: absolute; object-fit: cover; }
 
   /* ===== 信息条（时钟 + 日期 + 农历） ===== */
   #infoBar {
@@ -968,7 +1006,7 @@
     font-size: var(--fs-3xs); font-weight: var(--fw-medium); color: var(--ink-soft);
     margin-top: 2px; line-height: 1; letter-spacing: 0.1px;
   }
-  .cell .sub.sub-festival { color: var(--workday); font-weight: var(--fw-semibold); }
+  .cell:where(:not(.today)) .sub.sub-festival { color: var(--workday); font-weight: var(--fw-semibold); }
 
   .cell.other { opacity: 0.40; }
   .cell.other .d, .cell.other .sub { color: var(--ink-faint); }
@@ -985,15 +1023,40 @@
   [data-theme="dark"] .cell.other.range,
   [data-theme="dark"] .cell.other.range-between { opacity: 0.88; }
 
-  .cell.weekend:not(.other):not(.workday):not(.holiday) .d { color: var(--weekend); }
-  .cell.weekend:not(.other) .sub { color: var(--weekend); }
+  /* v3.4.0【用户反馈修复·缺陷#5】今日格日期数字被「周末红」反压 → 恒白字失守。
+   * 事实：今天恰逢周六，`.cell.weekend:not(.other):not(.workday):not(.holiday) .d` 是 6 个类 (0,6,0)，
+   *   压过今日白字的 `.cell.today:not(.other) .d` (0,4,0) ⇒ 今日格里的数字（如「12」）显示成红色。
+   * 修法：给下方每一条「状态色」规则加今日守卫 `:where(:not(.today))`，使其不再命中今日格，
+   *   今日格的颜色遂由 today 规则独占（(0,4,0)、源序更后）。今日的 `.d` 与 `.sub` 在所有档位恒白。
+   * 为什么用 :where() 而不是裸 :not()：:not() 会给选择器**加 1 个类的特异性**，使被改规则**变强**、
+   *   可能新赢过它原先输给的规则。反例：`.cell .sub.sub-festival` (0,3,0) 与
+   *   `.cell.other .d/.sub` (0,3,0) 同权、靠源序后者胜（其它月份的节日格显示 --ink-faint）；
+   *   若改成 `.cell:not(.today) .sub.sub-festival` 变 (0,4,0) 就会**反超** ⇒ 非今日格行为被改。
+   *   `:where()` 的特异性贡献为 0 ⇒ 改后特异性与改前**逐位相同**，非今日格「零行为变化」可证明。
+   *   Electron 31 = Chromium 126，`:where()` 自 Chromium 88 起原生支持，安全。
+   *
+   * 改前/改后特异性对照（(a,b,c) 三元组；行号为改动前行号；11 条改动逐条相同）：
+   *   :986  .cell .sub.sub-festival                                    (0,3,0) → (0,3,0)
+   *   :1003 .cell.weekend:not(.other):not(.workday):not(.holiday) .d    (0,6,0) → (0,6,0)
+   *   :1004 .cell.weekend:not(.other) .sub                             (0,4,0) → (0,4,0)
+   *   :1011 .cell.selected:not(.other) .d                              (0,4,0) → (0,4,0)
+   *   :1045 .cell.range .d                                            (0,3,0) → (0,3,0)
+   *   :1048 .cell.range-between .d                                     (0,3,0) → (0,3,0)
+   *   :1059 .cell.reminder .d                                          (0,3,0) → (0,3,0)
+   *   :1072 .cell.holiday .d                                           (0,3,0) → (0,3,0)
+   *   :1073 .cell.holiday .sub                                         (0,3,0) → (0,3,0)
+   *   :1076 .cell.workday .d                                           (0,3,0) → (0,3,0)
+   *   :1077 .cell.workday .sub                                         (0,3,0) → (0,3,0)
+   *   全部 11 条改动后特异性一位不变（与上表左列完全一致）。 */
+  .cell.weekend:not(.other):not(.workday):not(.holiday):where(:not(.today)) .d { color: var(--weekend); }
+  .cell.weekend:not(.other):where(:not(.today)) .sub { color: var(--weekend); }
 
   /* 选中态 */
   .cell.selected:not(.other) {
     background: var(--accent-soft);
     box-shadow: inset 0 0 0 1.5px var(--accent-line);
   }
-  .cell.selected:not(.other) .d { color: var(--accent-ink); }
+  .cell.selected:not(.other):where(:not(.today)) .d { color: var(--accent-ink); }
 
   /* 今日：实心主色 + 白字 + 外发光，一眼可辨。
    * 放在 selected 之后且特异性不低于它 —— 今日与选中同时出现时今日始终胜出。 */
@@ -1004,15 +1067,57 @@
   .cell.today:not(.other) .d,
   .cell.today:not(.other) .sub { color: #fff; }
 
+  /* v3.4.0【用户反馈修复】今日格：由**不透明**实心强调色（linear-gradient 同色 = 纯色块）+ 白字，
+   * 改为「半透明强调色 + 主题色内描边 + 顶部内高光 + 1px 外光圈」——
+   *   ① 自选图片/动图档（html[data-skin="image"]，含视频）：照片能从背后透出来，不再糊成「一坨纯色」；
+   *   ② 原生皮肤档（html:not([data-skin])）：用户要求「今日再透明一点点 + 加一点光影，更突出今天，
+   *      又不影响周边单元格、不严重影响背景图」⇒ 与 image 档**同款**（见下方紧随的规则）。
+   * 纯色档 [data-skin="color"] **逐字不动**（用户明确「仅限原生皮肤 + 自选图片」）—— 两选择器天然不命中它。
+   * 不透明度取自变量区 --today-fill-alpha（现默认 68%），不在此写死，便于切档验收。
+   * 为什么加 html 前缀：本选择器主体 `.cell.today:not(.other)` 是 3 个类 → 特异性 (0,3,0)；
+   *   前置 `html[data-skin="image"]` / `html:not([data-skin])` 后 = 1 元素 + 3 类 + 1 属性 → (0,4,1)，
+   *   恒压过后序/同权的主题规则 —— 本项目曾因只靠源序取胜失败，出过「圆角缺口漏底 / 四角黑边」。
+   * 为什么用 color-mix 而不是写死 rgba：--accent-strong 随「风格 × 明暗」变化（默认蓝 / 极简近黑 /
+   *   玻璃紫…），写死会锁死某一风格；color-mix 对任意强调色统一取该 alpha（Electron 31 = Chromium 126 原生支持）。
+   * 光影为何用 inset + 1px 外光圈：外发光会溅到相邻格 —— 旧规则 `0 2px 10px` 外溢约 12px，正是用户
+   *   「不要影响周边单元格」所指；现改为纯 inset（零外溢）+ 1px/0-blur 外光圈（外溢 ≤1px，落在 2px 格间距内）。
+   * 日期数字对比度不降：今日 .d/.sub 仍为白字，且 [data-skin] 下本就有描边 + 光晕兜底（见上文第 3 层-a）。 */
+  html[data-skin="image"] .cell.today:not(.other) {
+    background: color-mix(in srgb, var(--accent-strong) var(--today-fill-alpha, 68%), transparent);
+    box-shadow:
+      inset 0 0 0 1.5px var(--accent-strong),   /* 主题色内描边：定界 */
+      inset 0 1px 0 rgba(255, 255, 255, 0.30),  /* 顶部内高光：纸感光泽 */
+      0 0 0 1px var(--accent-glow);             /* 1px 外光圈（0 blur，落在 2px 格间距内） */
+  }
+
+  /* v3.4.0【用户反馈修复 · 续】把「半透明填充 + 光影」扩展到「原生皮肤」（与 image 档同款）：
+   * 用户原话：「今日的单元格的颜色再透明一点点，加一点点光影特效之类的，能更突出今天，又不会影响
+   *   周边单元格，也不会严重影响背景图片，这个设置仅限于原生皮肤默认和自选图片模式」。
+   * 特异性：html(1 元素) + :not([data-skin])(1 属性) + .cell+.today+:not(.other)(3 类) = (0,4,1)，恒压过基条 (0,3,0)。
+   * ⚠️ 纯色档 [data-skin="color"] 逐字不动 —— html:not([data-skin]) 天然不命中它（故 color 档仍走上面那条不透明实心块）。 */
+  html:not([data-skin]) .cell.today:not(.other) {
+    background: color-mix(in srgb, var(--accent-strong) var(--today-fill-alpha, 68%), transparent);
+    box-shadow:
+      inset 0 0 0 1.5px var(--accent-strong),
+      inset 0 1px 0 rgba(255, 255, 255, 0.30),
+      0 0 0 1px var(--accent-glow);
+  }
+  /* neu（新拟态）材质档保留其拟态内阴影 —— 本版今日格规则不应抹掉材质身份；本选择器 (0,5,1) > (0,4,1) ⇒ 本档胜出。 */
+  html[data-style="neu"]:not([data-skin]) .cell.today:not(.other) {
+    box-shadow:
+      inset 3px 3px 7px var(--neu-dark), inset -3px -3px 7px var(--neu-light),
+      inset 0 0 0 1.5px var(--accent-strong);
+  }
+
   /* 日期区间：端点深、中间浅，形成连续的浅绿带 */
   .cell.range {
     background: var(--range-soft);
     box-shadow: inset 0 0 0 1.5px var(--range-line);
   }
-  .cell.range .d { color: var(--range-ink); }
+  .cell.range:where(:not(.today)) .d { color: var(--range-ink); }
   .cell.range:hover { background: rgba(34, 197, 94, 0.28); }
   .cell.range-between { background: var(--range-softer); border-radius: 3px; }
-  .cell.range-between .d { color: var(--range-ink); }
+  .cell.range-between:where(:not(.today)) .d { color: var(--range-ink); }
   .cell.range-between:hover { background: rgba(34, 197, 94, 0.26); }
   [data-theme="dark"] .cell.range:hover { background: rgba(34, 197, 94, 0.34); }
   [data-theme="dark"] .cell.range-between:hover { background: rgba(34, 197, 94, 0.28); }
@@ -1023,7 +1128,7 @@
     box-shadow: inset 0 0 0 1.5px var(--focus-line);
   }
   .cell.reminder:hover { background: rgba(245, 158, 11, 0.30); }
-  .cell.reminder .d { color: var(--focus-ink); }
+  .cell.reminder:where(:not(.today)) .d { color: var(--focus-ink); }
   .chip-focus {
     position: absolute; top: 3px; left: 3px;
     min-width: 11px; height: 11px; padding: 0 2px;
@@ -1036,12 +1141,12 @@
 
   /* 节假日 */
   .cell.holiday { background: var(--cinnabar-soft); box-shadow: inset 0 0 0 1.5px var(--cinnabar-line); }
-  .cell.holiday .d { color: var(--holiday-fg); }
-  .cell.holiday .sub { color: var(--holiday-fg); margin-top: var(--s-1); opacity: 0.9; }
+  .cell.holiday:where(:not(.today)) .d { color: var(--holiday-fg); }
+  .cell.holiday:where(:not(.today)) .sub { color: var(--holiday-fg); margin-top: var(--s-1); opacity: 0.9; }
 
   /* 调休上班日 */
-  .cell.workday .d { color: var(--workday); }
-  .cell.workday .sub { color: var(--workday); opacity: 0.85; }
+  .cell.workday:where(:not(.today)) .d { color: var(--workday); }
+  .cell.workday:where(:not(.today)) .sub { color: var(--workday); opacity: 0.85; }
 
   .chip {
     position: absolute; top: 3px; right: 3px; min-width: 11px; height: 11px; padding: 0 2px;
@@ -1296,6 +1401,9 @@
 <body data-page-node-id="6aYTFEaNbDm30w49jbFbFv">
   <div id="widget" data-page-node-id="mo7ae0U7n5qawBaahP44p2">
     <div id="skinImg" aria-hidden="true" data-page-node-id="skinImgLayer"></div>
+    <!-- v3.4.0：MP4 动图层。muted 必须是**标签属性**：Chromium 自动播放策略要求 muted 才免交互播放，
+         且背景动图本就不该出声（MP4 音轨一律不播）。 -->
+    <div id="skinVidWrap" aria-hidden="true" style="display:none" data-page-node-id="skinVidLayer"><video id="skinVid" muted loop playsinline preload="auto"></video></div>
     <div id="infoBar" data-page-node-id="RgfUhLBO8seCGR2UdKrSWb">
       <div id="clkTime" data-page-node-id="pcw5NfsBWw4VHNNw3wtOnV">--:--:--</div>
       <div class="info-right" data-page-node-id="kBuQNT8MxzuLCLBzfpk5Jw">
@@ -2090,6 +2198,17 @@ function confirmRemindInput() {
   var skinExpanded = null;   // 主窗 max 态 resolved 状态
   var skinDesktop = null;    // 桌面插件 resolved 状态（IS_DESKTOP 专用）
   var skinHidden = false;    // 窗口隐藏/失焦 → 冻结 GIF（切首帧快照）
+  /* v3.4.0 第三轮：媒体层是否「当前空白」（无图 / 视频未就绪 / 出错 / 自动播放被拒 / 图片探针失败）。
+   * 用途：template.html 的 html[data-skin="image"][data-media-blank="1"] #widget 据此垫中性纸面底衬 ——
+   *   媒体正常时置 '0'（该规则不生效 ⇒ 观感零变化），空白时置 '1'（不再整窗透明）。 */
+  function setMediaBlank(blank) {
+    try { document.documentElement.dataset.mediaBlank = blank ? '1' : '0'; } catch (e) {}
+  }
+  /* v3.4.0 第三轮：媒体诊断留痕 —— 经 preload 的 mediaDiag 通道送回主进程写进 calendar.log。
+   * 为什么必须做：用户那个 MP4 我无法在本机复现其操作序列，日志是唯一能收敛「MP4 为什么不动」的手段。 */
+  function mediaDiag(msg) {
+    try { if (window.api && window.api.mediaDiag) window.api.mediaDiag(String(msg)); } catch (e) {}
+  }
 
   function activeSkinState() {
     if (IS_DESKTOP) return skinDesktop;
@@ -2121,8 +2240,18 @@ function confirmRemindInput() {
     var s0 = Math.max(vp.w / iw, vp.h / ih);
     var s = s0 * z;
     var centerX = cx + cw / 2, centerY = cy + ch / 2;
-    el.style.backgroundSize = (iw * s) + 'px ' + (ih * s) + 'px';
-    el.style.backgroundPosition = (vp.w / 2 - centerX * s) + 'px ' + (vp.h / 2 - centerY * s) + 'px';
+    var w = iw * s, h = ih * s;
+    var x = vp.w / 2 - centerX * s, y = vp.h / 2 - centerY * s;
+    if (el.tagName === 'VIDEO') {
+      /* v3.4.0：视频无法用 background-size/position（那是 div 背景图的能力），改用盒几何摆位。
+       * 外层 #skinVidWrap 负责裁剪，于是「视频盒比视口大、多出的部分被裁掉」与「背景图放大后被
+       * background-size 裁切」在数学上等价 —— 同一套 crop+zoom 公式对两种层给出同一取景结果。 */
+      el.style.width = w + 'px'; el.style.height = h + 'px';
+      el.style.left = x + 'px'; el.style.top = y + 'px';
+    } else {
+      el.style.backgroundSize = w + 'px ' + h + 'px';
+      el.style.backgroundPosition = x + 'px ' + y + 'px';
+    }
   }
   /* v2.4.4：图片真实显示尺寸缓存/探测（Chromium 的 <img> 已应用 EXIF 旋转）。
    * 只作为「主进程记录尺寸」的兜底：WebP/老数据/EXIF 解析失败时纠正取景比例。 */
@@ -2147,8 +2276,71 @@ function confirmRemindInput() {
   }
   function applySkinImage(image) {
     var el = document.getElementById('skinImg');
+    var vidWrap = document.getElementById('skinVidWrap');
+    var vid = document.getElementById('skinVid');
     if (!el) return;
-    if (!image || !image.file) { el.style.backgroundImage = ''; el.style.opacity = ''; return; }
+    /* v3.4.0：视频层收尾工具 —— 停播 + 断源 + 隐藏。无图 / 切回图片 / 切原生时统一走它，
+     * 否则「皮肤切走了但 MP4 还在后台播」会一直占着解码器（用户看不见却仍在耗电）。
+     * removeAttribute('src') 后再 load() 才能让 Chromium 真正释放该文件的解码器。 */
+    function stopVid() {
+      if (!vid) return;
+      vid.pause();
+      vid.removeAttribute('src');
+      vid.load();
+      if (vidWrap) vidWrap.style.display = 'none';
+    }
+    if (!image || !image.file) { el.style.backgroundImage = ''; el.style.opacity = ''; stopVid(); setMediaBlank(true); return; }
+    if (image.kind === 'video') {
+      /* MP4 走独立 <video> 层：<div> 装不下视频，背景 div 这时只让位（清背景）。
+       * 用主进程算好的 image.kind 分派，而不是在渲染层按扩展名猜 —— 单一真相在主进程。 */
+      el.style.backgroundImage = '';
+      el.style.opacity = '';
+      if (!vid) { setMediaBlank(true); return; }
+      if (vidWrap) vidWrap.style.display = 'block';
+      vid.style.opacity = (typeof image.opacity === 'number' && isFinite(image.opacity)) ? String(image.opacity) : '1';
+      var want = 'skin://' + encodeURIComponent(image.file);
+      // 只在 src 真的变化时才重设：否则每次 pushSkinToAll 都重新载入 —— 动图会从头重播、还会闪一下。
+      if (vid.getAttribute('src') !== want) { vid.setAttribute('src', want); vid.load(); setMediaBlank(true); }
+      else if (vid.readyState < 2) setMediaBlank(true);   // 尚未 loadeddata（HAVE_CURRENT_DATA=2）⇒ 媒体层仍空白
+      /* v3.4.0 第三轮：媒体 就绪/失败/停滞/播完 的观测点 —— 就绪置底衬关（'0'），失败置底衬开（'1'），
+       * 并全部经 mediaDiag 留痕（缺陷三：此前这些事件被完全静默吞掉，导致「MP4 不动」零证据）。 */
+      vid.onloadeddata = function () { setMediaBlank(false); };
+      vid.onerror = function () {
+        setMediaBlank(true);
+        mediaDiag('video error code=' + (vid.error && vid.error.code) + ' msg=' + (vid.error && vid.error.message) + ' file=' + image.file);
+      };
+      vid.onstalled = function () { mediaDiag('video stalled file=' + image.file); };
+      vid.onended = function () { mediaDiag('video ended file=' + image.file); };
+      // 冻结帧：窗口隐藏时不播（视频不做静态快照，暂停即等于冻结），显示时再恢复。
+      if (skinHidden) { vid.pause(); } else {
+        var pr = vid.play();
+        if (pr && pr.catch) pr.catch(function (err) {
+          setMediaBlank(true);   // 自动播放被拦 ⇒ 媒体层空白，垫底衬
+          mediaDiag('play rejected name=' + (err && err.name) + ' msg=' + (err && err.message) + ' file=' + image.file);
+        });   // 不抛未处理拒绝，但留痕（缺陷三）
+      }
+      layoutSkin(vid, image.w, image.h, image.crop, image.zoom);
+      /* 主进程没读到 tkhd（老/异常封装 → w/h=0）时，用 <video> 自带的显示尺寸重排一次，
+       * 并把真实尺寸回写一次让下次启动直接正确。注意「先判当前记录尺寸与探测值不同」——
+       * 否则会形成「回写 → 主进程重下发 → 这里再回写」的死循环。 */
+      vid.onloadedmetadata = function () {
+        if (!vid.videoWidth || !vid.videoHeight) return;
+        var IW = (typeof image.w === 'number' && image.w > 0) ? image.w : vid.videoWidth;
+        var IH = (typeof image.h === 'number' && image.h > 0) ? image.h : vid.videoHeight;
+        if (vid.videoWidth !== IW || vid.videoHeight !== IH) {
+          layoutSkin(vid, vid.videoWidth, vid.videoHeight, image.crop, image.zoom);
+        }
+        if (image.w !== vid.videoWidth || image.h !== vid.videoHeight) {
+          if (window.api && window.api.skinSet) {
+          var sName = IS_DESKTOP ? 'desktop' : ((widgetEl && widgetEl.classList.contains('max')) ? 'expanded' : 'calendar');
+          window.api.skinSet(sName, 'image', { file: image.file, w: vid.videoWidth, h: vid.videoHeight, kind: 'video' });
+          }
+        }
+      };
+      return;
+    }
+    // 图片 / GIF：原有全套逻辑逐字保持，只多一句「确保视频层已关闭」。
+    stopVid();
     var file = (skinHidden && image.snapshot) ? image.snapshot : image.file;
     el.style.backgroundImage = 'url("skin://' + encodeURIComponent(file) + '")';
     // v2.4.3 图片不透明度：直接写元素 style.opacity（走 CSS 变量继承在 Electron 下可能不生效）。
@@ -2158,8 +2350,9 @@ function confirmRemindInput() {
     var probeFile = file;
     var enc = encodeURIComponent(file);
     realImageSize(file, function (sz) {
-      if (!sz || !sz.w || !sz.h) return;
-      if (String(el.style.backgroundImage).indexOf(enc) < 0) return;   // 背景已被替换 → 跳过
+      if (String(el.style.backgroundImage).indexOf(enc) < 0) return;   // 背景已被替换 → 与本次无关，跳过
+      if (!sz || !sz.w || !sz.h) { setMediaBlank(true); return; }      // 探针失败（文件缺失/损坏）⇒ 媒体层空白
+      setMediaBlank(false);                                            // 探针成功 ⇒ 媒体就绪（底衬关）
       var IW = (typeof image.w === 'number' && image.w > 0) ? image.w : sz.w;
       var IH = (typeof image.h === 'number' && image.h > 0) ? image.h : sz.h;
       if (sz.w !== IW || sz.h !== IH) layoutSkin(el, sz.w, sz.h, image.crop, image.zoom);
@@ -2242,8 +2435,9 @@ function confirmRemindInput() {
       root.dataset.skin = 'color';
       root.style.setProperty('--skin-bg-solid', state.color || '#fcfbf9');
       applyClarity(root, S.theme, clarity);
-      var c0 = document.getElementById('skinImg');
-      if (c0) { c0.style.backgroundImage = ''; c0.style.opacity = ''; }
+      /* v3.4.0：切纯色也要收走视频层 —— applySkinImage(null) 清 #skinImg 背景（原逻辑）
+       * 并停播/断源/隐藏 #skinVidWrap；否则切到纯色后 MP4 仍在后台继续播。 */
+      applySkinImage(null);
     } else if (state.bg === 'image') {
       root.dataset.skin = 'image';
       root.style.removeProperty('--skin-bg-solid');
@@ -2253,8 +2447,7 @@ function confirmRemindInput() {
       delete root.dataset.skin;
       root.style.removeProperty('--skin-bg-solid');
       clearReadability(root);
-      var i1 = document.getElementById('skinImg');
-      if (i1) { i1.style.backgroundImage = ''; i1.style.opacity = ''; }
+      applySkinImage(null);   // v3.4.0：同上，切原生皮肤时一并停掉视频层
     }
   }
 

@@ -1,7 +1,7 @@
 # 简洁桌面日历 · 程序规格书（可复制级 / AI 可直接复刻）
 
 > **用途**：本文件是为「让 AI 在零上下文情况下重建该程序」而写。任何 AI 拿到本文件，都能完整还原软件的功能、视觉、行为与打包方式。修改或升级时，直接把本文件 + 源码目录交给 AI 即可。
-> **版本**：3.3.0 　**作者**：YG　**协议**：MIT　**平台**：Windows
+> **版本**：3.4.0 　**作者**：YG　**协议**：MIT　**平台**：Windows
 
 ---
 
@@ -85,7 +85,7 @@ node make-icon.js    # 生成 icon.ico（多尺寸）
 ### 4.1 设计 Token（CSS `:root` 变量，template.html；黑夜用 `[data-theme="dark"]` 覆盖）
 | Token | 白日值 | 黑夜值 | 用途 |
 |---|---|---|---|
-| `--paper` | `rgba(252,251,249,0.82)` | `rgba(28,32,44,0.86)` | 宣纸/墨纸半透明底 |
+| `--paper` | `rgb(252,251,249)` | `rgb(28,32,44)` | 宣纸/墨纸底（native 完全不透明） |
 | `--paper-edge` | `rgba(31,35,48,0.08)` | `rgba(255,255,255,0.07)` | 卡片描边 |
 | `--ink` | `#1f2430` | `#e8eaf0` | 主文字 |
 | `--ink-soft` | `#6b7280` | `#9aa3b3` | 次级文字 |
@@ -133,11 +133,22 @@ node make-icon.js    # 生成 icon.ico（多尺寸）
 - 周起始开关：真 toggle（轨道+滑块+一/日标签，平滑过渡 cubic-bezier）
 - 月份切换：仅网格淡入，无缩放抖动
 
-### 4.6 皮肤系统（v3.0.0：style × bg 双维度 + 明暗轴；v3.3.0：+ shape 浮窗造型）
+### 4.6 皮肤系统（v3.0.0：style × bg 双维度 + 明暗轴；v3.3.0：+ shape 浮窗造型；v3.4.0：+ MP4 动图）
 
 v2.4.0 把「主题 + 皮肤」重构为 **per-surface 皮肤配置树**，并落地**图片皮肤**；**v3.0.0 把旧 `type` 单维度拆成 `style`（风格材质）× `bg`（背景来源）两个正交维度，并新增独立的明暗轴 `tone`，把文字轴 `text` 与整窗明暗彻底解耦**（修复 v2 时代「一调深浅字整窗变黑/白」的根因）。主进程仍是皮肤状态的唯一真相，渲染层只被动消费下发的解析结果。
 
 **v3.3.0 增量**：① 浮窗（dock）新增造型轴 `shape`（6 款，见下）与随之变化的窗口几何；② **修复缺陷**——`materializeFromCalendar`（取消跟随时物化日历快照）**不再继承 `bg`/`image`**，本面回落到原生皮肤（`bg='native'`、`image=null`），杜绝「不跟主界面时图片框仍显示主界面图片」；③ 「自选图片」窗口（`skincustom.html`）标题行新增「**清空**」按钮：`setField(surface,'bg','native')`（复用既有 `skin-set` 通道，不新增 IPC），`bg` 属 `followableFields` → 跟随中的面先物化再 `follow=null`；按钮 `disabled` 判据仅取「本面自己有图片」（`getConfig(surface).bg==='image' && .image`），与是否跟随无关；盘上 `userData/skins/*` 文件不删。
+
+**v3.4.0 增量**：图片皮肤从「GIF 动图」扩展到 **MP4 动图**。技术本质：GIF 能动只因 Chromium 原生播放 `background-image`，而 `<div>` 装不下视频，故 MP4 改用**独立 `<video>` 层**（`#skinVidWrap`(裁剪) > `#skinVid`(视频)，静音循环自动播放，`muted` 为标签属性）。取景 / 缩放 / 不透明度 / 文字明暗与图片**完全一致**——同一套 crop+zoom 公式，仅把 `background-size/position` 换成视频盒几何（`layoutSkin` 内 `el.tagName === 'VIDEO'` 分支），外层 wrapper 负责裁剪。数据模型上 `image` 新增 `kind`（见下）；主进程新增纯函数 `readMp4Size` 从 ISO-BMFF `moov>trak>tkhd`（16.16 定点）读显示尺寸，`mdat` 按 box 长度**跳过而不读入内存**；读不到时由渲染层 `<video>.loadedmetadata` 探测 `videoWidth/Height` 兜底并**回写**一次。**两条限制**：MP4 音轨一律不播放（兼 Chromium 免交互自动播放要求）；视频不做亮度采样，文字明暗默认按**浅色兜底**（可在设置里手动改）。
+
+**v3.4.0 用户可见修复（复刻勿违）**：
+- **浮窗连点归并**：`toggleFromTray` 由裸可见性取反改为带连点守卫（`TOGGLE_DEBOUNCE_MS = 350`，与既有 `guardBlur(350)` 同值）——否则第一次点击的 `show()` 异步未完成时 `isVisible()` 仍为 `false`，紧随的第二次点击会把刚弹出的窗口又 `hide()` 掉，表现为「第二次点不出来」。
+- **今日格改半透明 + 光影（原生档 + 图片/动图档，v3.4.0 第 2 轮扩展）**：把不透明实心块 `linear-gradient(--accent-strong,--accent-strong)` 改为 `color-mix(in srgb, var(--accent-strong) var(--today-fill-alpha, 68%), transparent)` + 主题色内描边 + 顶部内高光（`inset 0 1px 0`）+ 1px 外光圈；**同时**作用于 `html[data-skin="image"]`（图片/动图）与 `html:not([data-skin])`（原生皮肤档）。`--today-fill-alpha` 单变量驱动（**现默认 68%**，第 2 轮由 80% 调低）；**纯色档 `[data-skin="color"]` 逐字不变**（两选择器天然不命中它）。
+- **今日格 `.d`/`.sub` 恒白字守卫**：今日的日期数字与副字在**所有皮肤档位恒为白字**，任何状态色（周末/节日/选中/区间/提醒、以及节日副字 `.sub-festival`）**一律不得覆盖今日**。**实现约定**：凡 `.cell` 上作用于 `.d`/`.sub` 的颜色规则，除基色（`.cell .d`/`.cell .sub`）与今日白字锚点（`.cell.today:not(.other) .d`/`.sub` → `#fff`）外，**必须**排除今日 —— 统一用 **`:where(:not(.today))`**，**禁止**裸 `:not(.today)`（裸 `:not()` 会给选择器 **+1 个类的特异性**，反而让它新赢过原先输给的规则，例如把其它月份的节日副字从淡色反超成绿字）。`:where()` 的特异性贡献为 0 ⇒ 加守卫后**特异性逐位不变、非今日格零行为变化**。此缺陷为**既有缺陷**（v3.3.0 出厂版同中招：今日逢周六时数字被周末红 `(0,6,0)` 压过今日白字 `(0,4,0)`），v3.4.0 一并修复，并由 `tests/qa-v340.js` §9（扫雷 + 反向自测）固化。
+- **调皮肤参数时日历主窗消失，看不到实时效果**：「自选图片」窗 `win.on('blur')` 的兄弟窗豁免名单（逐个 `isFocused()` 判定）曾漏掉「自选图片」窗 `skinCustomWin`——用户正是在这里调 MP4 的取景 / 缩放 / 不透明度，该窗一获焦点即无人豁免 → 落到 `hideMain()` 把日历收走。修复：名单补 `skinCustomWin` 守卫；并在 `openSkinCustomWindow()` 首行加 `guardBlur(350)`，盖住 `show()/focus()` 的异步竞态。由 `tests/qa-v340.js` §12（逐窗命中 + 删守卫反测必红）固化。
+- **设了 MP4 却被写回默认皮肤 / 看不到动图**：① **身份丢失**——「自选图片」窗回写取景 / 透明度曾不带 `kind`，旧档（无该字段）会退化成静图 → 渲染层拿 `<img>` 加载 `.mp4` ⇒ 背景空白；现于 `setField()` 收口点统一补 `kind` + `normalizeImageSpec` 缺失时按扩展名自证（见下 `image.kind`）。② **背景来源被整体写回原生**——全仓**唯一**同时把四个界面写成 `bg='native' + image=null` 的入口是 `applyNativeStyleAll()`（点「原生皮肤」某风格行触发）；单面写回另有两处：`materializeFromCalendar()`（取消跟随）与 `applySkinSet` 的 `field==='bg'`（清空按钮）。③ **可定位**——`applySkinSet` 末尾新增**一行诊断日志**（仅 `field ∈ {image,bg,style}` 时打 `skin: surface=… field=… bg=… kind=… file=…` 入 `calendar.log`）。由 `tests/qa-v340.js` §13 固化。
+- **日历界面 MP4 会变透明**：用户原话「目前只发现**日历界面** MP4 会变透明……把**桌面插件**设为 MP4……**没有变得不透明**」。根因：`[data-skin="image"] #widget { background: transparent; }` 下，媒体层（`#skinImg` / `#skinVidWrap`）只有成功铺图 / 起播后才有内容 ⇒ 媒体失败 / 未就绪时整窗「什么都看不到」= 透明；浮窗 / 桌面插件自带不透明卡面（`dock.html` 的 `--card`），故只有主窗表现为透明。修复：`app.js` 维护 `documentElement.dataset.mediaBlank`（无图 / 视频未 `loadeddata` / `error` / 自动播放被拒 / 图片探针失败 → `'1'`；视频 `loadeddata` 成功 / 图片探针成功 → `'0'`），`template.html` 增**属性门**规则 `html[data-skin="image"][data-media-blank="1"] #widget { background: var(--paper); }`（`--paper` 为全主题已定义的中性纸面 token，兜底不引入新颜色口径）。**硬要求：媒体正常时 `data-media-blank='0'`，原 transparent 规则逐字生效 ⇒ 观感零变化。** 由 `tests/qa-v340.js` §14 固化。
+- **MP4「播一下就停、再也不动」**：`skin://` handler 不转发入站 `Range` 头 ⇒ 响应恒 `200`、无 `Content-Range`/`Accept-Ranges` ⇒ **status / 响应头不合格，媒体据此判定不可 seek**；没做 faststart（`moov` 在文件末尾）的 MP4 起播 / `loop` 回跳都要回尾部读 `moov` ⇒ 停住。**三组实测对照**（QA 独立最小实验，原始证据 `.tmp-diag/qa-mp4/taskA-{A,B,C}.json`）：① 不转发 `Range` → `200`、无 `Content-Range`/`Accept-Ranges`、响应体为**整文件 29889877 字节**，`seekable=[[0,0]]`、seek 到 12s 失败；② **转发 `Range` 给 `net.fetch(file://…)`** → `status` **仍=200**、**仍无 `Content-Range`/`Accept-Ranges`**，但**响应体已切片到 1024 字节**（体切了、头不合格），`seekable` 仍 `[[0,0]]`、seek 仍失败 ⇒ 判定可 seek 与否的是 **status / 头**、非响应体，故转发无效；③ **自实现 206** → `206 + Content-Range: bytes 0-1023/29889877 + Accept-Ranges: bytes`，`seekable=[[0,24.45]]`、seek 到 12s 成功。**因果链**：改前 `<video>` 只发 `range: bytes=0-`、从不回尾部取 `moov`；自造 206 后才出现 `bytes=29851648-`/`17498112-`/`11665408-`/`1048576-` 这类回尾部取 `moov` 的请求。**真机**：改前 `seekable=[[0,0]]`、`currentTime` 冻在 `ct=21.082`、`paused=true`、`error.code=3`（`PIPELINE_ERROR_DECODE`）、`buffered=[[0,23.367]]`；改后 `seekable=[[0,24.451]]`、`ct` 正常回环、`error=null`。修复：`skin://` **自实现 206**（`skinFileResponse`：解析 `bytes=s-e` 切片，回 `206 + Content-Range + Accept-Ranges: bytes + Content-Length + Content-Type`；无 `Range` → 200 全量 + `Accept-Ranges`；越界 → 416），`skinUrlToName` 的路径穿越清洗与原 404 行为**逐字保留**。另加**媒体诊断留痕**：`<video>` 的 `onerror / onstalled / onended` 与 `play()` 被拒，经 `preload` 的 `mediaDiag → ipcMain.on('media-diag')` 写进 `calendar.log`。由 `tests/qa-v340.js` §14 固化。
 
 **数据模型（`electron-main.js`，持久化到 `settings.json` 的 `skin` 字段）**
 
@@ -160,6 +171,7 @@ skin = {
 - `text` ∈ `auto|light|dark`：**仅文字轴**（决定文字深浅），与整窗明暗**完全解耦**（v3.0.0 修复 v2 把 text 误当整窗明暗的根因）。
 - `clarity` ∈ `'auto'|0~100`：UI 清晰度，联动三层可读性（见下「可读性三层结构」）。`auto` 时由 `clarityForConfig` 按图片复杂度推导 `clamp(round(complexity*100),20,85)`，原生/无图 → 0。
 - `image.complexity` 0~1：缩略图逐像素相对亮度标准差 / 0.30；导入时主进程计算并缓存（`normalizeImageSpec` 输出，`clamp01`）。
+- `image.kind`（**v3.4.0 新增**）∈ `'image'|'video'`：区分静图/GIF 与 MP4 动图，供渲染层分派「背景 `<div>`」或「独立 `<video>` 层」；由 `normalizeImageSpec` 归一——**显式 `kind` 优先**（`'video'`→`'video'`、`'image'`→`'image'`；非法值如 `'VIDEO'`/`'bogus'` 按旧口径回落 `'image'`、不猜扩展名）；**缺失 `kind` 时**按已清洗文件名的扩展名自证（`.mp4 → 'video'`、其余 `→ 'image'`），故旧数据（无该字段）不会把历史 `calendar_*.mp4` 误判成静图。「自选图片」窗的所有图片写入（取景 / 缩放 / 透明度 / 整包回写）在 `skincustom.html` 的 `setField()` **唯一收口点**补齐 `kind`（仅在缺失时补，不覆盖整包回写已带的 `kind`；各调用点仍保持原字面量），身份不再依赖主进程 `prev.kind` 的隐式兜底。由 `tests/qa-v340.js` §13 固化。
 - `follow='calendar'`（expanded/desktop/dock）：跟随日历表面；取消跟随 = **copy-on-write** 快照（深拷贝日历当前配置，之后独立编辑）。
 - `shape`（**v3.3.0 新增**）∈ `DOCK_SHAPE_KEYS = ['rect','pixel','rainbow','ring','flip','toon']`（名称：圆角卡片 / 像素方屏 / 虹彩流光 / 极简圆环 / 翻页时牌 / 绘本台钟；`rect` 为默认）：浮窗造型。**只有 `dock` 面可持有非 `rect` 的 shape**——`normalizeSurfaceV3` / `migrateSkinV2toV3` / `normalizeSkinV3` 对 `calendar`/`expanded`/`desktop` 一律写 `'rect'`（脏数据护栏），旧数据无该字段补 `'rect'`；`shape` 纳入 `followableFields`（手调即豁免跟随），★但 `materializeFromCalendar` **不复制 shape**（造型是浮窗自己的身份，不是日历的派生属性）。跟随态下 `resolveSurfaceConfig('dock')` 返回日历配置，其 shape 恒为 `'rect'` → **浮窗跟随时渲染的一定是圆角卡片**，选任一其他造型必然伴随 `follow` 被置 `null`。窗口几何（w/h/内边距）由主进程 `dockGeometry(shapeKey)` 依注册表 `DOCK_SHAPES` 用同一条减法 `win - pad` 算出，`syncDockGeometry()` 同步到 `dockW/dockH` 并 `pushDockSize()`；`dock.html` 的造型权威来源是 `skin-state` 里的 `resolved.dock.shape`（渲染层不自行判断 follow）。
 - **v2→v3 一次性迁移（`migrateSkinV2toV3`）**：`light`→`minimal`/tone:light、`dark`→`minimal`/tone:dark、`system`→`minimal`/tone:system、`color`→`default`/tone:auto（丢自定义色值）、`image`→`default`/tone:auto+bg:image（图片原样保留），写 `__v=3`。已是 v3 的数据走 `normalizeSkinV3` 补齐/兜底。迁移后 `saveSettings` **只写 `skin`**，停写旧键。
@@ -175,8 +187,8 @@ skin = {
 
 **图片皮肤（完整实现）**
 
-- 导入：拖入/点选，主进程 `importSkinImage` 校验扩展名 png/jpg/jpeg/gif/webp（**v2.4.1 起取消大小/像素上限**），不合法拒绝；合法则 `copyFileSync→renameSync` **原子复制**到 `userData/skins/`（文件名 `{surface}_{ts}.{ext}`），只存文件名（`image.file`），删原文件不影响。
-- 加载：`skin://` 特权协议——模块顶层 `protocol.registerSchemesAsPrivileged`（standard+secure+supportFetchAPI+stream，须在 app ready 前），`whenReady` 里 `protocol.handle('skin', ...)` 把 `skin://{basename}` 映射到 `userData/skins/`（`sanitizeBasename` 防路径穿越 + `net.fetch(pathToFileURL(file))`）。
+- 导入：拖入/点选，主进程 `importSkinImage` 校验扩展名 png/jpg/jpeg/gif/webp/mp4（**v2.4.1 起取消大小/像素上限**），不合法拒绝；合法则 `copyFileSync→renameSync` **原子复制**到 `userData/skins/`（文件名 `{surface}_{ts}.{ext}`），只存文件名（`image.file`），删原文件不影响。
+- 加载：`skin://` 特权协议——模块顶层 `protocol.registerSchemesAsPrivileged`（standard+secure+supportFetchAPI+stream，须在 app ready 前），`whenReady` 里 `protocol.handle('skin', ...)` 把 `skin://{basename}` 映射到 `userData/skins/`（`sanitizeBasename` 防路径穿越）。**v3.4.0 起**由 `skinFileResponse` 自实现 HTTP 语义：有 `Range` → `206 + Content-Range + Accept-Ranges: bytes + Content-Length + Content-Type`（`.mp4→video/mp4` 等），无 `Range` → `200` 全量 + `Accept-Ranges`，越界 → `416`；未命中仍 `404`。（**有 `Range` → 自实现 206** —— 为什么不能只靠 `net.fetch`：实测把 `Range` 转发给 `net.fetch(file://…)`：`status` **仍=200**、**仍无 `Content-Range`/`Accept-Ranges`**（**响应体确实跟着切片、但媒体只看 status / 响应头**）⇒ 大 MP4 被判不可 seek，故必须自造合规 206（详见 4.6 A/B/C 对照）；**无 `Range`** → 沿用 `net.fetch(pathToFileURL(file))` 流式取体并补 `Accept-Ranges` + `Content-Type`，大文件不整块读入内存。见 4.6「MP4 播一下就停」。）
 - 明暗采样（**v2.4.4 升级**）：`sampleImageStats` 把 `nativeImage.resize({width:64})` 的 BGRA 按行分上/中/下三区各算 WCAG 平均亮度（`wcagLum`），`L = 0.25*top + 0.55*mid + 0.20*bot`，经 `decideDark` 迟滞（±0.06 防抖）判深色 → `image.dark`；跳过 alpha=0 透明像素；样张逐像素相对亮度标准差归一（`std/0.30`）得 `complexity`。采样失败兜底 `dark=false`+`complexity=0`（浅色，绝不硬切黑夜）。
 - JPEG 方向（**v2.4.4 新增**）：`readJpegOrientation`（纯本地零依赖，SOI/APP1 段扫描 + `parseTiffOrientation`：II/MM 字节序 + tag `0x0112`）解析 EXIF Orientation；`∈{5,6,7,8}`（含 90°/270° 旋转）时 `importSkinImage` 交换记录 `w/h`，使记录尺寸与 Chromium 渲染尺寸一致。非 JPEG / 解析失败 → 不动，由渲染层自然尺寸兜底。
 - GIF：`background-image` 走 Chromium 原生动画；**v2.4.2 起**跳过 nativeImage 解码/亮度采样/首帧快照，尺寸从文件头 `readGifSize` 读取，`dark` 兜底 `false`，动画由渲染层保持。（历史：v2.4.0 曾用 `image.snapshot` 首帧冻结，已废弃。）
@@ -339,7 +351,7 @@ var HOLIDAYS_2026 = {
 
 ## 8. 版本信息与作者（集中维护点）
 - 软件名：`简洁桌面日历`　显示名 `productName` / exe 名 `SimpleCalendar`
-- 版本号：`3.0.0`（package.json `version`；同步体现在 exe 文件版本、安装包属性、控制面板）
+- 版本号：`3.4.0`（package.json `version`；同步体现在 exe 文件版本、安装包属性、控制面板）
 - **运行时文件**：`userData/reminders.json`（特别关注）、`userData/settings.json`（v1.7.11 新增：theme/pinned/autoLaunch/dockOn；v2.4.0 新增、**v3.0.0 升级为 `__v:3`**：skin{__v,surfaces{calendar,expanded,desktop,dock}（每表面含 **v3.0.0 `style`/`bg`/`tone`** + `image`/`text`/`clarity`，expanded/desktop 另含 follow），opacity{calendar,desktop,dock}}/dockBoundsByDisplay/dockDisplayId；v2→v3 一次性迁移后旧 `type`/`color` 及 skinMode/nativeSkin/skinColor 等旧键停写）、`userData/calendar.log`（v1.7.11 新增：诊断日志，超 200KB 自动清空；打包后 stderr 不可见，**日志是唯一排查手段**）
 - 作者：`YG`（`author` 字段；版本信息中的公司/版权靠根级 `copyright` 写入 exe 文件属性）
 - 版权：`Copyright © 2026 YG`
